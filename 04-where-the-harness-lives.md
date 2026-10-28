@@ -213,7 +213,75 @@ Different kinds of data can have different **retention** periods (how long they 
 
 ---
 
-## 7. From tiny app to large system
+## 7. How it's typically deployed
+
+Because the ledger is so central, it's tempting to think it needs a special, high-performance database.
+It doesn't. What it needs most is to be **correct, durable and tamper-evident**, not extremely fast.
+
+### How much load is there really?
+
+The trick is to **not** put everything into the ledger. There are three kinds of data, and only one of them
+goes there:
+
+| Kind of data | How much (e.g. 50 agents working at once) | Where it goes |
+|---|---|---|
+| **Work level:** phase changes, claims, evidence links, gate decisions | Little: tens of writes per second at the busiest | **Ledger** |
+| **Run level:** every tool call and step inside each agent session | A lot: thousands of events per second | A **separate monitoring store** (see doc 06) |
+| **Files:** test reports, logs, transcripts | Few, but big | **Artifact storage** (§6a) |
+
+With the run-level flood kept out, what's left is an everyday workload for any ordinary database.
+
+### A typical setup
+
+```mermaid
+flowchart LR
+    ENG["Engine"] --> PG["Ledger database<br/>e.g. PostgreSQL"]
+    PG --> RO["Read-only copy<br/>for dashboards and plug-ins"]
+    ENG --> OBJ["Artifact storage<br/>object storage with retention lock"]
+    AG["Agent tools"] --> OT["Monitoring store<br/>run-level events"]
+    PG -- "backups" --> BK["Backups with<br/>point-in-time recovery"]
+```
+
+| Part | Typical choice | Why |
+|---|---|---|
+| **Ledger** | An ordinary relational database, typically **PostgreSQL**. Either managed by a cloud provider (Azure, AWS, Google) or run on the company's own servers | Reliable **transactions**, needed so two agents can't claim the same node. Flexible JSON fields for node specs. Can walk trees with a single query. Can keep systems apart with access rules. |
+| **Tamper-evidence** | A **hash chain** (§4) built by the harness, plus a table that only allows adding, never changing. Alternatively, databases with built-in ledger features (e.g. Azure SQL ledger tables, or the open-source immudb) | Proves that history wasn't changed afterwards. (Amazon's dedicated ledger database, QLDB, has been discontinued, which shows the risk of depending on a niche product.) |
+| **Event stream** for live views (doc 06) | Start with the database's own notification feature. Add a message broker (Kafka, NATS, Azure Event Hubs) only when many plug-ins need it | Fewer moving parts at the start |
+| **Artifact storage** | Object storage (S3, Azure Blob, or MinIO on own servers) with a **retention lock** (files can't be deleted or changed before their retention period ends) | Cheap for large files; evidence is protected |
+| **Run-level events** | A monitoring back end that supports OpenTelemetry | Built for large volumes; usually kept for a shorter time |
+| **Simple app** | A **SQLite file** and a local folder | Nothing to install or run |
+
+**What about a graph database?** Not needed. Trees and typed links (doc 02 §2) fit well into ordinary
+tables. A graph database might become interesting later, for heavy analysis across many systems, but it
+isn't a good starting point.
+
+### Keeping it fast
+
+- The reconciler only reads the **small working state** (§6b), which is indexed and quick to search.
+- The growing history is **split by system and by time**, so old data doesn't slow down new data.
+- Dashboards and plug-ins read from a **read-only copy** of the database, so people looking at progress
+  never slow down the agents doing the work.
+
+### Cloud, or our own servers?
+
+Both work, and the design doesn't depend on it: PostgreSQL behaves the same either way.
+
+In automotive, it's often the **company's own cloud account or its own servers**, rather than a shared
+service run by someone else. Typical reasons:
+- code and specifications are valuable intellectual property,
+- customer (OEM) contracts and security assessments such as **TISAX** set rules on where data may be,
+- some data must stay in certain countries.
+
+### What if the ledger is unavailable?
+
+The harness **stops safely**: agents pause, and nothing is lost, because nothing can be claimed or recorded
+without the ledger. That makes **high availability** (a standby copy ready to take over) nice to have, but
+not critical. What **is** critical are **backups with point-in-time recovery** (restore to any moment, not
+just last night), because the ledger holds the audit evidence.
+
+---
+
+## 8. From tiny app to large system
 
 Everything above can **shrink down** for a simple app:
 
@@ -231,7 +299,7 @@ it isn't, because the agent would then be working right next to its own rules.
 
 ---
 
-## 8. When agents help build the harness itself
+## 9. When agents help build the harness itself
 
 Sooner or later, agents will be used to improve the harness. That's fine, but it's like a surgeon operating
 on themselves, so extra care is needed:
@@ -242,7 +310,7 @@ on themselves, so extra care is needed:
 
 ---
 
-## 9. How this connects to the other docs
+## 10. How this connects to the other docs
 
 | Topic | Where |
 |---|---|
@@ -250,11 +318,14 @@ on themselves, so extra care is needed:
 | System map and interface levels | [doc 01](01-repo-local-files.md) (content), this doc (where it's stored) |
 | Work Nodes, lifecycle, spec versions, reconciler | [doc 02](02-recursive-v-model.md) |
 | Routing tables and tracker connections | [doc 03](03-tracker-adapters.md) (content), this doc (where it's stored) |
+| Event stream, monitoring store, read-only views | [doc 06](06-seeing-what-the-harness-is-doing.md) |
 
-## 10. Open questions
+## 11. Open questions
 - Should each system run its own copy of the engine, or should one shared service serve all systems?
 - Who owns the company-wide rules repo: a process group, the safety team, or a joint board?
 - How long must agent transcripts be kept, and are they ever needed as evidence?
 - Does the engine need formal **tool qualification** (ISO 26262 Part 8) when used for safety-relevant work,
   and what would that involve?
 - When exactly is a baseline sealed: at every release, or at defined milestones?
+- Cloud or own servers: which customer (OEM) or security rules decide this for our systems?
+- Is a hash chain built by the harness enough as tamper-evidence, or is a database with built-in ledger features required?

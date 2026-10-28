@@ -167,6 +167,7 @@ Real mappings must be designed and signed off by functional-safety and cybersecu
 | **MC/DC** | Modified Condition/Decision Coverage, a strict test-coverage measure used for high-safety code |
 | **Plan diff** | When a parent's spec changes: the list of children to keep, change, add and drop, instead of re-planning from scratch |
 | **Policy as code** | Keeping the rules as text files in a reviewed repo, so every rule change has an approval and a history |
+| **Point-in-time recovery** | Backups that can restore a database to any chosen moment, not just to last night's copy |
 | **Preview** | A dry-run breakdown: a short summary comment on the ticket plus a full proposal behind a link, without creating any child tickets. Accepting it creates exactly what was shown |
 | **Profile** | Named set of rules for a node (checks, reviews, permissions) |
 | **Projection** | A copy shown in another tool for convenience, always regenerable from the owner |
@@ -175,6 +176,7 @@ Real mappings must be designed and signed off by functional-safety and cybersecu
 | **Reconciler** | The loop that compares desired vs. actual state and does the next step |
 | **Run (agent run)** | One agent session working on one node; it has its own run ID so its tool calls can be traced back to the node |
 | **Retention** | How long a kind of data must be kept; in automotive often 15+ years for evidence |
+| **Retention lock** | A storage setting that makes files impossible to change or delete until their retention period ends |
 | **SAST / SBOM** | Static security scanning of code / a list of all third-party components in the software |
 | **Seal** | Freezing a release's nodes and evidence into a signed, read-only baseline so it can't be changed later |
 | **Signal** | A deliberate action by a person (label, board column, comment command, CLI) that requests a gate |
