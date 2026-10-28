@@ -17,6 +17,7 @@
 | [03-tracker-adapters](03-tracker-adapters.md) | How does this connect to Jira, Azure DevOps, GitHub Issues, Polarion…, possibly several at once? |
 | [04-where-the-harness-lives](04-where-the-harness-lives.md) | Where do the harness's program, rules and memory (ledger) live, and how does the ledger stay manageable over years? |
 | [05-starting-and-steering-work](05-starting-and-steering-work.md) | How do people deliberately start, pause and stop agent work (labels, board columns, comments, CLI)? |
+| [06-seeing-what-the-harness-is-doing](06-seeing-what-the-harness-is-doing.md) | How can people see progress, what's happening now, and what needs them, at any stage? |
 
 ## Why call it an "operating system"?
 
@@ -139,6 +140,7 @@ Real mappings must be designed and signed off by functional-safety and cybersecu
 | **ASIL** | Automotive Safety Integrity Level, A (lowest) to D (highest). How dangerous a failure could be, per ISO 26262 |
 | **ASIL decomposition** | ISO 26262 technique: split a high-ASIL requirement into redundant, independent parts with lower ASILs. Strict rules apply |
 | **Atomic node / leaf** | A node small and clear enough that one agent can implement it in one place in one go |
+| **Attention list** | The list of everything that needs a human right now (escalations, approvals, open questions); the most important view |
 | **Baseline** | A frozen, versioned snapshot of requirements that was reviewed and approved, like a "release" of the specs |
 | **CAL** | Cybersecurity Assurance Level (ISO/SAE 21434), how much security rigor is needed |
 | **Change request** | A formal, approved request to change a requirement that is already being built; includes an impact analysis |
@@ -150,6 +152,7 @@ Real mappings must be designed and signed off by functional-safety and cybersecu
 | **Engine** | The harness program itself (reconciler, controllers, adapters); kept in its own repo and released in versions |
 | **Escalation** | Handing a decision to a human |
 | **Event sourcing** | Storing every event as a permanent list and calculating the current state from it, like a bank's transactions vs. the balance |
+| **Event stream** | The ledger's history made available to read live; used by live views, notifications and plug-ins |
 | **Evidence** | Proof that something was checked: test reports, review records, coverage reports |
 | **FMEA / FTA** | Safety analysis methods: "what can fail and what happens" / "which combination of failures causes a hazard" |
 | **Gate** | A permission for one kind of work (preview, breakdown, build) on a ticket and everything below it; opened by a deliberate signal |
@@ -170,10 +173,12 @@ Real mappings must be designed and signed off by functional-safety and cybersecu
 | **Prompt injection** | Malicious text that tries to trick an AI into following hidden instructions |
 | **Ralph loop** | Building a leaf by repeatedly running a fresh agent with the same instructions; progress is kept in a plan file, and checks reject bad work |
 | **Reconciler** | The loop that compares desired vs. actual state and does the next step |
+| **Run (agent run)** | One agent session working on one node; it has its own run ID so its tool calls can be traced back to the node |
 | **Retention** | How long a kind of data must be kept; in automotive often 15+ years for evidence |
 | **SAST / SBOM** | Static security scanning of code / a list of all third-party components in the software |
 | **Seal** | Freezing a release's nodes and evidence into a signed, read-only baseline so it can't be changed later |
 | **Signal** | A deliberate action by a person (label, board column, comment command, CLI) that requests a gate |
+| **Snapshot (diagram)** | A picture of the tree posted into a ticket and updated on important events; a copy, never the source |
 | **Spec fingerprint** (`spec_hash`) | A checksum of a node's specification. If the spec changes, the fingerprint changes, and old evidence no longer counts |
 | **Spec freeze** | A rule (per profile) that a spec being built can only change through a change request |
 | **Stand-in (mock, simulator)** | A fake version of a missing part, so the other parts can be tested before it exists |
@@ -183,4 +188,5 @@ Real mappings must be designed and signed off by functional-safety and cybersecu
 | **Typed link** | A link between two items whose type comes from a fixed list (e.g. `depends-on`, `verifies`, `implements`), so the harness knows what it means and can act on it. See doc 02 §2 |
 | **V-model** | Development model: break requirements down step by step on the way down, then test each level on the way up |
 | **Verification ladder** | The ordered list of checks a component offers, from cheap/fast (lint) to expensive/slow (vehicle test) |
+| **View plug-in** | A separately built way of displaying the harness's work, built on the two fixed data contracts; read-only |
 | **Working state** | The small, current part of the ledger (open work, claims, flags) that the reconciler reads; the rest is history |

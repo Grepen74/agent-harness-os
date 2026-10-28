@@ -17,3 +17,4 @@ Everything here is conceptual. YAML snippets and tables are illustrations, not f
 | [03-tracker-adapters](03-tracker-adapters.md) | Connecting to Jira, Azure DevOps, GitHub Issues, Polarion…, possibly several at once |
 | [04-where-the-harness-lives](04-where-the-harness-lives.md) | Where the harness's program, rules and memory (ledger) live |
 | [05-starting-and-steering-work](05-starting-and-steering-work.md) | How people deliberately start, preview, pause and stop agent work |
+| [06-seeing-what-the-harness-is-doing](06-seeing-what-the-harness-is-doing.md) | Observability: viewing the work tree and progress at any stage; plug-in views |
