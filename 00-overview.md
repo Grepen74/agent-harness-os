@@ -52,12 +52,18 @@ big or small, uses the **same shape**.
 Big nodes are split into smaller child nodes, and each node has **one parent**. That gives a tree,
 which is easy to navigate.
 
-Real systems also have other relationships, and these are stored as extra **typed links**
-(links with a meaning):
-- "this node *depends on* that one"
-- "this test *verifies* that requirement"
-- "this node *is derived from* requirement X" (traceability)
-- "these two nodes *share an interface*"
+Real systems also have other relationships, and these are stored as extra **typed links**.
+"Typed" means each link has a **type picked from a fixed list**, like a drop-down menu, rather than
+free text. A link is stored as a small record: *from*, *type*, *to*. For example:
+
+```yaml
+- { from: wn-gateway, type: depends-on, to: wn-brake }
+```
+
+Because the harness knows what each type means, it can act on it: `depends-on` decides the build order,
+`verifies` feeds the traceability report, `shares-interface` decides what becomes `stale` when an interface
+changes. Other types include `integrates`, `implements` and `derived-from`. Most trackers have the same idea
+(e.g. Jira's "blocks / is blocked by"). The full list is in doc 02 §2.
 
 So the structure is a **tree for breakdown, plus a graph of other relationships**.
 
@@ -174,7 +180,7 @@ Real mappings must be designed and signed off by functional-safety and cybersecu
 | **Stale** | Evidence that was valid but no longer is, because the spec or something it depends on changed |
 | **TARA** | Threat Analysis and Risk Assessment, the cybersecurity analysis in ISO/SAE 21434 |
 | **Trust boundary** | A point where data enters from a source we don't control; inputs there are treated as untrusted (always true at interface level 3) |
-| **Typed link** | A link with a meaning, e.g. "blocks", "verifies", "derived from" |
+| **Typed link** | A link between two items whose type comes from a fixed list (e.g. `depends-on`, `verifies`, `implements`), so the harness knows what it means and can act on it. See doc 02 §2 |
 | **V-model** | Development model: break requirements down step by step on the way down, then test each level on the way up |
 | **Verification ladder** | The ordered list of checks a component offers, from cheap/fast (lint) to expensive/slow (vehicle test) |
 | **Working state** | The small, current part of the ledger (open work, claims, flags) that the reconciler reads; the rest is history |

@@ -80,6 +80,53 @@ flowchart TD
 
 Solid arrows = breakdown (tree). Dotted arrows = other relationships (links).
 
+### What "typed" means in practice
+
+The prose above is just for reading. In the ledger, every link is a small **record with three parts**:
+*from*, *type*, *to*. The **type** is not free text: it's one word from a **fixed list** that the harness
+understands, like the options in a drop-down menu.
+
+```yaml
+# illustration only: three link records
+- { from: wn-gateway,  type: depends-on,        to: wn-brake }
+- { from: wn-brake,    type: shares-interface,  to: wn-dash,   interface: AutoHoldStatus@1.0 }
+- { from: wn-brake,    type: implements,        to: polarion:SYS-118 }
+```
+
+**Why a fixed list matters:** because the harness knows exactly what each type *means*, it can **act** on
+it automatically. A free-text link like "related to" tells a machine nothing. Here's the list and what the
+harness does with each type:
+
+| Type | Read as | What the harness does with it |
+|---|---|---|
+| `depends-on` | A can't finish before B | Schedules B first. If B's proof becomes `stale`, A is re-checked too. |
+| `shares-interface` | A and B talk via interface X | Both are pinned to the same interface version. If X changes, both become `stale`. No parallel build until X is agreed. |
+| `integrates` | Integration node I tests A and B together | Runs I when A and B are proven. If either changes, I becomes `stale` (§5). |
+| `verifies` | Node T proves node A | A's parent can't be Proven until T is. Shows up in the traceability report. |
+| `implements` | Node A delivers official requirement R | Traceability: "which code and tests exist for R?". An edit to R counts as a spec change for A (§9). |
+| `derived-from` | Acceptance criterion or requirement C was refined from R | Keeps the chain from detailed tests back to top-level requirements, as safety audits require. |
+| `supersedes` | New node A replaces old node B | B is marked Superseded; history is kept (§6). |
+
+Each type also has **rules** about where it may point. For example, `verifies` must start at a test or
+integration node, and `implements` must point to an official requirement. A link that breaks these rules
+is rejected, so the graph can't silently fill up with nonsense.
+
+### Where typed links live in the tools people use
+
+Most trackers already have typed links. They just call them different things:
+
+| Tool | Its name for it | Example |
+|---|---|---|
+| Jira | Issue link types (each has a forward and backward name) | "blocks" / "is blocked by"; admins can add "verifies" / "is verified by" |
+| Azure DevOps | Link types | Predecessor / Successor, Tests / Tested By |
+| Polarion, codebeamer | Link roles | "verifies", "implements", "refines" |
+| GitHub Issues | Sub-issues and issue dependencies | "blocked by" / "blocking" |
+
+The **ledger is the official owner** of the links. Each tracker adapter maps the harness's types onto
+the tracker's own link types where they exist (e.g. `depends-on` → Jira "is blocked by"), so people see
+them in their usual tool. Where a tracker has no matching type, the link is still kept in the ledger and
+shown as a reference in a section the harness manages (doc 03 §3, fallbacks).
+
 ## 3. Profiles: same node shape, different rules
 
 A **profile** is a named bundle of rules. It is how one model can serve both a hobby app and a brake
