@@ -44,8 +44,8 @@ A Work Node is "one thing to deliver". It says:
 - **where** the work happens (a repo, or a part of a repo),
 - **which rules** apply (policy profile).
 
-A Work Node **points to** the official requirement (e.g. in Polarion or Jira). It does not
-replace it. A simple app might need one node, and a car feature might need fifty. Every node,
+A Work Node **points to** the official requirement (e.g. in Polarion or as a Jira ticket). It does not
+replace it. A simple app might need one node for a new requirement/feature, and a car feature might need fifty. Every node,
 big or small, uses the **same shape**.
 
 ### 2. Work graph: how nodes relate
