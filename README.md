@@ -18,3 +18,4 @@ Everything here is conceptual. YAML snippets and tables are illustrations, not f
 | [04-where-the-harness-lives](04-where-the-harness-lives.md) | Where the harness's program, rules and memory (ledger) live |
 | [05-starting-and-steering-work](05-starting-and-steering-work.md) | How people deliberately start, preview, pause and stop agent work |
 | [06-seeing-what-the-harness-is-doing](06-seeing-what-the-harness-is-doing.md) | Observability: viewing the work tree and progress at any stage; plug-in views |
+| [07-the-reconciler](07-the-reconciler.md) | The reconciler (harness loop): what it does, why it isn't AI, how to start and stop it |

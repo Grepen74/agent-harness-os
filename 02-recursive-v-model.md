@@ -340,6 +340,9 @@ Small specialised parts of the loop, called *controllers*, each handle one kind 
   Old proof is marked `stale`, and only the affected work is redone.
 - **Auditable:** every step is recorded with its evidence, which safety audits require anyway.
 
+How the loop runs, what wakes it, and how to start and stop it are covered in
+[doc 07](07-the-reconciler.md).
+
 ### How a leaf gets built: one pass, or a loop ("Ralph")
 
 The loop above decides **what** to work on. A separate question is **how** an implementer agent works

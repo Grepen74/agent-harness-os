@@ -18,6 +18,7 @@
 | [04-where-the-harness-lives](04-where-the-harness-lives.md) | Where do the harness's program, rules and memory (ledger) live, and how does the ledger stay manageable over years? |
 | [05-starting-and-steering-work](05-starting-and-steering-work.md) | How do people deliberately start, pause and stop agent work (labels, board columns, comments, CLI)? |
 | [06-seeing-what-the-harness-is-doing](06-seeing-what-the-harness-is-doing.md) | How can people see progress, what's happening now, and what needs them, at any stage? |
+| [07-the-reconciler](07-the-reconciler.md) | What exactly is the reconciler, is it an orchestrator, and how is it started and stopped? |
 
 ## Why call it an "operating system"?
 
@@ -92,7 +93,7 @@ the gap: split a node, start an implementer agent, run tests, or ask a human.
 
 Why a loop rather than a fixed plan? If something crashes, changes or fails, the loop simply
 looks again and continues. Nothing has to be re-planned by hand. Kubernetes manages servers
-this way.
+this way. Doc 07 covers the reconciler in detail: what it may and may not do, and how to start and stop it.
 
 ```mermaid
 flowchart LR
@@ -144,11 +145,14 @@ Real mappings must be designed and signed off by functional-safety and cybersecu
 | **Baseline** | A frozen, versioned snapshot of requirements that was reviewed and approved, like a "release" of the specs |
 | **CAL** | Cybersecurity Assurance Level (ISO/SAE 21434), how much security rigor is needed |
 | **Change request** | A formal, approved request to change a requirement that is already being built; includes an impact analysis |
+| **Claim** | A time-limited reservation of one piece of work for one agent, so no two agents work on the same leaf; it expires if not renewed |
 | **Contract / interface** | The agreed way two separately owned or built parts talk to each other (API, signal, message format). See *Interface level* |
 | **Contract check** | Testing one part against the agreed interface alone, without its real partner |
 | **Controller** | One small part of the reconciler responsible for one job (e.g. "start tests when code is ready") |
 | **Desired vs. actual state** | What *should* be true vs. what is *proven* true |
 | **Definition of Ready** | The checklist a ticket must pass before agents start on it; if it fails, the harness says what's missing |
+| **Drain** | Letting the reconciler finish running work without handing out anything new, e.g. before an upgrade |
+| **Emergency stop** (kill switch) | A flag in the ledger that stops all agents of a system at once; only an authorised human can clear it (doc 07) |
 | **Engine** | The harness program itself (reconciler, controllers, adapters); kept in its own repo and released in versions |
 | **Escalation** | Handing a decision to a human |
 | **Event sourcing** | Storing every event as a permanent list and calculating the current state from it, like a bank's transactions vs. the balance |
@@ -163,6 +167,7 @@ Real mappings must be designed and signed off by functional-safety and cybersecu
 | **Integration node** | A Work Node that builds nothing and only checks that certain parts work together; it can run before the whole system exists |
 | **Interface level** | How far an interface reaches, which decides how strictly it is governed: 0 internal, 1 component, 2 system-internal, 3 system boundary (doc 01) |
 | **Interface paths** | Files that define level 1–3 interfaces (public headers, IDL, schemas); listed in the manifest and protected against unapproved edits |
+| **Leader** | The one running copy of the reconciler that is allowed to act; standby copies take over if it fails |
 | **Ledger** | The harness's tamper-resistant log of actions and evidence |
 | **MC/DC** | Modified Condition/Decision Coverage, a strict test-coverage measure used for high-safety code |
 | **Plan diff** | When a parent's spec changes: the list of children to keep, change, add and drop, instead of re-planning from scratch |
@@ -173,7 +178,7 @@ Real mappings must be designed and signed off by functional-safety and cybersecu
 | **Projection** | A copy shown in another tool for convenience, always regenerable from the owner |
 | **Prompt injection** | Malicious text that tries to trick an AI into following hidden instructions |
 | **Ralph loop** | Building a leaf by repeatedly running a fresh agent with the same instructions; progress is kept in a plan file, and checks reject bad work |
-| **Reconciler** | The loop that compares desired vs. actual state and does the next step |
+| **Reconciler** | The loop (also called the harness loop) that compares desired vs. actual state and does the next step; a long-running service without AI inside (doc 07) |
 | **Run (agent run)** | One agent session working on one node; it has its own run ID so its tool calls can be traced back to the node |
 | **Retention** | How long a kind of data must be kept; in automotive often 15+ years for evidence |
 | **Retention lock** | A storage setting that makes files impossible to change or delete until their retention period ends |
