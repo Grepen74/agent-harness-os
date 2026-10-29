@@ -167,7 +167,7 @@ A node becomes a **leaf**, ready to implement, when all of these are true:
 
 | Check | Plain meaning |
 |---|---|
-| One target | All the work happens in one place (one repo, or one part of a monorepo) |
+| One target | All the work can be delivered as one change (one repo, or one monorepo). It may touch several components there; see [doc 08](08-leaves-and-parallel-work.md) for where to cut |
 | One effective rule set | Its profiles have been merged without conflicts |
 | Testable locally | Every acceptance criterion can be checked with that target's own checks |
 | Interfaces agreed | No open questions about how it talks to its neighbours |
@@ -287,13 +287,18 @@ stateDiagram-v2
     Ready --> Building
     Building --> Checking: change submitted
     Checking --> Building: a check failed, retry
+    Checking --> Landing: own tests pass on its branch
+    Landing --> Building: conflict or failure on latest code
     Split --> Integrating: all children proven
     Integrating --> Split: combined test failed, re-plan
-    Checking --> Proven
+    Landing --> Proven: merged
     Integrating --> Proven
     Proven --> Closed: accepted and released
     Closed --> [*]
 ```
+
+**Landing** is where a checked change waits in the landing queue, is re-checked on top of the latest code
+and is merged. A leaf is proven only once it has landed ([doc 08](08-leaves-and-parallel-work.md)).
 
 Plus two ways to end without finishing: **Cancelled** (no longer needed) and **Superseded**
 (replaced by another node).

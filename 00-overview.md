@@ -19,6 +19,7 @@
 | [05-starting-and-steering-work](05-starting-and-steering-work.md) | How do people deliberately start, pause and stop agent work (labels, board columns, comments, CLI)? |
 | [06-seeing-what-the-harness-is-doing](06-seeing-what-the-harness-is-doing.md) | How can people see progress, what's happening now, and what needs them, at any stage? |
 | [07-the-reconciler](07-the-reconciler.md) | What exactly is the reconciler, is it an orchestrator, and how is it started and stopped? |
+| [08-leaves-and-parallel-work](08-leaves-and-parallel-work.md) | Where are leaves cut, and how do many agents work in one codebase at once without locks? |
 
 ## Why call it an "operating system"?
 
@@ -167,6 +168,8 @@ Real mappings must be designed and signed off by functional-safety and cybersecu
 | **Integration node** | A Work Node that builds nothing and only checks that certain parts work together; it can run before the whole system exists |
 | **Interface level** | How far an interface reaches, which decides how strictly it is governed: 0 internal, 1 component, 2 system-internal, 3 system boundary (doc 01) |
 | **Interface paths** | Files that define level 1–3 interfaces (public headers, IDL, schemas); listed in the manifest and protected against unapproved edits |
+| **Landing / landing queue** | The single point where checked changes, one at a time, are rebased onto the latest code, re-checked with all proven tests, and merged. A leaf is proven only after it lands (doc 08) |
+| **Lease** | A time-limited lock on a scarce resource that can't be shared (test bench, migration, release); code itself is never locked (doc 08) |
 | **Leader** | The one running copy of the reconciler that is allowed to act; standby copies take over if it fails |
 | **Ledger** | The harness's tamper-resistant log of actions and evidence |
 | **MC/DC** | Modified Condition/Decision Coverage, a strict test-coverage measure used for high-safety code |
@@ -179,9 +182,12 @@ Real mappings must be designed and signed off by functional-safety and cybersecu
 | **Prompt injection** | Malicious text that tries to trick an AI into following hidden instructions |
 | **Ralph loop** | Building a leaf by repeatedly running a fresh agent with the same instructions; progress is kept in a plan file, and checks reject bad work |
 | **Reconciler** | The loop (also called the harness loop) that compares desired vs. actual state and does the next step; a long-running service without AI inside (doc 07) |
-| **Run (agent run)** | One agent session working on one node; it has its own run ID so its tool calls can be traced back to the node |
+| **Regression suite** | The acceptance tests of every proven node, re-run at each landing so new work can't silently break old behaviour |
+| **Requirements conflict** | Two approved requirements that contradict each other, detected when a change breaks another node's acceptance tests at landing; always escalated (doc 08) |
 | **Retention** | How long a kind of data must be kept; in automotive often 15+ years for evidence |
 | **Retention lock** | A storage setting that makes files impossible to change or delete until their retention period ends |
+| **Rework** | Redoing a leaf from the latest code after a merge conflict; counted separately from failed attempts |
+| **Run (agent run)** | One agent session working on one node; it has its own run ID so its tool calls can be traced back to the node |
 | **SAST / SBOM** | Static security scanning of code / a list of all third-party components in the software |
 | **Seal** | Freezing a release's nodes and evidence into a signed, read-only baseline so it can't be changed later |
 | **Signal** | A deliberate action by a person (label, board column, comment command, CLI) that requests a gate |
@@ -190,10 +196,12 @@ Real mappings must be designed and signed off by functional-safety and cybersecu
 | **Spec freeze** | A rule (per profile) that a spec being built can only change through a change request |
 | **Stand-in (mock, simulator)** | A fake version of a missing part, so the other parts can be tested before it exists |
 | **Stale** | Evidence that was valid but no longer is, because the spec or something it depends on changed |
+| **Touch set** | The components a leaf is expected to change; a prediction used for scheduling, not a fence (doc 08) |
 | **TARA** | Threat Analysis and Risk Assessment, the cybersecurity analysis in ISO/SAE 21434 |
 | **Trust boundary** | A point where data enters from a source we don't control; inputs there are treated as untrusted (always true at interface level 3) |
 | **Typed link** | A link between two items whose type comes from a fixed list (e.g. `depends-on`, `verifies`, `implements`), so the harness knows what it means and can act on it. See doc 02 §2 |
 | **V-model** | Development model: break requirements down step by step on the way down, then test each level on the way up |
+| **Vertical slice** | A leaf cut around one observable behaviour, touching whichever components it needs, rather than around one component |
 | **Verification ladder** | The ordered list of checks a component offers, from cheap/fast (lint) to expensive/slow (vehicle test) |
 | **View plug-in** | A separately built way of displaying the harness's work, built on the two fixed data contracts; read-only |
 | **Working state** | The small, current part of the ledger (open work, claims, flags) that the reconciler reads; the rest is history |
