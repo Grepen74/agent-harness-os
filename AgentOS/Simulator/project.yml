@@ -1,0 +1,43 @@
+# Source of AgentOSSimulator.xcodeproj. After editing, regenerate with: xcodegen generate
+# (The generated project is committed too, so XcodeGen is only needed to change it.)
+name: AgentOSSimulator
+options:
+  bundleIdPrefix: com.grepen74
+  deploymentTarget:
+    macOS: "15.0"
+  createIntermediateGroups: true
+packages:
+  AgentOSCore:
+    path: AgentOSCore   # the harness package (library, agentos CLI, tests)
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "0.1"
+    CURRENT_PROJECT_VERSION: "1"
+fileGroups:         # shown in the navigator, not built
+  - README.md
+  - project.yml
+targets:
+  AgentOSSimulator:
+    type: application
+    platform: macOS
+    sources: [App]
+    dependencies:
+      - package: AgentOSCore
+        product: AgentOSCore
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: AgentOS Simulator
+        LSApplicationCategoryType: public.app-category.developer-tools
+    settings:
+      base:
+        PRODUCT_NAME: AgentOS Simulator
+        PRODUCT_BUNDLE_IDENTIFIER: com.grepen74.AgentOSSimulator
+        GENERATE_INFOPLIST_FILE: NO
+        # Signed to run locally only. No App Sandbox on purpose: the harness runs git, swift test
+        # and the Copilot CLI as child processes, which a sandboxed app can't do.
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
+        ENABLE_APP_SANDBOX: NO
+        ENABLE_HARDENED_RUNTIME: NO

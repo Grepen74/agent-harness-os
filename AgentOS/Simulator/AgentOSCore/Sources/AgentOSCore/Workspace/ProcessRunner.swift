@@ -30,7 +30,10 @@ enum ProcessRunner {
         process.standardOutput = log
         process.standardError = log
         process.standardInput = FileHandle.nullDevice
+        // Run tools with a clean environment: when the app is started from Xcode, its DYLD_* and __XCODE_*
+        // variables point at the app's build products and would leak into `swift test` and `git`.
         var environment = ProcessInfo.processInfo.environment
+            .filter { !$0.key.hasPrefix("DYLD_") && !$0.key.hasPrefix("__XCODE") && !$0.key.hasPrefix("__XPC_DYLD") }
         // Apps started from Finder get a minimal PATH.
         environment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:" + (environment["PATH"] ?? "")
         process.environment = environment

@@ -25,5 +25,5 @@ Everything here is conceptual. YAML snippets and tables are illustrations, not f
 
 [`AgentOS/Simulator`](AgentOS/Simulator) is a small working Swift model of these concepts: a Mac app and a CLI.
 It runs a mock tracker, the reconciler, a hash-chained ledger and agents (scripted or Copilot CLI), which
-produce real Swift packages that are checked with `swift test`. Run `swift run AgentOSSimulator` from
-that folder.
+work on branches of a real git monorepo, land through a landing queue and are checked with `swift test`.
+Open `AgentOSSimulator.xcodeproj` there to run the app, or run `swift run agentos demo` in its `AgentOSCore` folder.

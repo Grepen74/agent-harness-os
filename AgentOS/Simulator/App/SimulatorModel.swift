@@ -22,6 +22,8 @@ final class SimulatorModel {
     var activity: [String] = []
     var isRunning = false
     var isBusy = false
+    /// Shown only for rounds that take noticeable time, so fast idle rounds don't make the toolbar flicker.
+    var showsActivity = false
     var agentMode = AgentMode.scripted { didSet { Task { await applyAgentMode() } } }
     var you = "Alice"
     private var runTask: Task<Void, Never>?
@@ -47,7 +49,13 @@ final class SimulatorModel {
     func step() async {
         guard !isBusy else { return }
         isBusy = true
+        let indicator = Task {
+            try? await Task.sleep(for: .milliseconds(400))
+            if !Task.isCancelled { showsActivity = true }
+        }
         let report = await simulation.step()
+        indicator.cancel()
+        showsActivity = false
         isBusy = false
         log(report)
         await refresh()

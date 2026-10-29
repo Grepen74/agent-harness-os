@@ -1,16 +1,9 @@
 import AgentOSCore
-import AppKit
 import SwiftUI
 
 @main
 struct AgentOSSimulatorApp: App {
     @State private var model = SimulatorModel()
-
-    init() {
-        // Started via `swift run`, the process isn't a bundled app yet: make it a normal, focused window.
-        NSApplication.shared.setActivationPolicy(.regular)
-        NSApplication.shared.activate()
-    }
 
     var body: some Scene {
         WindowGroup("AgentOS Simulator") {
@@ -47,7 +40,8 @@ struct HarnessToolbar: ToolbarContent {
             Button { Task { await model.step() } } label: { Label("Step", systemImage: "forward.frame") }
                 .help("Run exactly one reconciler round")
                 .disabled(model.isRunning || model.isBusy)
-            if model.isBusy { ProgressView().controlSize(.small) }
+            // Always in the layout, only visible for slow rounds: avoids the toolbar jumping every second.
+            ProgressView().controlSize(.small).opacity(model.showsActivity ? 1 : 0)
         }
         ToolbarItemGroup {
             TextField("You", text: $model.you).frame(width: 90).help("Your name as a human in the tracker")
