@@ -4,20 +4,28 @@ import SwiftUI
 
 @main
 struct AgentOSHarnessApp: App {
+    static let simulatorID = "simulator"
     @State private var model = SimulatorModel()
 
     var body: some Scene {
-        WindowGroup("AgentOS Simulator") {
+        // One simulator; any number of repository windows (File → Open Repository…).
+        Window("AgentOS Simulator", id: Self.simulatorID) {
             ContentView()
                 .environment(model)
                 .environment(model.view)
                 .frame(minWidth: 1200, minHeight: 700)
+        }
+        .commands { RepositoryCommands() }
+
+        WindowGroup("Repository", for: URL.self) { $url in
+            if let url { RepositoryView(url: url) }
         }
     }
 }
 
 struct ContentView: View {
     @Environment(SimulatorModel.self) private var model
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         HSplitView {
@@ -30,6 +38,12 @@ struct ContentView: View {
             LedgerPane().frame(minWidth: 340, idealWidth: 420)
         }
         .toolbar { HarnessToolbar() }
+        .onAppear {
+            // `-openRepository <path>` at launch (e.g. in the Xcode scheme's arguments) opens that repo too.
+            if let path = UserDefaults.standard.string(forKey: "openRepository") {
+                openWindow(value: URL(filePath: path, directoryHint: .isDirectory))
+            }
+        }
     }
 }
 

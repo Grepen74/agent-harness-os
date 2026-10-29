@@ -1,7 +1,9 @@
 # AgentOS Harness app
 
-A Mac app for the agent harness. Today it runs the **simulator**; running it on a real repo is
-[the next step](docs/real-repo-mode.md).
+A Mac app for the agent harness. It has two kinds of window:
+- the **simulator** (below), and
+- **repository windows** for real repos (File → Open Repository…). Today these run the read-only
+  readiness scan; letting agents work there comes next ([design](docs/real-repo-mode.md)).
 
 ## The simulator
 
@@ -25,7 +27,7 @@ It simulates the whole loop:
 | Path | What |
 |---|---|
 | `AgentOSHarness.xcodeproj` | The Mac app. Generated from `project.yml` with [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`xcodegen generate`); the generated project is committed. |
-| `App/` | The app target: window, toolbar, the other team's system, and `SimulatorModel`, which runs the simulation behind the shared panes. |
+| `App/` | The app target: windows, toolbar, the other team's system, `SimulatorModel` (runs the simulation behind the shared panes) and `RepositoryModel` (a real repo). |
 | [`docs/`](docs) | App design docs, e.g. [running the harness on a real repo](docs/real-repo-mode.md) (proposal). |
 | [`AgentOSKit/`](AgentOSKit) | The harness as a Swift package (Core, Adapters, Simulation, UI), with a terminal demo and tests. See its [README](AgentOSKit/README.md) for how it works and where each concept lives in code. |
 
@@ -39,6 +41,18 @@ the terminal: `cd AgentOSKit && swift run agentos demo`.
 - It is not sandboxed on purpose: the harness runs `git`, `swift test` and the Copilot CLI as child
   processes. It is signed to run locally only.
 - **Step** runs one reconciler round; **Run** runs one round a second, like the always-on service.
+
+## Open a real repo
+
+**File → Open Repository…** (⌘O) and choose a git repo. The window runs the **readiness scan** (doc 01)
+and lists its findings: blockers must be fixed before agents may work there, warnings can be accepted.
+**File → Show Simulator** (⇧⌘N) brings the simulator back.
+
+- The scan is read-only. It reads the default branch through git and never touches your working copy.
+- Each scan is recorded in that repo's own ledger, outside the repo, in
+  `~/Library/Application Support/AgentOS/repos/<repo>-<id>/`. A rescan that finds nothing new isn't recorded.
+- To open a repo straight from Xcode, add `-openRepository <path>` to the scheme's launch arguments.
+- The same scan runs in the terminal: `cd AgentOSKit && swift run agentos scan <path>`.
 
 ## Try this in the app
 

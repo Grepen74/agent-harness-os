@@ -15,12 +15,15 @@ public protocol HarnessActions: AnyObject {
     /// Demo only (shown when `offersLedgerDemo` is set).
     func tamperWithLedger() async
     func restoreLedger() async
+    /// Runs the readiness scan again (findings pane).
+    func rescan() async
     func open(_ path: String)
 }
 
 extension HarnessActions {
     public func tamperWithLedger() async {}
     public func restoreLedger() async {}
+    public func rescan() async {}
 }
 
 /// Snapshots of the harness for SwiftUI. The backend copies data in after every change; the panes only
@@ -40,6 +43,9 @@ public final class HarnessViewModel {
     public var extraLabels: (title: String, names: [String])?
     /// Shows the tamper and restore buttons in the ledger pane.
     public var offersLedgerDemo = false
+    /// The latest readiness scan of the repo, for the findings pane.
+    public var readiness: ReadinessScan?
+    public var isScanning = false
     public weak var actions: (any HarnessActions)?
 
     public init() {}
@@ -58,5 +64,6 @@ public final class HarnessViewModel {
     func verifyChain() async { await actions?.verifyChain() }
     func tamper() async { await actions?.tamperWithLedger() }
     func restoreLedger() async { await actions?.restoreLedger() }
+    func rescan() async { await actions?.rescan() }
     func open(_ path: String) { actions?.open(path) }
 }

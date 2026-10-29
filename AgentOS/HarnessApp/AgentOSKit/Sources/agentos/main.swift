@@ -11,6 +11,7 @@ let usage = """
     usage: agentos demo [--dir <path>] [--agents scripted|copilot] [--keep]
            agentos tree [--dir <path>]
            agentos verify [--dir <path>]
+           agentos scan [<repo path>]      readiness scan of a real repo (read-only)
     """
 
 let arguments = Array(CommandLine.arguments.dropFirst())
@@ -113,6 +114,19 @@ case "demo":
 
 case "tree":
     print(await (try Simulation(directory: directory)).treeDescription())
+
+case "scan":
+    let path = arguments.dropFirst().first { !$0.hasPrefix("--") } ?? FileManager.default.currentDirectoryPath
+    let result = await ReadinessScanner().scan(URL(filePath: path, directoryHint: .isDirectory))
+    let icons: [Finding.Severity: String] = [.blocker: "⛔️", .warning: "⚠️ ", .info: "ℹ️ "]
+    say("Readiness scan of \(result.root?.path ?? path)")
+    for finding in result.scan.findings {
+        print("\(icons[finding.severity]!) \(finding.title)")
+        if !finding.detail.isEmpty { print("     \(finding.detail)") }
+        if let suggestion = finding.suggestion { print("     → \(suggestion)") }
+    }
+    print("\n\(result.scan.summary). \(result.scan.isReady ? "Ready for agents." : "Not ready: fix the blockers first.")")
+    exit(result.scan.isReady ? 0 : 1)
 
 case "verify":
     let report = await (try Simulation(directory: directory)).ledger.verifyChain()

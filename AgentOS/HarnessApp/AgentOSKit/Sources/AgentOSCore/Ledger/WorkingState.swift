@@ -51,6 +51,8 @@ public struct WorkingState: Sendable {
     /// Latest preview per ticket.
     public private(set) var previews: [String: Preview] = [:]
     public private(set) var resolvedExternal: Set<String> = []
+    /// The latest recorded readiness scan of the repo.
+    public private(set) var readiness: ReadinessScan?
 
     public init() {}
 
@@ -101,6 +103,8 @@ public struct WorkingState: Sendable {
             previews[ticket] = Preview(number: number, specHash: specHash, proposal: proposal)
         case .externalDependencyResolved(let ref):
             resolvedExternal.insert(ref)
+        case .readinessScanned(let scan):
+            readiness = scan
         default:
             break
         }

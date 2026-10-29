@@ -55,6 +55,9 @@ public enum EventKind: Codable, Sendable {
 
     // Outside world
     case externalDependencyResolved(ref: String)
+
+    // The repo (doc 01): what the harness knew about it when it started, and whenever that changed.
+    case readinessScanned(ReadinessScan)
 }
 
 /// What the ledger stores: the event plus its place in the hash chain.
@@ -123,6 +126,8 @@ extension EventKind {
         case .externalDependencyResolved(let ref): "\(ref) delivered"
         case .reworkNeeded(let reason): "rework: \(reason)"
         case .landed(let commit): "landed on main at \(commit.prefix(8))"
+        case .readinessScanned(let scan):
+            "readiness scan of \(scan.branch ?? "?") at \((scan.commit ?? "?").prefix(8)): \(scan.summary)"
         }
     }
 }

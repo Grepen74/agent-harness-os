@@ -120,6 +120,15 @@ public actor Ledger {
         }
     }
 
+    /// Records a readiness scan, unless it's the same as the latest one: rescanning an unchanged repo
+    /// doesn't grow the ledger. Returns whether it was recorded.
+    @discardableResult
+    public func record(_ scan: ReadinessScan, by participant: Participant = .adapter("Readiness scan")) throws -> Bool {
+        guard state.readiness != scan else { return false }
+        try append([LedgerEvent(node: nil, by: participant, kind: .readinessScanned(scan))])
+        return true
+    }
+
     /// Runs `body` while nothing else can append, for maintenance outside the normal flow (e.g. restoring
     /// storage from a backup). Reload the ledger afterwards if storage changed.
     public func exclusively<T: Sendable>(_ body: @Sendable () throws -> T) throws -> T { try body() }

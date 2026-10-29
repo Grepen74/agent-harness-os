@@ -8,6 +8,16 @@ let alice = Participant.human("Alice")
 struct LedgerTests {
     let spec = NodeSpec(id: "wn-1", parent: nil, kind: .leaf, title: "T", intent: "I", acceptanceCriteria: ["a"])
 
+    @Test func readinessScanIsRecordedOnlyWhenItChanges() async throws {
+        let ledger = try Ledger()
+        let scan = ReadinessScan(branch: "main", commit: "a", findings: [Finding(check: "x", severity: .warning, title: "No README")])
+        #expect(try await ledger.record(scan))
+        #expect(try await !ledger.record(scan))
+        #expect(try await ledger.record(ReadinessScan(branch: "main", commit: "b", findings: scan.findings)))
+        #expect(await ledger.allRecords().count == 2)
+        #expect(await ledger.workingState().readiness?.commit == "b")
+    }
+
     @Test func retriedEventsAreRecordedOnce() async throws {
         let ledger = try Ledger()
         let event = LedgerEvent(node: spec.id, by: alice, kind: .nodeCreated(spec: spec, ticket: "APP-1"))

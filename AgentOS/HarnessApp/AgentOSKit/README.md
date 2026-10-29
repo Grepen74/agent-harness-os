@@ -6,11 +6,11 @@ simple as the concepts allow. Comments marked *Production:* say what a real syst
 | Target | What |
 |---|---|
 | `AgentOSCore` (library) | The harness: model, ledger, reconciler, policy, and the protocols for everything outside it (tracker adapter, workspace, check runner, agents, ledger/ticket/artifact stores). No UI, files or processes. |
-| `AgentOSAdapters` (library) | Real adapters: file stores, the local tracker, the SwiftPM check runner, Copilot CLI agents. |
+| `AgentOSAdapters` (library) | Real adapters: file stores, the local tracker, the SwiftPM check runner, Copilot CLI agents, and the read-only readiness scan of a real repo. |
 | `AgentOSSimulation` (library) | The simulated world: a generated git monorepo, the other team's system, scripted agents, demo tickets. `Simulation` wires everything together. |
-| `AgentOSUI` (library) | The SwiftUI panes (tracker, work tree, ledger) and `HarnessViewModel`, which any backend can drive. |
-| `agentos` (executable) | Runs the whole demo in the terminal, with the human steps scripted. |
-| `AgentOS…Tests` | Ledger rules (Core), file stores (Adapters), and the flows with a fast fake check runner (Simulation), in Swift Testing. |
+| `AgentOSUI` (library) | The SwiftUI panes (tracker, work tree, ledger, readiness findings) and `HarnessViewModel`, which any backend can drive. |
+| `agentos` (executable) | Runs the whole demo in the terminal, with the human steps scripted; scans a real repo. |
+| `AgentOS…Tests` | Ledger rules (Core), file stores and the readiness scan (Adapters), and the flows with a fast fake check runner (Simulation), in Swift Testing. |
 
 Dependencies point one way: Adapters, Simulation and UI depend on Core, never the reverse. So the
 harness can run on a real repo by swapping adapters, without touching the reconciler.
@@ -18,11 +18,15 @@ harness can run on a real repo by swapping adapters, without touching the reconc
 ```bash
 swift run agentos demo [--agents scripted|copilot] [--dir <path>] [--keep]
 swift run agentos tree|verify --dir <path>
+swift run agentos scan <repo path>   # readiness scan of a real repo; exits 1 while there are blockers
 swift test
 ```
 
 The demo exits with 0 only if the epic is proven, a merge conflict was reworked, the contradicting
 requirement was escalated and the ledger chain is intact. It uses a temporary folder unless you pass `--dir`.
+
+If `swift test` crashes with a signal right after a change to a Core type, the test build is stale:
+`rm -rf .build` and run it again.
 
 ## How it works
 
@@ -63,6 +67,7 @@ restart.
 | Escalation: attempt limit and the no-progress rule (02 §7) | `Policy.escalationReason` |
 | External dependency in another system (03) | `Tracker/ExternalDependencySource.swift`, `AgentOSSimulation/External/MockExternalSystem.swift` |
 | Observability: tree, attention list, ledger log (06) | `AgentOSUI/` |
+| Readiness scan of a real repo: read-only, findings recorded in the ledger (01) | `Model/Readiness.swift`, `Ledger.record(_:)`, `AgentOSAdapters/Readiness/`, `AgentOSUI/FindingsPane.swift` |
 
 ## Deliberate simplifications
 
