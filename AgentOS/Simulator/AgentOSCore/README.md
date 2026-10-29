@@ -50,6 +50,7 @@ restart.
 | Reconciler round, one step per node, safe stop, restart recovery (07) | `Reconciler/Reconciler.swift` |
 | Builder ≠ checker; locked acceptance tests; evidence pinned to a commit (02, 04, 08 §2) | `Reconciler.preCheck`, `Reconciler.land`, `Ledger.validate` |
 | Vertical-slice leaves with a touch set; one test target per leaf (08 §1–2) | `NodeSpec.touches`, `NodeSpec.testTarget`, `Planner.childSpecs` |
+| Leaf check: a node small enough is built as it is (02 §4, 05 §9) | `Reconciler.breakDown`, `EventKind.becameLeaf` |
 | Branch per leaf, parallel build, optimistic landing queue (08 §4) | `Workspace/Workspace.swift`, `Reconciler.land`, `WorkingState.landingQueue` |
 | Rework on merge conflict; requirements conflict → human (08 §5) | `Reconciler.land`, `Policy.maxReworks` |
 | Escalation: attempt limit and the no-progress rule (02 §7) | `Policy.escalationReason` |
@@ -60,8 +61,10 @@ restart.
 
 - One process, with steps run one after another. There is no leader election or fencing. Leaves are still
   "parallel" where it matters for conflicts: each starts from the `main` of its time on its own branch.
-- One repo and one profile, so the tree is always two levels (an epic and its leaves) and there are no
-  integration nodes or recursive leaf check. Going up the V is: the epic is proven when all leaves landed.
+- One repo and one profile, so the tree is at most two levels (an epic and its leaves) and there are no
+  integration nodes. The leaf check is reduced to "would the breakdown give more than one child?"; if
+  not, the ticket itself becomes the leaf (`EventKind.becameLeaf`). Going up the V is: the epic is proven
+  when all leaves landed.
 - No touch-set scheduling (doc 08 §4 layer 1), no batching in the landing queue, no leases.
 - The scripted agents "implement" by writing each criterion as a *fact* in every component they touch
   (`"temperature unit": "Celsius"`). That's trivial, but it causes real merge conflicts and real

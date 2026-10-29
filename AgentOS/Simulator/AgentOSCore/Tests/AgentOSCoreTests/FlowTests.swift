@@ -70,6 +70,48 @@ struct FlowTests {
         #expect(service["fetches the forecast from backend-42"]?.value == "yes")
     }
 
+    @Test func aSmallTicketIsItsOwnLeaf() async throws {
+        let sim = try makeSimulation()
+        await sim.tracker.createTicket(title: "Greeting", description: "Say hi", acceptanceCriteria: ["Says hello"], by: alice)
+        await sim.signal(.breakdown, "APP-1")
+
+        let node = try #require(await sim.node("APP-1"))
+        #expect(node.spec.kind == .leaf)
+        #expect(node.children.isEmpty)
+        #expect(await sim.tracker.tickets().count == 1)
+        #expect(node.testsDigest != nil) // went straight on to its acceptance tests
+    }
+
+    @Test func breakdownOnALeafIsRejected() async throws {
+        let sim = try makeSimulation()
+        await sim.loadDemo()
+        await sim.signal(.breakdown, "APP-1")
+        let leaf = try #require(await sim.ledger.workingState().nodes.values.first { $0.spec.parent == "wn-APP-1" })
+
+        await sim.signal(.breakdown, leaf.ticket)
+        #expect(await sim.lastComment(leaf.ticket).contains("is a leaf"))
+        #expect(await sim.node(leaf.ticket)?.gates.isEmpty == true)
+    }
+
+    @Test func goBreaksDownBuildsAndChecksInOneSignal() async throws {
+        let sim = try makeSimulation()
+        await sim.tracker.createTicket(title: "Greeting", description: "Say hi", acceptanceCriteria: ["Says hello", "Says bye"], by: alice)
+        await sim.signal(.go, "APP-1")
+
+        let state = await sim.ledger.workingState()
+        #expect(state.nodes.count == 3)
+        #expect(state.nodes.values.allSatisfy { $0.phase == .proven })
+    }
+
+    @Test func signalsTheProfileDoesNotOfferAreRejected() async throws {
+        let sim = try Simulation(directory: temporaryDirectory(), team: .scripted, checks: FakeCheckRunner(),
+                                 policy: Policy(allowedSignals: [.preview, .breakdown, .build, .retry]))
+        await sim.tracker.createTicket(title: "Greeting", description: "Say hi", acceptanceCriteria: ["Says hello"], by: alice)
+        await sim.signal(.go, "APP-1")
+        #expect(await sim.node("APP-1") == nil)
+        #expect(await sim.lastComment("APP-1").contains("isn't enabled"))
+    }
+
     @Test func aLeafIsProvenOnlyOnceItHasLandedOnMain() async throws {
         let sim = try makeSimulation()
         await sim.tracker.createTicket(title: "Greeting", description: "Say hi", acceptanceCriteria: ["Says hello"], by: alice)
@@ -77,7 +119,7 @@ struct FlowTests {
         #expect(try await sim.workspace.mainLog().count == 1)
 
         await sim.signal(.build, "APP-1")
-        let leaf = try #require(await sim.node("APP-2"))
+        let leaf = try #require(await sim.node("APP-1"))
         #expect(leaf.phase == .proven)
         let landed = try #require(leaf.landedCommit)
         let log = try await sim.workspace.mainLog()
@@ -95,14 +137,14 @@ struct FlowTests {
         #expect(await sim.node("APP-1")?.phase == .proven)
 
         await sim.tracker.createTicket(title: "US", description: "Imperial", acceptanceCriteria: ["Temperature unit: Fahrenheit [Weather]"], by: alice)
-        await sim.signal(.breakdown, "APP-3")
-        await sim.signal(.build, "APP-3")
+        await sim.signal(.breakdown, "APP-2")
+        await sim.signal(.build, "APP-2")
 
-        let contradicting = try #require(await sim.node("APP-4"))
+        let contradicting = try #require(await sim.node("APP-2"))
         #expect(contradicting.phase != .proven)
         #expect(contradicting.flags[.escalated]?.hasPrefix("Requirements conflict") == true)
-        #expect(contradicting.flags[.escalated]?.contains("APP-2") == true)
-        #expect(await sim.lastComment("APP-2").contains("APP-4"))
+        #expect(contradicting.flags[.escalated]?.contains("APP-1") == true)
+        #expect(await sim.lastComment("APP-1").contains("APP-2"))
         // main still has the proven behaviour.
         let facts = ScriptedFacts.read(ScriptedFacts.sourceFile("Weather", in: sim.workspace.repoDirectory))
         #expect(facts["temperature unit"]?.value == "Celsius")
@@ -112,17 +154,16 @@ struct FlowTests {
         let sim = try makeSimulation()
         await sim.tracker.createTicket(title: "Greeting", description: "Say hi", acceptanceCriteria: ["Says hello"], by: alice)
         await sim.signal(.breakdown, "APP-1")
-        await sim.tracker.addLabel("sim:always-fail", to: "APP-2", by: alice)
+        await sim.tracker.addLabel("sim:always-fail", to: "APP-1", by: alice)
         await sim.signal(.build, "APP-1")
 
-        let leaf = try #require(await sim.node("APP-2"))
+        let leaf = try #require(await sim.node("APP-1"))
         #expect(leaf.flags[.escalated] != nil)
-        #expect(await sim.tracker.ticket("APP-2")?.status == "Needs human")
+        #expect(await sim.tracker.ticket("APP-1")?.status == "Needs human")
 
         // The human "fixes" the problem, then asks the harness to try again.
-        await sim.tracker.removeLabel("sim:always-fail", from: "APP-2")
-        await sim.signal(.retry, "APP-2")
-        #expect(await sim.node("APP-2")?.phase == .proven)
+        await sim.tracker.removeLabel("sim:always-fail", from: "APP-1")
+        await sim.signal(.retry, "APP-1")
         #expect(await sim.node("APP-1")?.phase == .proven)
     }
 
@@ -132,7 +173,7 @@ struct FlowTests {
         await first.tracker.createTicket(title: "Greeting", description: "Say hi", acceptanceCriteria: ["Says hello"], by: alice)
         await first.signal(.breakdown, "APP-1")
         // Simulate a crash in the middle of a build: the run started but never finished.
-        let leaf = try #require(await first.node("APP-2"))
+        let leaf = try #require(await first.node("APP-1"))
         try await first.ledger.append([
             LedgerEvent(node: leaf.id, by: .reconciler, kind: .runStarted(run: "run-crashed", role: .implementer)),
             LedgerEvent(node: leaf.id, by: .reconciler, kind: .phaseChanged(to: .building)),

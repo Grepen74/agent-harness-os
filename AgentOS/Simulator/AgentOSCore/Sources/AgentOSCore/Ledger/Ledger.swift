@@ -189,6 +189,10 @@ public actor Ledger {
         guard let fileURL else { return }
         var lines = try String(contentsOf: fileURL, encoding: .utf8).split(separator: "\n").map(String.init)
         guard !lines.isEmpty else { return }
+        // Keep the first untouched copy, so the demo can recover (see `restoreAfterTamperDemo`).
+        if let backupURL, !FileManager.default.fileExists(atPath: backupURL.path) {
+            try FileManager.default.copyItem(at: fileURL, to: backupURL)
+        }
         let index = lines.count / 2
         guard var object = try JSONSerialization.jsonObject(with: Data(lines[index].utf8)) as? [String: Any],
               var event = object["event"] as? [String: Any] else { return }
@@ -198,4 +202,16 @@ public actor Ledger {
         lines[index] = String(decoding: data, as: UTF8.self)
         try (lines.joined(separator: "\n") + "\n").write(to: fileURL, atomically: true, encoding: .utf8)
     }
+
+    /// Demo only: puts back the copy saved before tampering. Returns false if there is nothing to restore.
+    /// Production: a human investigates, then restores from a replica or backup whose last hash matches
+    /// the anchor kept outside the ledger. The harness never repairs its own ledger.
+    /// Reload the ledger afterwards (restart the harness) so memory matches the restored file.
+    public func restoreAfterTamperDemo() throws -> Bool {
+        guard let fileURL, let backupURL, FileManager.default.fileExists(atPath: backupURL.path) else { return false }
+        _ = try FileManager.default.replaceItemAt(fileURL, withItemAt: backupURL)
+        return true
+    }
+
+    private var backupURL: URL? { fileURL?.appendingPathExtension("before-tamper") }
 }

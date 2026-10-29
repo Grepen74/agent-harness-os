@@ -16,6 +16,7 @@ settings:
     CURRENT_PROJECT_VERSION: "1"
 fileGroups:         # shown in the navigator, not built
   - README.md
+  - docs
   - project.yml
 targets:
   AgentOSSimulator:

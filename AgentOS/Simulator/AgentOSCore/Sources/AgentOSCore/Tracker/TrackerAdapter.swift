@@ -18,6 +18,14 @@ public protocol TrackerAdapter: Sendable {
     func setStatus(of key: String, to status: String) async
 }
 
+extension NodeSpec {
+    /// The node's identity as shown on its ticket. Child tickets carry it in the description (the
+    /// harness wrote them); adopted tickets get it in a comment, since their description is the human's.
+    var trackerSummary: String {
+        "Work node: \(id) · kind: \(kind.rawValue)" + (touches.isEmpty ? "" : " · touches: " + touches.joined(separator: ", "))
+    }
+}
+
 /// Translates between the harness and the mock tracker.
 /// Production: one adapter per tool (Jira, GitHub Issues, Azure DevOps, Polarion…), using webhooks
 /// plus regular polling, with retries and rate limits.
@@ -46,7 +54,7 @@ public struct MockTrackerAdapter: TrackerAdapter {
         let description = """
         \(spec.intent)
 
-        Work node: \(spec.id) · kind: \(spec.kind.rawValue)\(spec.touches.isEmpty ? "" : " · touches: " + spec.touches.joined(separator: ", "))
+        \(spec.trackerSummary)
         """
         return await tracker.createTicket(
             title: spec.title, description: description, acceptanceCriteria: spec.acceptanceCriteria,

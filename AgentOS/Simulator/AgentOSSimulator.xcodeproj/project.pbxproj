@@ -21,6 +21,7 @@
 		3FD11826D5320D5A944BD5C9 /* TrackerPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackerPane.swift; sourceTree = "<group>"; };
 		4AFAD64E094CE3B9108DCD5D /* AgentOSCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = AgentOSCore; path = AgentOSCore; sourceTree = SOURCE_ROOT; };
 		553D9C9D0BE2E315364F3AE1 /* SimulatorModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimulatorModel.swift; sourceTree = "<group>"; };
+		71B4689EDEEEC2EEE57AA9D0 /* real-repo-mode.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = "real-repo-mode.md"; sourceTree = "<group>"; };
 		7624E714D281EE3E5E1F924A /* App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App.swift; sourceTree = "<group>"; };
 		A034987A95B4A2A6991C98AD /* WorkPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkPane.swift; sourceTree = "<group>"; };
 		AAFE3568FEA7005B62321139 /* project.yml */ = {isa = PBXFileReference; lastKnownFileType = text.yaml; path = project.yml; sourceTree = "<group>"; };
@@ -61,6 +62,14 @@
 			path = App;
 			sourceTree = "<group>";
 		};
+		BE9469B8FF0538905CDCD1FC /* docs */ = {
+			isa = PBXGroup;
+			children = (
+				71B4689EDEEEC2EEE57AA9D0 /* real-repo-mode.md */,
+			);
+			path = docs;
+			sourceTree = "<group>";
+		};
 		E182C8F3EC872512D6C9DFD7 /* Products */ = {
 			isa = PBXGroup;
 			children = (
@@ -75,6 +84,7 @@
 				AAFE3568FEA7005B62321139 /* project.yml */,
 				F231C02E686BF20420575717 /* README.md */,
 				7E00B77D1986D7AF19CE0434 /* App */,
+				BE9469B8FF0538905CDCD1FC /* docs */,
 				2E9D7E8EDC1A9F8F3064A901 /* Packages */,
 				E182C8F3EC872512D6C9DFD7 /* Products */,
 			);

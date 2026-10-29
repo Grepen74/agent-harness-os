@@ -15,7 +15,15 @@ import Foundation
 //     }
 
 enum ScriptedFacts {
+    /// Splits off the optional touch hint at the end of a criterion: "… [WeatherService, WeatherUI]".
+    static func touchHint(in criterion: String) -> (criterion: String, touches: [String]?) {
+        guard let match = criterion.firstMatch(of: /\s*\[([^\]]+)\]\s*$/) else { return (criterion, nil) }
+        return (String(criterion[..<match.range.lowerBound]),
+                match.output.1.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) })
+    }
+
     static func fact(for criterion: String) -> (key: String, value: String) {
+        let criterion = touchHint(in: criterion).criterion
         let parts = criterion.split(separator: ":", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
         if parts.count == 2, !parts[1].isEmpty { return (parts[0].lowercased(), parts[1]) }
         return (criterion.lowercased(), "yes")
@@ -63,12 +71,8 @@ public struct ScriptedDecomposer: Decomposer {
     public func proposeChildren(of parent: NodeSpec, existingComponents: [String]) async throws -> [ChildProposal] {
         guard !parent.acceptanceCriteria.isEmpty else { throw AgentFailure("Nothing to break down: no acceptance criteria") }
         return parent.acceptanceCriteria.map { text in
-            var criterion = text
-            var touches = [ComponentName.from(parent.title, maxWords: 3)]
-            if let match = text.firstMatch(of: /\s*\[([^\]]+)\]\s*$/) {
-                criterion = String(text[..<match.range.lowerBound])
-                touches = match.output.1.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
-            }
+            let (criterion, hinted) = ScriptedFacts.touchHint(in: text)
+            let touches = hinted ?? [ComponentName.from(parent.title, maxWords: 3)]
             return ChildProposal(title: criterion, acceptanceCriteria: [criterion], touches: touches,
                                  dependsOn: parent.dependsOn.filter { text.contains($0) })
         }

@@ -74,12 +74,24 @@ Each signal opens one **gate** on one ticket. The gate covers that ticket **and 
 | **Preview** | Show a proposed breakdown, without creating any child tickets (a dry run) | `harness:preview` |
 | **Breakdown** | Split the ticket into child tickets | `harness:breakdown` |
 | **Build** | Implement and check the leaves below it | `harness:build` |
+| **Go** | Breakdown and Build in one signal: break down, implement and check without stopping in between | `harness:go` |
 | **Pause** | Finish the current step, then start nothing new (flag `paused`) | `harness:pause` |
 | **Resume** | Continue after a pause | `harness:resume` |
 | **Withdraw** | Stop and hand the ticket back to people to keep refining | `harness:withdraw` |
 
 **Preview** fits iterative work well: you can "try" a breakdown, look at it, refine your Epic, and try again,
 without any tickets being created. How that works in practice is described next.
+
+**Go** is the label form of `harness go` (§9), for simple, low-risk work. It opens both gates at once, so the
+readiness checks for Breakdown *and* Build run up front. Nobody reviews the breakdown before building starts.
+
+### Which signals are available
+
+Not every signal suits every project, so the **profile** decides which ones are offered, layered like any
+other rule ([doc 04 §3](04-where-the-harness-lives.md)): the company layer sets the most a profile may offer,
+and a repo may only switch signals **off**. For example, `simple-app` offers them all; a safety profile
+leaves out **Go**, because a person must approve the breakdown before anything is built. A signal that isn't
+offered is rejected with a reply listing the ones that are.
 
 ### What a preview looks like, and what you do with it
 

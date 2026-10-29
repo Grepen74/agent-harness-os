@@ -30,6 +30,9 @@ struct LedgerTests {
         try await ledger.tamperForDemo()
 
         #expect(await ledger.verifyChain().problem != nil)
+
+        #expect(try await ledger.restoreAfterTamperDemo())
+        #expect(try await Ledger(fileURL: file).verifyChain().isIntact)
     }
 
     @Test func retriedEventsAreRecordedOnce() async throws {

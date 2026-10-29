@@ -7,10 +7,14 @@ public struct Policy: Sendable {
     public var maxAttempts = 3
     /// Merge-conflict reworks per leaf before a human (or a smarter planner) should order the work (doc 08 §5).
     public var maxReworks = 3
+    /// The signals people may use (doc 05 §3). Production: the harness layer sets what each profile may offer
+    /// and the repo config may only switch signals off (doc 04 §8); strict profiles leave out `go`.
+    public var allowedSignals: Set<HarnessCommand>
 
-    public init(maxAttempts: Int = 3, maxReworks: Int = 3) {
+    public init(maxAttempts: Int = 3, maxReworks: Int = 3, allowedSignals: Set<HarnessCommand> = Set(HarnessCommand.allCases)) {
         self.maxAttempts = maxAttempts
         self.maxReworks = maxReworks
+        self.allowedSignals = allowedSignals
     }
 
     func escalationReason(for node: NodeState) -> String? {
@@ -75,6 +79,10 @@ enum Planner {
     }
 
     static func describe(_ specs: [NodeSpec], under title: String) -> String {
+        guard specs.count > 1 else {
+            let touches = specs.first.map { " (touches: \($0.touches.joined(separator: ", ")))" } ?? ""
+            return "\(title)\n└─ no children: it is a leaf itself\(touches)"
+        }
         let lines = specs.enumerated().map { index, spec in
             let branch = index == specs.count - 1 ? "└─" : "├─"
             let waits = spec.dependsOn.isEmpty ? "" : "  (waits for \(spec.dependsOn.joined(separator: ", ")))"

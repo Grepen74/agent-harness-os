@@ -223,6 +223,27 @@ sequenceDiagram
     end
 ```
 
+## Onboarding a repo: the readiness scan
+
+Before the harness does any work in a repo, it **scans** it: a Definition of Ready for the repo, like the
+one for tickets (doc 05 §5). It reads the files above and compares them with what the policy requires.
+Nothing is changed; the result is a list of **findings**, each with a severity and a suggested fix:
+
+| Severity | Meaning | Examples |
+|---|---|---|
+| **Blocker** | Agents can't work here safely yet | No way to run tests found. Tests fail on `main` already, so no landing check could ever pass (doc 08). A required check isn't offered. |
+| **Warning** | Agents can work, but will likely do it badly or cause friction | No AGENTS.md, or it doesn't say how to build and test. No CONTRIBUTING or Definition of Done. A file that every change must touch (a merge hotspot, doc 08 §8). No CODEOWNERS on the files that steer agents. |
+| **Info** | Worth knowing | Build system and test framework found. Size and age of the repo. |
+
+The scan is deliberately **generous with findings**: a gap found before work starts is cheap, while the
+same gap found by an agent halfway through a leaf costs a failed run and a confusing escalation.
+
+- The scan may **draft** missing pieces, such as a manifest built from what it detected. Like any change
+  to files that steer agents, a human reviews it before it counts.
+- Findings are recorded in the ledger, so it's on record what the harness knew when it started.
+- The scan runs again whenever those files change on `main`, and findings can also come up **during**
+  work, for example a flaky test, or a leaf that keeps touching files outside its touch set.
+
 ## Summary
 
 | File | Role | Main audience | Changes |

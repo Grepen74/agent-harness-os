@@ -129,6 +129,14 @@ final class SimulatorModel {
         activity.insert("🕵️ Someone edited a ledger record directly on disk.", at: 0)
     }
 
+    /// Stands in for a human restoring a verified backup, then restarting the harness on it.
+    func restoreLedger() async {
+        guard (try? await simulation.ledger.restoreAfterTamperDemo()) == true else { return }
+        activity.insert("🧑‍🔧 Ledger restored from the copy taken before the tamper.", at: 0)
+        await restartHarness()
+        await verifyChain()
+    }
+
     // MARK: Lifecycle
 
     func loadDemo() async { await simulation.loadDemo(by: you); await refresh() }

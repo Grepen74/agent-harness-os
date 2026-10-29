@@ -121,7 +121,8 @@ public struct Evidence: Codable, Sendable, Hashable {
 /// Requests a human can make through a label (doc 05). Labels are one-time requests.
 /// Omitted in the mock: preview with notes, pause, resume, withdraw.
 public enum HarnessCommand: String, Codable, Sendable, CaseIterable {
-    case preview, breakdown, build, retry
+    /// `go` opens the breakdown and build gates in one signal: break down, build and check without stopping.
+    case preview, breakdown, build, go, retry
 
     public var label: String { "harness:\(rawValue)" }
 }

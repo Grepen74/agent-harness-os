@@ -117,6 +117,7 @@ struct NodeDetail: View {
 
     private var grid: some View {
         Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 3) {
+            row("Ticket", [node.ticket, model.ticket(node.ticket)?.title].compactMap { $0 }.joined(separator: "  "))
             row("Phase", node.phase.rawValue)
             row("Gates", node.gates.isEmpty ? "– (inherited from parent if any)" : node.gates.map(\.rawValue).sorted().joined(separator: ", "))
             row("Links", node.links.isEmpty ? "–" : node.links.map { "\($0.type.rawValue) \($0.to)" }.joined(separator: "\n"))

@@ -15,7 +15,7 @@ struct TrackerPane: View {
                     PaneHeader(title: "Tracker", subtitle: "Humans work here. Labels are the signals.")
                     Button { editor = .new } label: { Image(systemName: "plus") }.padding(.trailing, 12).help("New ticket")
                 }
-                List(model.tickets, selection: $selection) { ticket in
+                List(treeOrdered, id: \.ticket.key, selection: $selection) { ticket, depth in
                     HStack {
                         Text(ticket.key).monospaced().foregroundStyle(.secondary)
                         Text(ticket.title).lineLimit(1)
@@ -23,7 +23,7 @@ struct TrackerPane: View {
                         Text(ticket.status).font(.caption).padding(.horizontal, 6).padding(.vertical, 2)
                             .background(.quaternary, in: Capsule())
                     }
-                    .padding(.leading, ticket.parentKey == nil ? 0 : 16)
+                    .padding(.leading, CGFloat(depth) * 16)
                     .tag(ticket.key)
                 }
             }
@@ -40,6 +40,18 @@ struct TrackerPane: View {
             .frame(minHeight: 260)
         }
         .sheet(item: $editor) { TicketEditor(mode: $0) }
+    }
+
+    /// Depth-first: each ticket directly followed by its children, so a breakdown stays under its parent.
+    private var treeOrdered: [(ticket: Ticket, depth: Int)] {
+        let keys = Set(model.tickets.map(\.key))
+        let children = Dictionary(grouping: model.tickets) { $0.parentKey }
+        func walk(_ parent: String?, _ depth: Int) -> [(ticket: Ticket, depth: Int)] {
+            (children[parent] ?? []).flatMap { [($0, depth)] + walk($0.key, depth + 1) }
+        }
+        // Tickets whose parent is unknown are treated as roots so nothing disappears.
+        let orphans = model.tickets.filter { $0.parentKey.map { !keys.contains($0) } ?? false }
+        return walk(nil, 0) + orphans.flatMap { [($0, 0)] + walk($0.key, 1) }
     }
 }
 

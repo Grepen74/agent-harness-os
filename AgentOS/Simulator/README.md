@@ -21,6 +21,7 @@ It simulates the whole loop:
 |---|---|
 | `AgentOSSimulator.xcodeproj` | The Mac app. Generated from `project.yml` with [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`xcodegen generate`); the generated project is committed. |
 | `App/` | The app's SwiftUI sources: tracker, work tree and ledger panes. It only displays state and sends human signals. |
+| [`docs/`](docs) | App design docs, e.g. [running the harness on a real repo](docs/real-repo-mode.md) (proposal). |
 | [`AgentOSCore/`](AgentOSCore) | The harness itself as a Swift package, with a terminal demo and tests. See its [README](AgentOSCore/README.md) for how it works and where each concept lives in code. |
 
 ## Run it
@@ -53,9 +54,12 @@ the terminal: `cd AgentOSCore && swift run agentos demo`.
 7. In *Other team's system*, click **Mark delivered**. The leaf unblocks, conflicts once on
    `WeatherService`, is reworked and lands. The epic becomes **Proven** once all its leaves have landed.
 8. Click **Verify chain**, then **Tamper (demo)**. The ledger now fails its check and the harness refuses
-   to act (safe stop).
+   to act (safe stop). **Restore backup** puts back the copy saved before the tamper and restarts the
+   harness; press Run to continue.
 
 More things to try:
+- Create a ticket and add `harness:go`: it is broken down, built and checked in one go, with no stop
+  between breakdown and build.
 - On a leaf ticket, add `sim:always-fail` before building. After repeated failures it escalates to
   *Needs human*. Remove the label, then add `harness:retry`.
 - Use `sim:fail-once` to see a failure followed by a recovery, or `sim:stuck` for an agent that crashes.

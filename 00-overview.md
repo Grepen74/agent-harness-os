@@ -181,6 +181,7 @@ Real mappings must be designed and signed off by functional-safety and cybersecu
 | **Projection** | A copy shown in another tool for convenience, always regenerable from the owner |
 | **Prompt injection** | Malicious text that tries to trick an AI into following hidden instructions |
 | **Ralph loop** | Building a leaf by repeatedly running a fresh agent with the same instructions; progress is kept in a plan file, and checks reject bad work |
+| **Readiness scan** | The check the harness runs when it starts working in a repo: does the repo offer what agents and the policy need? Produces findings (blocker, warning, info) (doc 01) |
 | **Reconciler** | The loop (also called the harness loop) that compares desired vs. actual state and does the next step; a long-running service without AI inside (doc 07) |
 | **Regression suite** | The acceptance tests of every proven node, re-run at each landing so new work can't silently break old behaviour |
 | **Requirements conflict** | Two approved requirements that contradict each other, detected when a change breaks another node's acceptance tests at landing; always escalated (doc 08) |

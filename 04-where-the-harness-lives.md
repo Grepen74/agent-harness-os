@@ -297,6 +297,28 @@ One exception to "rules live outside the repo": for the `simple-app` profile, ke
 **inside the app repo** is acceptable, as long as it's protected by CODEOWNERS. For anything stricter,
 it isn't, because the agent would then be working right next to its own rules.
 
+### The two layers on a single machine
+
+Even a harness running as an app on one developer's machine keeps the two layers from §3:
+
+- The **harness's own settings** play the part of the company-wide layer. They live outside the repo,
+  where agents can't reach them, and set the outer limits, e.g. "agents never push" or "land only on a
+  local integration branch".
+- The **repo's config** plays the part of the per-system layer. It can choose within those limits and
+  make them stricter, never looser. The harness reads it **only from `main`**, never from a leaf's branch,
+  so an agent can't change the rules for its own work.
+
+The effective value of each setting is shown together with **where it came from**, so nobody has to guess
+why the harness behaves the way it does.
+
+### Same engine, different storage
+
+The engine talks to its storage through a **narrow interface**: append events if the version is still the
+expected one, and read them back (the ledger), plus put and get files (artifacts). A local file, SQLite or
+PostgreSQL can sit behind it, so growing from one machine to a shared service is a change of configuration,
+not of design. Wherever it lives, the harness's own state stays **out of the product repo's working copy**:
+there, it would end up in commits by accident, and agents could edit it.
+
 ---
 
 ## 9. When agents help build the harness itself

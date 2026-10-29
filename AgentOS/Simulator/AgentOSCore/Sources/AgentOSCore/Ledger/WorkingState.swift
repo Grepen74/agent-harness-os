@@ -110,6 +110,9 @@ public struct WorkingState: Sendable {
 
         switch event.kind {
         case .linkAdded(let link): node.links.append(link)
+        case .becameLeaf(let touches):
+            node.spec.kind = .leaf
+            node.spec.touches = touches
         case .gateOpened(let gate): node.gates.insert(gate)
         case .phaseChanged(let phase):
             node.phase = phase

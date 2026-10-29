@@ -28,6 +28,8 @@ public enum EventKind: Codable, Sendable {
     // Structure (doc 02 §1–2)
     case nodeCreated(spec: NodeSpec, ticket: String)
     case linkAdded(TypedLink)
+    /// The leaf check (doc 02 §4) found the node small enough to build as it is: no children.
+    case becameLeaf(touches: [String])
 
     // Lifecycle (doc 02 §6)
     case gateOpened(Gate)
@@ -106,6 +108,7 @@ extension EventKind {
         case .previewRecorded(let ticket, let number, _, let proposal): "preview #\(number) of \(ticket): \(proposal.count) nodes"
         case .nodeCreated(let spec, let ticket): "created \(spec.kind.rawValue) \(spec.id) (\(ticket)): \(spec.title)"
         case .linkAdded(let link): "link \(link.from) \(link.type.rawValue) \(link.to)"
+        case .becameLeaf(let touches): "leaf check passed: built as one leaf (touches \(touches.joined(separator: ", ")))"
         case .gateOpened(let gate): "\(gate.rawValue) gate opened"
         case .phaseChanged(let phase): "→ \(phase.rawValue)"
         case .flagSet(let flag, let reason): "⚑ \(flag.rawValue): \(reason)"

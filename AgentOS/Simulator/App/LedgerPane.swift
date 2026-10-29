@@ -13,6 +13,10 @@ struct LedgerPane: View {
                     Button("Verify chain") { Task { await model.verifyChain() } }
                     Button("Tamper (demo)", role: .destructive) { Task { await model.tamper() } }
                         .help("Edit one stored record on disk, as someone with database access might")
+                    if model.chain?.isIntact == false {
+                        Button("Restore backup") { Task { await model.restoreLedger() } }
+                            .help("Put back the copy saved before the tamper and restart the harness")
+                    }
                     Spacer()
                     if let chain = model.chain {
                         Label(chain.isIntact ? "Intact (\(chain.checked))" : "Broken at #\(chain.problem!.position)",

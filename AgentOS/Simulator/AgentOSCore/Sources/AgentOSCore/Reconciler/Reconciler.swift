@@ -128,6 +128,10 @@ public actor Reconciler {
     }
 
     private func handle(_ signal: Signal, from person: String) async throws -> String {
+        guard policy.allowedSignals.contains(signal.command) else {
+            let allowed = HarnessCommand.allCases.filter(policy.allowedSignals.contains).map(\.label)
+            throw Rejection(reason: "\(signal.command.label) isn't enabled here. Available: \(allowed.joined(separator: ", ")).")
+        }
         guard let ticket = await tracker.ticket(signal.ticket) else { throw Rejection(reason: "Ticket not found.") }
         let state = await ledger.workingState()
         let node = state.node(forTicket: ticket.key)
@@ -151,6 +155,10 @@ public actor Reconciler {
 
         case .breakdown:
             if let node {
+                guard node.spec.kind == .composite else {
+                    throw Rejection(reason: "\(node.spec.id) is a leaf: small enough to build as it is, so there is nothing " +
+                        "to break down. If it turns out too big, that's a spec change and its parent re-plans (doc 02 §8–9; not in this mock).")
+                }
                 guard !node.gates.contains(.breakdown) else { throw Rejection(reason: "Breakdown is already approved.") }
                 try await write(node.id, by: .human(person), [.gateOpened(.breakdown)])
                 return "breakdown approved"
@@ -161,8 +169,8 @@ public actor Reconciler {
             // Adoption: from now on the harness owns the node; the ticket shows a projection of it.
             try await write(spec.id, by: .human(person), [.nodeCreated(spec: spec, ticket: ticket.key), .gateOpened(.breakdown)])
             let preview = state.previews[ticket.key].flatMap { $0.specHash == spec.specHash ? $0 : nil }
-            return "adopted as \(spec.id); breakdown approved" +
-                (preview.map { " (will create exactly preview #\($0.number))" } ?? "")
+            return "adopted; breakdown approved" +
+                (preview.map { " (will create exactly preview #\($0.number))" } ?? "") + "\n" + spec.trackerSummary
 
         case .build:
             guard let node else { throw Rejection(reason: "Not adopted yet. Approve a breakdown first (harness:breakdown).") }
@@ -177,6 +185,23 @@ public actor Reconciler {
             guard let node, node.flags[.escalated] != nil else { throw Rejection(reason: "Nothing to retry: not escalated.") }
             try await write(node.id, by: .human(person), [.flagCleared(.escalated), .attemptsReset])
             return "escalation cleared; attempts reset"
+
+        case .go:
+            // Both gates at once: the readiness checks for both run now, so nothing stops halfway for lack
+            // of permission. Production: also checks the build budget is set (doc 05 §5).
+            if let node {
+                let missing = [Gate.breakdown, .build].filter { !node.gates.contains($0) }
+                guard !missing.isEmpty else { throw Rejection(reason: "Breakdown and build are already approved.") }
+                try await write(node.id, by: .human(person), missing.map { .gateOpened($0) })
+                return "\(missing.map(\.rawValue).joined(separator: " and ")) approved for \(node.spec.id) and everything below it"
+            }
+            let problems = policy.readinessProblems(ticket)
+            guard problems.isEmpty else { throw Rejection(reason: "Not ready yet. Missing: \(problems.joined(separator: ", ")).") }
+            let spec = Planner.rootSpec(for: ticket)
+            try await write(spec.id, by: .human(person), [
+                .nodeCreated(spec: spec, ticket: ticket.key), .gateOpened(.breakdown), .gateOpened(.build)])
+            return "adopted; breakdown and build approved: it will be broken down, built and checked without stopping\n"
+                + spec.trackerSummary
         }
     }
 
@@ -259,6 +284,21 @@ public actor Reconciler {
                 return "\(node.ticket) breakdown failed → escalated"
             }
             try await write(node.id, by: author, [.runFinished(run: run, outcome: "proposed \(children.count) children")])
+        }
+
+        // Leaf check (doc 02 §4): a "breakdown" into one piece is the node itself, so it becomes the leaf.
+        // Production: the decomposer runs the full leaf check before proposing children at all.
+        if children.count <= 1 {
+            let touches = children.first?.touches ?? [ComponentName.from(node.spec.title, maxWords: 3)]
+            let needs = Set(node.spec.dependsOn + (children.first?.dependsOn ?? [])).sorted()
+            try await write(node.id, by: author, [.becameLeaf(touches: touches)]
+                + needs.map { .linkAdded(TypedLink(from: node.id, type: .dependsOn, to: $0)) })
+            await tracker.comment(on: node.ticket, """
+                🍃 No breakdown needed: small enough to build as it is (leaf check passed).
+                \(Planner.describe(children, under: node.spec.title))
+                This ticket gets its own branch and acceptance tests next; then add harness:build.
+                """)
+            return "\(node.ticket) passed the leaf check: built as one leaf"
         }
 
         for spec in children {
