@@ -226,7 +226,7 @@ generates it from the folder structure instead, it can never conflict.
 
 ## 9. In the simulator
 
-The [simulator](AgentOS/Simulator) shows this in miniature with a real git repository:
+The [simulator](AgentOS/HarnessApp) shows this in miniature with a real git repository:
 
 - The workspace is one monorepo. A leaf's touch set can name several components.
 - Every leaf has its own branch and working copy (git worktree). Each node's acceptance tests live in its own
