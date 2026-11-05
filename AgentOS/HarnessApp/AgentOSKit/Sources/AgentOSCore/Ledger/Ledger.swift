@@ -129,6 +129,11 @@ public actor Ledger {
         return true
     }
 
+    /// Records a baseline run on the default branch.
+    public func record(_ baseline: Baseline, by participant: Participant = .adapter("Baseline check")) throws {
+        try append([LedgerEvent(node: nil, by: participant, kind: .baselineChecked(baseline))])
+    }
+
     /// Runs `body` while nothing else can append, for maintenance outside the normal flow (e.g. restoring
     /// storage from a backup). Reload the ledger afterwards if storage changed.
     public func exclusively<T: Sendable>(_ body: @Sendable () throws -> T) throws -> T { try body() }

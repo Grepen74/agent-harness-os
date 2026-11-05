@@ -53,6 +53,8 @@ public struct WorkingState: Sendable {
     public private(set) var resolvedExternal: Set<String> = []
     /// The latest recorded readiness scan of the repo.
     public private(set) var readiness: ReadinessScan?
+    /// The latest baseline run on the default branch.
+    public private(set) var baseline: Baseline?
 
     public init() {}
 
@@ -105,6 +107,8 @@ public struct WorkingState: Sendable {
             resolvedExternal.insert(ref)
         case .readinessScanned(let scan):
             readiness = scan
+        case .baselineChecked(let result):
+            baseline = result
         default:
             break
         }

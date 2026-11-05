@@ -12,6 +12,8 @@ let usage = """
            agentos tree [--dir <path>]
            agentos verify [--dir <path>]
            agentos scan [<repo path>]      readiness scan of a real repo (read-only)
+           agentos baseline [<repo path>] [--config <file>]
+                                           run the repo's checks on its default branch, outside your checkout
     """
 
 let arguments = Array(CommandLine.arguments.dropFirst())
@@ -117,7 +119,15 @@ case "tree":
 
 case "scan":
     let path = arguments.dropFirst().first { !$0.hasPrefix("--") } ?? FileManager.default.currentDirectoryPath
-    let result = await ReadinessScanner().scan(URL(filePath: path, directoryHint: .isDirectory))
+    let url = URL(filePath: path, directoryHint: .isDirectory)
+    let scanner = ReadinessScanner()
+    let result: ScannedRepository
+    switch await scanner.locate(url) {
+    case .blocked(let blocked): result = blocked
+    case .repo(let location):
+        let ledger = try Ledger(store: RepositoryStorage.ledgerStore(for: location.identity))
+        result = await scanner.scan(location, baseline: await ledger.workingState().baseline)
+    }
     let icons: [Finding.Severity: String] = [.blocker: "⛔️", .warning: "⚠️ ", .info: "ℹ️ "]
     say("Readiness scan of \(result.root?.path ?? path)")
     for finding in result.scan.findings {
@@ -125,8 +135,51 @@ case "scan":
         if !finding.detail.isEmpty { print("     \(finding.detail)") }
         if let suggestion = finding.suggestion { print("     → \(suggestion)") }
     }
+    if let draft = result.draft {
+        say("Draft \(RepoConfig.path) (check it, then commit it)")
+        print(draft)
+    }
     print("\n\(result.scan.summary). \(result.scan.isReady ? "Ready for agents." : "Not ready: fix the blockers first.")")
     exit(result.scan.isReady ? 0 : 1)
+
+case "baseline":
+    // The repo's committed config, or `--config <file>` to try one before committing it (not recorded then).
+    let path = arguments.dropFirst().first { !$0.hasPrefix("--") && $0 != option("--config") }
+        ?? FileManager.default.currentDirectoryPath
+    let scanner = ReadinessScanner()
+    guard case .repo(let location) = await scanner.locate(URL(filePath: path, directoryHint: .isDirectory)) else {
+        print("Not a git repo with a default branch: \(path)")
+        exit(1)
+    }
+    let config: RepoConfig
+    let trial = option("--config")
+    if let trial {
+        do {
+            config = try RepoConfig.parse(try String(contentsOfFile: trial, encoding: .utf8)).config
+        } catch {
+            print("\(trial): \(error)")
+            exit(1)
+        }
+    } else {
+        guard let committed = await scanner.scan(location).config else {
+            print("No valid \(RepoConfig.path) on \(location.branch). Try one with --config <file>.")
+            exit(1)
+        }
+        config = committed
+    }
+    let storage = RepositoryStorage.directory(for: location.identity)
+    say("Baseline of \(location.branch) at \(location.commit.prefix(8))")
+    for step in CommandCheckRunner(config: config).steps() { print("  $ \(step.command)") }
+    let baseline = await BaselineRunner(storage: storage).run(config: config, commit: location.commit, repo: location.root)
+    print("\n\(baseline.passed ? "✅ Passed" : "❌ Failed") in \(baseline.seconds)s: \(baseline.summary)")
+    if let log = baseline.log { print("Log: \(log.path)") }
+    if trial == nil {
+        try await Ledger(store: RepositoryStorage.ledgerStore(for: location.identity)).record(baseline)
+        print("Recorded in the repo's ledger.")
+    } else {
+        print("Trial config: not recorded.")
+    }
+    exit(baseline.passed ? 0 : 1)
 
 case "verify":
     let report = await (try Simulation(directory: directory)).ledger.verifyChain()

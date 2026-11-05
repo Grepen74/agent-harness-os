@@ -1,0 +1,29 @@
+{
+  "build" : {
+    "prepare" : "cd AgentOS/HarnessApp && xcodegen generate"
+  },
+  "checks" : [
+    {
+      "command" : "xcodebuild -project AgentOS/HarnessApp/AgentOSHarness.xcodeproj -scheme AgentOSHarness -destination 'platform=macOS' -derivedDataPath .build/agentos-xcode -quiet build",
+      "name" : "build AgentOSHarness"
+    }
+  ],
+  "components" : [
+    "AgentOS/HarnessApp/AgentOSKit/Sources/AgentOSAdapters",
+    "AgentOS/HarnessApp/AgentOSKit/Sources/AgentOSCore",
+    "AgentOS/HarnessApp/AgentOSKit/Sources/AgentOSSimulation",
+    "AgentOS/HarnessApp/AgentOSKit/Sources/AgentOSUI",
+    "AgentOS/HarnessApp/AgentOSKit/Sources/agentos"
+  ],
+  "landing" : {
+    "branch" : "agentos/main"
+  },
+  "leafTests" : {
+    "folder" : "AgentOS/HarnessApp/AgentOSKit/Tests/AgentOSAdaptersTests",
+    "target" : "AgentOSAdaptersTests"
+  },
+  "test" : {
+    "command" : "cd AgentOS/HarnessApp/AgentOSKit && swift test",
+    "only" : "--filter {suite}"
+  }
+}

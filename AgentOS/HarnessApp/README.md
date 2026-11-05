@@ -3,7 +3,8 @@
 A Mac app for the agent harness. It has two kinds of window:
 - the **simulator** (below), and
 - **repository windows** for real repos (File → Open Repository…). Today these run the read-only
-  readiness scan; letting agents work there comes next ([design](docs/real-repo-mode.md)).
+  readiness scan, show the effective policy and run the baseline; letting agents work there comes next
+  ([design](docs/real-repo-mode.md)).
 
 ## The simulator
 
@@ -53,6 +54,16 @@ and lists its findings: blockers must be fixed before agents may work there, war
   `~/Library/Application Support/AgentOS/repos/<repo>-<id>/`. A rescan that finds nothing new isn't recorded.
 - To open a repo straight from Xcode, add `-openRepository <path>` to the scheme's launch arguments.
 - The same scan runs in the terminal: `cd AgentOSKit && swift run agentos scan <path>`.
+
+The **Policy** pane shows what applies to the repo: the harness's limits from **Settings** (⌘,), tightened
+by the repo's `.agentos/config.json`, each value with its source. The config says how to build and test.
+If the repo has none, the pane shows a draft guessed from the scan; check it, then commit it on `main`
+yourself. The harness never changes your checkout or `main`, and never edits the files that steer it
+(the config, AGENTS.md, CONTRIBUTING, CODEOWNERS): otherwise it could raise its own limits.
+
+With a config, **Run baseline** runs its checks on a clean export of `main`, outside your checkout, and
+records the result and log in the ledger. Agents may only start once the baseline passes at `main`'s
+current commit. To try a config before committing it: `swift run agentos baseline <path> --config <file>`.
 
 ## Try this in the app
 

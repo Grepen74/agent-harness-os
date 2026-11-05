@@ -54,9 +54,9 @@ biggest merge hotspot in an Xcode repo (doc 08 §8). The scan checks for it and 
 
 ## Policy: two layers, shown with their source
 
-Following doc 04 §8, the app's own **harness settings** set the outer limits, and the repo's
-**`.agentos/config`** may only choose within them or make them stricter. The repo config is read from
-`main` only.
+Following doc 04 §8, the app's own **harness settings** (the Settings window) set the outer limits, and the
+repo's **`.agentos/config.json`** may only choose within them or make them stricter. The repo config is
+read from `main` only.
 
 | Setting | Harness default (limit) | Repo may |
 |---|---|---|
@@ -67,41 +67,65 @@ Following doc 04 §8, the app's own **harness settings** set the outer limits, a
 | Max parallel agents | 2 | Lower |
 | Signals people may use (doc 05 §3) | All, including `harness:go` | Switch some off, e.g. `go` to force a breakdown review |
 | Required checks | Build + the leaf's tests on branch; all tests at landing | Add more (lint, snapshot tests…) |
-| Protected paths | Tests of proven leaves, `.agentos/`, AGENTS.md, CONTRIBUTING, CODEOWNERS | Add more |
+| Protected paths | Tests of proven leaves, `.agentos/`, AGENTS.md, CONTRIBUTING, CODEOWNERS, copilot-instructions | Add more |
 
-The UI shows every effective value with its source (*harness*, *repo*), and a repo value that tries to
-loosen a limit becomes a finding, not a silent override.
+The policy pane shows every effective value with its source (*harness*, *repo*). A repo value that tries to
+loosen a limit becomes a blocker finding, not a silent override, and the harness's value applies. So does
+landing directly on the default branch. Disabling a signal the harness doesn't know is a warning.
 
-The repo config is the manifest from doc 01 in a simple form, for example:
+The repo config is the manifest from doc 01 in a simple form. It's JSON, so the app needs no extra parser;
+unknown keys are reported as likely typos. For an iOS app:
 
-```yaml
-# .agentos/config: illustration only
-build:  { prepare: "xcodegen generate", command: "xcodebuild build -scheme App -destination 'platform=macOS'" }
-test:   { command: "xcodebuild test -scheme App -destination 'platform=macOS'",
-          only: "-only-testing:AppTests/{suite}" }
-leaf_tests: { target: AppTests, folder: "AppTests/Acceptance" }
-components: [App/Features/Weather, App/Services, Packages/Networking]
-landing: { branch: agentos/main }
-signals: { disable: [go] }   # may only remove signals the harness offers
+```json
+{
+  "build": { "prepare": "xcodegen generate" },
+  "test": {
+    "command": "xcodebuild test -scheme App -destination 'platform=iOS Simulator,name=iPhone 14,OS=18.6'",
+    "only": "-only-testing:AppTests/{suite}"
+  },
+  "checks": [{ "name": "lint", "command": "swiftlint --strict" }],
+  "leafTests": { "target": "AppTests", "folder": "AppTests/Acceptance" },
+  "components": ["App/Features/Weather", "App/Services", "Packages/Networking"],
+  "landing": { "branch": "agentos/main" },
+  "signals": { "disable": ["go"] },
+  "limits": { "maxAttempts": 2 },
+  "agents": { "deny": ["rm -rf"] },
+  "protectedPaths": ["App/Secrets/"]
+}
 ```
+
+Only `test.command` is required. Checks run in order (prepare, build, test, then `checks`) with `/bin/sh -c`
+from the repo's top folder, and stop at the first failure. `{suite}` in `test.only` is replaced with a
+leaf's suite, so a leaf runs only its own tests; the extra checks run at landing.
+
+When the repo has no config, the scan **drafts** one from what it found and shows it with a Copy button
+(also printed by `agentos scan`). You commit it yourself: the config steers the harness, so the harness
+never edits it (see Safety).
 
 ## Readiness scan for an Xcode repo
 
 | Check | Severity if it fails |
 |---|---|
 | It's a git repo with at least one commit; the default branch is found | Blocker |
-| A way to build and test is found or configured, and **tests pass on `main`** (the baseline) | Blocker |
-| The repo config is valid and doesn't loosen any harness limit | Blocker |
+| A repo config exists, can be read, and doesn't loosen any harness limit | Blocker |
+| **Tests pass on `main`** at its current commit (the baseline) | Blocker |
 | AGENTS.md or copilot-instructions exist and say how to build and test | Warning |
 | README explains what this is; CONTRIBUTING has a Definition of Done | Warning |
-| No `project.pbxproj` hotspot (see above) | Warning |
+| No `project.pbxproj` hotspot (see above). Info if the config's prepare step regenerates the project | Warning |
 | A test target for acceptance tests exists; the test framework is known | Warning |
-| The simulators and SDKs the test command needs are installed | Warning |
+| The simulators the config's commands name are installed | Warning |
+| The config has no unknown keys; there's no other `.agentos/config*` file | Warning |
 | CODEOWNERS covers the files that steer agents | Info (Warning for stricter profiles) |
 | Uncommitted changes in your checkout | Info: the harness works from `main` and won't include them |
 
 Findings appear in their own pane and are recorded in the ledger. New findings during work (a flaky
 test, a leaf touching files outside its touch set, repeated reworks on the same file) appear there too.
+
+### The baseline
+
+The baseline runs the config's checks on a clean export of `main` (`git archive` into the harness's own
+storage), so neither your checkout nor the repo's build folders are touched. Its result and log are
+recorded in the ledger as evidence. It belongs to a commit: once `main` moves, the scan asks for it again.
 
 ## Storage
 
@@ -111,7 +135,8 @@ The harness's state for a repo is private and lives outside the repo:
 ~/Library/Application Support/AgentOS/repos/<repo-id>/
   ledger.jsonl     events, hash-chained
   tracker.json     local tracker tickets (when no tracker adapter is configured)
-  artifacts/       check logs (evidence)
+  artifacts/       check logs (evidence), e.g. baseline-<commit>.log
+  baseline/src/    the export of main the baseline last ran on
   worktrees/       one working copy per leaf
 ```
 
@@ -144,11 +169,21 @@ depend on Core, never the reverse. The panes read a `HarnessViewModel` and send 
 
 ## Safety
 
-- The user's own checkout is never written to. Agents work in worktrees outside the repo folder.
-- Nothing is pushed. Landing only moves a local branch.
-- Agent processes get a clean environment and restricted tools (`git push` denied).
-- Files that steer agents (AGENTS.md, CONTRIBUTING, CODEOWNERS, `.agentos/`) are protected: a leaf that
-  changes them fails its check, like changing someone else's tests.
+The harness does write to the repo, but only in one place: it moves its landing branch (and keeps
+worktrees for it). Three rules bound that:
+
+- **Your checkout and `main` are never changed.** Your working copy may hold uncommitted work and be open
+  in Xcode; writing there would clobber it. Agents work in worktrees outside the repo folder, and you merge
+  `agentos/main` into `main` yourself. Nothing is pushed.
+- **The harness never edits the files that steer it** (`.agentos/`, AGENTS.md, CONTRIBUTING, CODEOWNERS,
+  copilot-instructions). They set its limits, so a harness that could edit them could loosen its own
+  policy. They're read from `main` only, and a leaf that changes them fails its check, like changing
+  someone else's tests. A suggested config is shown for you to commit.
+- **Code only arrives through the landing branch, with evidence.** Any other write would skip the checks
+  and the ledger.
+
+Agent processes also get a clean environment and restricted tools (`git push` denied). Removing
+`agentos/main` and the harness's storage removes every trace of it.
 
 ## Phases
 
@@ -160,9 +195,15 @@ Each phase is usable on its own.
    File → Open Repository…, `agentos scan`. Checking simulators and SDKs waits for the configured test
    command (phase 3).
 3. **Repo config and policy layers.** Settings pane with sources; a check runner driven by the config;
-   baseline check on `main`.
+   baseline check on `main`. *Done:* `.agentos/config.json`, Settings window (harness limits), policy pane
+   (effective values with source, checks, baseline, draft config), `agentos baseline [--config <file>]`.
+   The reconciler doesn't run on real repos yet, so the effective policy is shown but not yet enforced.
 4. **Real workspace.** Worktrees outside the repo, a leaf's tests in an existing target, landing on
-   `agentos/main`, Copilot agents with restricted tools.
+   `agentos/main`, Copilot agents with restricted tools. Agents follow the two policy layers: the harness
+   settings name the providers and models on offer, plus a default model per role (breakdown, tests,
+   implementation); the repo's `agents` section may only pick among those and deny more tools. The
+   policy pane shows each role's agent and model with its source, and the effective denied tools are
+   passed to the agent (`--deny-tool`) instead of allowing all tools.
 5. **GitHub Issues adapter**, as the first real tracker.
 
 ## Pilot: this repo
@@ -174,6 +215,11 @@ The first repo to try is this one (`agent-harness-os`). The first scan (phase 2)
   XcodeGen but committed (hotspot); the app target has no test target.
 - Info: Swift package `AgentOSKit` using Swift Testing; the XcodeGen project; no CODEOWNERS; baseline not
   checked yet; uncommitted changes in the checkout.
+
+Phase 3: the scan drafted a config with `xcodegen generate` as the prepare step, `swift test` in
+`AgentOSKit` as the test command (`--filter {suite}` for a leaf), and an `xcodebuild build` of the app as an
+extra check. Tried uncommitted with `agentos baseline --config .agentos/config.json`: it passed on `main` in
+44 seconds, running `main`'s tests rather than the working copy's.
 
 ## Open questions
 

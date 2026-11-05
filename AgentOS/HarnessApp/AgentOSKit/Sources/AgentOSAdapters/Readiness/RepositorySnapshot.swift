@@ -14,6 +14,8 @@ struct RepositorySnapshot: Sendable {
     /// The branch your own checkout is on, if any.
     var checkoutBranch: String?
     var uncommittedChanges = 0
+    /// Installed simulators by runtime, e.g. `"iOS 18.6": ["iPhone 14"]`; nil if not looked up.
+    var simulators: [String: Set<String>]?
 
     private static let vendored: Set<String> = [".build", "Pods", "Carthage", "DerivedData", "SourcePackages", "node_modules"]
 
@@ -24,7 +26,7 @@ struct RepositorySnapshot: Sendable {
             let folder = (path as NSString).deletingLastPathComponent
             if isVendored(path) { return false }
             if ["Package.swift", "project.yml", "Project.swift"].contains(name) { return true }
-            if path.hasSuffix(".xcodeproj/project.pbxproj") || path == ".agentos/config" { return true }
+            if path.hasSuffix(".xcodeproj/project.pbxproj") || path.hasPrefix(".agentos/") { return true }
             if path == ".github/copilot-instructions.md" { return true }
             let upper = name.uppercased()
             if folder.isEmpty, upper.hasPrefix("README") || upper == "AGENTS.MD" { return true }

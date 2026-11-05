@@ -24,7 +24,7 @@ public protocol ArtifactStore: Sendable {
     func put(named name: String, contents: Data) throws -> StoredArtifact
 }
 
-public struct StoredArtifact: Sendable, Hashable {
+public struct StoredArtifact: Codable, Sendable, Hashable {
     public let path: String
     public let sha256: String
 

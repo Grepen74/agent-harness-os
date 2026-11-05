@@ -58,6 +58,7 @@ public enum EventKind: Codable, Sendable {
 
     // The repo (doc 01): what the harness knew about it when it started, and whenever that changed.
     case readinessScanned(ReadinessScan)
+    case baselineChecked(Baseline)
 }
 
 /// What the ledger stores: the event plus its place in the hash chain.
@@ -128,6 +129,8 @@ extension EventKind {
         case .landed(let commit): "landed on main at \(commit.prefix(8))"
         case .readinessScanned(let scan):
             "readiness scan of \(scan.branch ?? "?") at \((scan.commit ?? "?").prefix(8)): \(scan.summary)"
+        case .baselineChecked(let baseline):
+            "baseline at \(baseline.commit.prefix(8)) \(baseline.passed ? "passed" : "FAILED") in \(baseline.seconds)s – \(baseline.summary)"
         }
     }
 }

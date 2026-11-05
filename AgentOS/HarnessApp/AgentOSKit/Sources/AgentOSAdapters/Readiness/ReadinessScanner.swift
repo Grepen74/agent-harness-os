@@ -8,6 +8,20 @@ public struct ScannedRepository: Sendable {
     /// Stable name for the harness's own storage of this repo (`RepositoryStorage`).
     public let identity: String?
     public let scan: ReadinessScan
+    /// The repo's config, if it has a valid one on the default branch.
+    public var config: RepoConfig?
+    /// What applies to this repo: the harness settings combined with its config.
+    public var policy = EffectivePolicy.resolve(harness: HarnessSettings(), repo: nil, defaultBranch: nil)
+    /// A suggested config, as JSON, when the repo has none.
+    public var draft: String?
+}
+
+/// A git repo with commits on a default branch: enough to find the harness's storage for it.
+public struct RepositoryLocation: Sendable, Equatable {
+    public let root: URL
+    public let identity: String
+    public let branch: String
+    public let commit: String
 }
 
 /// The readiness scan (doc 01, "Onboarding a repo"). Read-only: it reads the default branch through git
@@ -15,30 +29,49 @@ public struct ScannedRepository: Sendable {
 public struct ReadinessScanner: Sendable {
     public init() {}
 
-    public func scan(_ url: URL) async -> ScannedRepository {
+    public enum Located: Sendable {
+        case repo(RepositoryLocation)
+        /// Not something the harness can work on; the finding says why.
+        case blocked(ScannedRepository)
+    }
+
+    public func scan(_ url: URL, harness: HarnessSettings = HarnessSettings(), baseline: Baseline? = nil) async -> ScannedRepository {
+        switch await locate(url) {
+        case .repo(let location): await scan(location, harness: harness, baseline: baseline)
+        case .blocked(let scanned): scanned
+        }
+    }
+
+    public func locate(_ url: URL) async -> Located {
         guard let top = await git(["rev-parse", "--show-toplevel"], in: url) else {
-            return blocked(root: nil, Finding(
+            return .blocked(blocked(root: nil, Finding(
                 check: "repo.git", severity: .blocker, title: "Not a git repository",
                 detail: "\(url.path) isn't inside a git repo. The harness tracks every change through git.",
-                suggestion: "Choose the repo's folder, or run `git init` and commit."))
+                suggestion: "Choose the repo's folder, or run `git init` and commit.")))
         }
         let root = URL(filePath: top, directoryHint: .isDirectory)
 
         guard await git(["rev-parse", "--verify", "--quiet", "HEAD^{commit}"], in: root) != nil else {
-            return blocked(root: root, Finding(
+            return .blocked(blocked(root: root, Finding(
                 check: "repo.git", severity: .blocker, title: "No commits yet",
                 detail: "The harness works from the default branch, and there's nothing on it.",
-                suggestion: "Commit what's there first."))
+                suggestion: "Commit what's there first.")))
         }
         guard let branch = await defaultBranch(in: root),
               let commit = await git(["rev-parse", "refs/heads/\(branch)"], in: root) else {
-            return blocked(root: root, Finding(
+            return .blocked(blocked(root: root, Finding(
                 check: "repo.git", severity: .blocker, title: "No default branch found",
                 detail: "Looked for the branch origin/HEAD points to, then main and master.",
-                suggestion: "Create a local main branch."))
+                suggestion: "Create a local main branch.")))
         }
+        return .repo(RepositoryLocation(root: root, identity: await identity(of: root, branch: branch), branch: branch, commit: commit))
+    }
 
-        var snapshot = RepositorySnapshot(branch: branch, commit: commit, files: await trackedFiles(on: branch, in: root))
+    /// - `baseline`: the latest baseline run, from the repo's ledger.
+    public func scan(_ location: RepositoryLocation, harness: HarnessSettings = HarnessSettings(),
+                     baseline: Baseline? = nil) async -> ScannedRepository {
+        let (root, branch) = (location.root, location.branch)
+        var snapshot = RepositorySnapshot(branch: branch, commit: location.commit, files: await trackedFiles(on: branch, in: root))
         for path in RepositorySnapshot.interestingPaths(of: snapshot.files) {
             snapshot.contents[path] = await git(["show", "\(branch):\(path)"], in: root, trim: false)
         }
@@ -48,9 +81,40 @@ public struct ReadinessScanner: Sendable {
         // --no-optional-locks: don't even refresh the index.
         snapshot.uncommittedChanges = (await git(["--no-optional-locks", "status", "--porcelain"], in: root) ?? "")
             .split(separator: "\n").count
+        // Only ask for simulators when something will need one: it takes a moment.
+        let mentionsSimulator = snapshot.contents.contains { $0.key.hasPrefix(".agentos/") && $0.value.contains("Simulator") }
+            || snapshot.contents.values.contains { $0.contains("iphoneos") || $0.contains("platform: iOS") }
+        if mentionsSimulator { snapshot.simulators = await Self.installedSimulators() }
 
-        return ScannedRepository(root: root, identity: await identity(of: root, branch: branch),
-                                 scan: ReadinessScan(branch: branch, commit: commit, findings: ReadinessRules.findings(for: snapshot)))
+        let assessment = ReadinessRules.assess(snapshot, harness: harness, baseline: baseline)
+        return ScannedRepository(root: root, identity: location.identity,
+                                 scan: ReadinessScan(branch: branch, commit: location.commit, findings: assessment.findings),
+                                 config: assessment.config, policy: assessment.policy, draft: assessment.draft?.json)
+    }
+
+    /// `xcrun simctl list devices available -j`, as runtime name → device names; nil if it can't be read.
+    static func installedSimulators() async -> [String: Set<String>]? {
+        guard let result = try? await ProcessRunner.run("/usr/bin/xcrun", ["simctl", "list", "devices", "available", "-j"],
+                                                        in: FileManager.default.temporaryDirectory, timeout: .seconds(60)),
+              result.status == 0 else { return nil }
+        return parseSimulators(result.output)
+    }
+
+    static func parseSimulators(_ json: String) -> [String: Set<String>]? {
+        struct List: Decodable {
+            struct Device: Decodable { let name: String }
+            let devices: [String: [Device]]
+        }
+        guard let list = try? JSONDecoder().decode(List.self, from: Data(json.utf8)) else { return nil }
+        var result: [String: Set<String>] = [:]
+        for (runtime, devices) in list.devices where !devices.isEmpty {
+            // com.apple.CoreSimulator.SimRuntime.iOS-18-6 → iOS 18.6
+            let id = runtime.split(separator: ".").last.map(String.init) ?? runtime
+            let parts = id.split(separator: "-")
+            let name = parts.count > 1 ? "\(parts[0]) " + parts.dropFirst().joined(separator: ".") : id
+            result[name, default: []].formUnion(devices.map(\.name))
+        }
+        return result
     }
 
     private func blocked(root: URL?, _ finding: Finding) -> ScannedRepository {

@@ -2,7 +2,7 @@ import Foundation
 
 /// Central rules (doc 01: repos declare, central policy decides). One profile in the mock.
 /// Production: policy as code in its own reviewed repo, several profiles, stricter-only overrides.
-public struct Policy: Sendable {
+public struct Policy: Sendable, Equatable {
     /// Attempts per leaf before a human must look (the Ralph-loop guardrail, doc 02 §7).
     public var maxAttempts = 3
     /// Merge-conflict reworks per leaf before a human (or a smarter planner) should order the work (doc 08 §5).

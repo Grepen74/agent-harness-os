@@ -6,6 +6,7 @@ import SwiftUI
 struct AgentOSHarnessApp: App {
     static let simulatorID = "simulator"
     @State private var model = SimulatorModel()
+    @State private var settings = SettingsModel()
 
     var body: some Scene {
         // One simulator; any number of repository windows (File → Open Repository…).
@@ -18,7 +19,11 @@ struct AgentOSHarnessApp: App {
         .commands { RepositoryCommands() }
 
         WindowGroup("Repository", for: URL.self) { $url in
-            if let url { RepositoryView(url: url) }
+            if let url { RepositoryView(url: url).environment(settings) }
+        }
+
+        Settings {
+            SettingsView().environment(settings)
         }
     }
 }

@@ -2,22 +2,31 @@ import AgentOSUI
 import AppKit
 import SwiftUI
 
-/// A window for one real repo: readiness findings and the repo's ledger.
+/// A window for one real repo: readiness findings, the effective policy and the repo's ledger.
 struct RepositoryView: View {
     @State private var model: RepositoryModel
+    @Environment(SettingsModel.self) private var settings
 
     init(url: URL) { _model = State(initialValue: RepositoryModel(url: url)) }
 
     var body: some View {
         HSplitView {
-            FindingsPane().frame(minWidth: 480, idealWidth: 640)
-            LedgerPane().frame(minWidth: 340, idealWidth: 420)
+            FindingsPane().frame(minWidth: 420, idealWidth: 560)
+            PolicyPane().frame(minWidth: 340, idealWidth: 420)
+            LedgerPane().frame(minWidth: 340, idealWidth: 400)
         }
         .environment(model.view)
-        .frame(minWidth: 900, minHeight: 600)
+        .frame(minWidth: 1200, minHeight: 600)
         .navigationTitle(model.name)
         .navigationSubtitle(model.url.path)
-        .task { await model.rescan() }
+        .task {
+            model.harness = settings.settings
+            await model.rescan()
+        }
+        .onChange(of: settings.settings) { _, new in
+            model.harness = new
+            Task { await model.rescan() }
+        }
         .toolbar {
             ToolbarItemGroup {
                 Button { model.revealRepository() } label: { Label("Show repo in Finder", systemImage: "folder") }
@@ -52,7 +61,7 @@ struct RepositoryCommands: Commands {
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
         panel.prompt = "Open"
-        panel.message = "Choose a git repo. The harness only reads it."
+        panel.message = "Choose a git repo. The harness never changes your checkout or its default branch."
         return panel.runModal() == .OK ? panel.url : nil
     }
 }

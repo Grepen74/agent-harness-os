@@ -5,22 +5,43 @@ import Foundation
 /// Pure: everything they need is in the snapshot, so they never touch the repo.
 /// Deliberately generous with findings: a gap found now is cheaper than one an agent finds halfway through a leaf.
 enum ReadinessRules {
-    static func findings(for repo: RepositorySnapshot) -> [Finding] {
+    /// Everything the scan concludes about a repo.
+    struct Assessment {
+        var findings: [Finding]
+        /// The repo's config, if it has a valid one.
+        var config: RepoConfig?
+        var policy: EffectivePolicy
+        /// A suggested config when the repo has none.
+        var draft: RepoConfig?
+    }
+
+    static func findings(for repo: RepositorySnapshot, harness: HarnessSettings = HarnessSettings(),
+                         baseline: Baseline? = nil) -> [Finding] {
+        assess(repo, harness: harness, baseline: baseline).findings
+    }
+
+    static func assess(_ repo: RepositorySnapshot, harness: HarnessSettings, baseline: Baseline?) -> Assessment {
         var findings = [Finding(
             check: "repo.branch", severity: .info,
             title: "Works from \(repo.branch) at \(repo.commit.prefix(8))",
             detail: "\(repo.files.count) tracked files. The scan reads this branch only, never your working copy."
         )]
         let build = BuildSystems(repo)
+        let config = RepoConfigFile(repo)
+        let policy = EffectivePolicy.resolve(harness: harness, repo: config.config, defaultBranch: repo.branch)
+        let draft = config.config == nil ? RepoConfigDraft.make(repo, build) : nil
         findings += build.findings
-        findings += config(repo, build)
+        findings += config.findings(repo, build, draft: draft)
+        findings += policy.problems
+        findings += self.baseline(repo, config.config, baseline)
+        findings += simulators(repo, config.config)
         findings += instructions(repo)
         findings += docs(repo)
-        findings += hotspots(repo, build)
+        findings += hotspots(repo, build, config.config)
         findings += tests(repo, build)
         findings += codeowners(repo)
         findings += checkout(repo)
-        return findings
+        return Assessment(findings: findings, config: config.config, policy: policy, draft: draft)
     }
 
     // MARK: Build and test
@@ -66,7 +87,7 @@ enum ReadinessRules {
                 findings.append(Finding(
                     check: "build.system", severity: .blocker, title: "No way to build found",
                     detail: "No Package.swift, Xcode project, XcodeGen or Tuist spec on the branch.",
-                    suggestion: "Name the build and test commands in .agentos/config."))
+                    suggestion: "Name the build and test commands in \(RepoConfig.path)."))
             }
         }
 
@@ -83,26 +104,124 @@ enum ReadinessRules {
         }
     }
 
-    static func config(_ repo: RepositorySnapshot, _ build: BuildSystems) -> [Finding] {
-        guard repo.contents[".agentos/config"] == nil else {
-            return [Finding(check: "config", severity: .info, title: "Repo config found: .agentos/config",
-                            detail: "Not validated yet: checking it against the harness limits comes with config support.")]
+    /// `.agentos/config.json` on the branch, parsed.
+    struct RepoConfigFile {
+        var config: RepoConfig?
+        var error: String?
+        var unknownKeys: [String] = []
+        /// Other files that look like a config attempt, e.g. `.agentos/config.yml`.
+        var unsupported: [String] = []
+
+        init(_ repo: RepositorySnapshot) {
+            unsupported = repo.contents.keys.filter {
+                $0.hasPrefix(".agentos/config") && $0 != RepoConfig.path
+            }.sorted()
+            guard let text = repo.contents[RepoConfig.path] else { return }
+            do {
+                (config, unknownKeys) = try RepoConfig.parse(text)
+            } catch {
+                self.error = "\(error)"
+            }
         }
-        let entryPoints = build.testEntryPoints
-        let found = switch entryPoints.count {
-        case 0: "No test entry point was found either."
-        case 1: "Found one test entry point: \(entryPoints[0])."
-        default: "Found \(entryPoints.count) test entry points, so the harness can't pick one: "
-            + entryPoints.joined(separator: ", ") + "."
+
+        func findings(_ repo: RepositorySnapshot, _ build: BuildSystems, draft: RepoConfig?) -> [Finding] {
+            var findings = unsupported.map { path in
+                Finding(check: "config", severity: .warning, title: "Unsupported config file: \(path)",
+                        detail: "The harness only reads \(RepoConfig.path) (JSON).",
+                        suggestion: "Move the settings to \(RepoConfig.path).")
+            }
+            if let error {
+                findings.append(Finding(check: "config", severity: .blocker, title: "\(RepoConfig.path) can't be read",
+                                        detail: "On \(repo.branch): \(error).", suggestion: "Fix the file and commit it."))
+                return findings
+            }
+            if config != nil {
+                findings.append(Finding(check: "config", severity: .info, title: "Repo config found: \(RepoConfig.path)"))
+                if !unknownKeys.isEmpty {
+                    findings.append(Finding(
+                        check: "config", severity: .warning, title: "Unknown keys in \(RepoConfig.path): \(unknownKeys.joined(separator: ", "))",
+                        detail: "They're ignored. Known keys: \(RepoConfig.knownKeys.sorted().joined(separator: ", ")).",
+                        suggestion: "Check for typos."))
+                }
+                return findings
+            }
+            let entryPoints = build.testEntryPoints
+            let found = switch entryPoints.count {
+            case 0: "No test entry point was found either."
+            case 1: "Found one test entry point: \(entryPoints[0])."
+            default: "Found \(entryPoints.count) test entry points, so the harness can't pick one: "
+                + entryPoints.joined(separator: ", ") + "."
+            }
+            findings.append(Finding(
+                check: "config", severity: .blocker, title: "No repo config",
+                detail: "The harness needs to know how to build and test before agents start. " + found,
+                suggestion: draft == nil
+                    ? "Add \(RepoConfig.path) on \(repo.branch) with the build and test commands."
+                    : "Check the draft in the Policy pane, then commit it as \(RepoConfig.path) on \(repo.branch)."))
+            return findings
         }
-        return [
-            Finding(check: "config", severity: .blocker, title: "No repo config",
-                    detail: "The harness needs to know how to build and test before agents start. " + found,
-                    suggestion: "Add .agentos/config on \(repo.branch) with the build and test commands."),
-            Finding(check: "baseline", severity: .info, title: "Baseline not checked",
-                    detail: "Tests must pass on \(repo.branch) before any work starts, or no leaf could ever land. "
-                        + "They're run once the test command is configured."),
-        ]
+    }
+
+    /// Tests must pass on the default branch before any work starts, or no leaf could ever land (doc 08).
+    static func baseline(_ repo: RepositorySnapshot, _ config: RepoConfig?, _ baseline: Baseline?) -> [Finding] {
+        guard config != nil else {
+            return [Finding(check: "baseline", severity: .info, title: "Baseline not checked",
+                            detail: "Tests must pass on \(repo.branch) before any work starts, or no leaf could ever land. "
+                                + "They're run once the test command is configured.")]
+        }
+        guard let baseline else {
+            return [Finding(check: "baseline", severity: .blocker, title: "Baseline not checked",
+                            detail: "Tests must pass on \(repo.branch) before any work starts, or no leaf could ever land.",
+                            suggestion: "Run the baseline.")]
+        }
+        guard baseline.commit == repo.commit else {
+            return [Finding(check: "baseline", severity: .blocker, title: "Baseline is out of date",
+                            detail: "Last run at \(baseline.commit.prefix(8)) (\(baseline.passed ? "passed" : "failed")); "
+                                + "\(repo.branch) is now at \(repo.commit.prefix(8)).",
+                            suggestion: "Run the baseline again.")]
+        }
+        guard baseline.passed else {
+            return [Finding(check: "baseline", severity: .blocker, title: "Baseline fails on \(repo.branch)",
+                            detail: baseline.summary + (baseline.log.map { "\nLog: \($0.path)" } ?? ""),
+                            suggestion: "Fix \(repo.branch) first, or correct the commands in \(RepoConfig.path).")]
+        }
+        return [Finding(check: "baseline", severity: .info, title: "Baseline passes on \(repo.branch)",
+                        detail: "\(baseline.summary), in \(baseline.seconds)s.")]
+    }
+
+    /// Commands naming a simulator that isn't installed fail only when they run; say so now.
+    static func simulators(_ repo: RepositorySnapshot, _ config: RepoConfig?) -> [Finding] {
+        guard let config, let installed = repo.simulators else { return [] }
+        return config.commands.compactMap { command -> Finding? in
+            guard let wanted = SimulatorDestination(command) else { return nil }
+            let found = installed.contains { runtime, names in
+                names.contains(wanted.name) && (wanted.os.map { runtime.hasSuffix(" \($0)") } ?? true)
+            }
+            guard !found else { return nil }
+            return Finding(check: "config.simulator", severity: .warning,
+                           title: "Simulator not installed: \(wanted.name)\(wanted.os.map { ", \($0)" } ?? "")",
+                           detail: "Named in: \(command)",
+                           suggestion: "Install it in Xcode (Settings → Components), or name an installed one.")
+        }
+    }
+
+    /// `name=` and `OS=` from an `xcodebuild -destination 'platform=iOS Simulator,…'`.
+    struct SimulatorDestination: Equatable {
+        var name: String
+        var os: String?
+
+        init?(_ command: String) {
+            guard let match = command.firstMatch(of: /-destination\s+['"]?([^'"]*Simulator[^'"]*)['"]?/) else { return nil }
+            var name: String?
+            for part in match.output.1.split(separator: ",") {
+                let pair = part.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+                guard pair.count == 2 else { continue }
+                if pair[0] == "name" { name = pair[1] }
+                if pair[0] == "OS", pair[1] != "latest" { os = pair[1] }
+            }
+            guard let name else { return nil }
+            self.name = name
+        }
     }
 
     // MARK: Files that steer agents (doc 01)
@@ -153,15 +272,21 @@ enum ReadinessRules {
     // MARK: Xcode
 
     /// A project file that every new source file changes is the biggest merge hotspot in an Xcode repo (doc 08 §8).
-    static func hotspots(_ repo: RepositorySnapshot, _ build: BuildSystems) -> [Finding] {
-        build.projects.compactMap { project in
+    static func hotspots(_ repo: RepositorySnapshot, _ build: BuildSystems, _ config: RepoConfig?) -> [Finding] {
+        let regenerates = config?.build?.prepare.map { $0.contains("xcodegen") || $0.contains("tuist generate") } ?? false
+        return build.projects.compactMap { project in
             guard let pbxproj = project.pbxproj else { return nil }
+            if let spec = project.spec, regenerates {
+                return Finding(check: "xcode.hotspot", severity: .info, title: "Generated project file is committed: \(pbxproj)",
+                               detail: "The config's prepare step regenerates it from \(spec), so agents don't edit it "
+                                   + "and conflicts on it are resolved by generating again.")
+            }
             if let spec = project.spec {
                 return Finding(
                     check: "xcode.hotspot", severity: .warning, title: "Generated project file is committed: \(pbxproj)",
                     detail: "It's generated from \(spec), but committed too, so adding a file changes it and "
                         + "parallel leaves conflict on it.",
-                    suggestion: "Stop committing it, or name the generate command as the prepare step in .agentos/config "
+                    suggestion: "Stop committing it, or name the generate command as the prepare step in \(RepoConfig.path) "
                         + "so the harness regenerates it instead of agents editing it.")
             }
             if repo.contents[pbxproj]?.contains("PBXFileSystemSynchronizedRootGroup") == true {

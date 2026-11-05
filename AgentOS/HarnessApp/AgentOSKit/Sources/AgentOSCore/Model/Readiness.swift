@@ -34,6 +34,24 @@ public struct Finding: Codable, Sendable, Hashable, Identifiable {
     }
 }
 
+/// The result of running the repo's checks on its default branch, before any agent work (doc 08: if tests
+/// already fail on main, no leaf could ever land).
+public struct Baseline: Codable, Sendable, Equatable {
+    public let commit: String
+    public let passed: Bool
+    public let summary: String
+    public let seconds: Int
+    public let log: StoredArtifact?
+
+    public init(commit: String, passed: Bool, summary: String, seconds: Int, log: StoredArtifact?) {
+        self.commit = commit
+        self.passed = passed
+        self.summary = summary
+        self.seconds = seconds
+        self.log = log
+    }
+}
+
 /// The result of one readiness scan of a repo's default branch.
 public struct ReadinessScan: Codable, Sendable, Equatable {
     /// The branch the harness works from, if one was found.
