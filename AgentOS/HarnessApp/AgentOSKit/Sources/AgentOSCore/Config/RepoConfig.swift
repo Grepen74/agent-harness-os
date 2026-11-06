@@ -63,8 +63,10 @@ public struct RepoConfig: Codable, Sendable, Equatable {
     public struct Agents: Codable, Sendable, Equatable {
         /// Tools denied on top of the harness's list.
         public var deny: [String]?
+        /// Models per role, chosen among the ones the harness offers.
+        public var models: AgentModels?
 
-        public init(deny: [String]? = nil) { self.deny = deny }
+        public init(deny: [String]? = nil, models: AgentModels? = nil) { self.deny = deny; self.models = models }
     }
 
     public var build: Build?

@@ -10,11 +10,32 @@ public struct Policy: Sendable, Equatable {
     /// The signals people may use (doc 05 §3). Production: the harness layer sets what each profile may offer
     /// and the repo config may only switch signals off (doc 04 §8); strict profiles leave out `go`.
     public var allowedSignals: Set<HarnessCommand>
+    /// Files no leaf may change, e.g. the agents' own instructions (doc 04 §8). Like .gitignore: a pattern
+    /// without "/" matches a file name in any folder, a trailing "/" means a folder, `*` is a wildcard.
+    public var protectedPaths: [String]
 
-    public init(maxAttempts: Int = 3, maxReworks: Int = 3, allowedSignals: Set<HarnessCommand> = Set(HarnessCommand.allCases)) {
+    public init(maxAttempts: Int = 3, maxReworks: Int = 3, allowedSignals: Set<HarnessCommand> = Set(HarnessCommand.allCases),
+                protectedPaths: [String] = []) {
         self.maxAttempts = maxAttempts
         self.maxReworks = maxReworks
         self.allowedSignals = allowedSignals
+        self.protectedPaths = protectedPaths
+    }
+
+    /// The changed files that touch a protected path.
+    public func protectedPathViolations(_ files: [String]) -> [String] {
+        files.filter { file in protectedPaths.contains { Self.matches(file, $0) } }
+    }
+
+    static func matches(_ file: String, _ pattern: String) -> Bool {
+        let components = file.split(separator: "/").map(String.init)
+        if pattern.hasSuffix("/") {
+            let folder = String(pattern.dropLast())
+            if folder.contains("/") { return file.hasPrefix(pattern) }
+            return components.dropLast().contains { fnmatch(folder, $0, 0) == 0 }
+        }
+        if pattern.contains("/") { return fnmatch(pattern, file, FNM_PATHNAME) == 0 }
+        return components.last.map { fnmatch(pattern, $0, 0) == 0 } ?? false
     }
 
     func escalationReason(for node: NodeState) -> String? {

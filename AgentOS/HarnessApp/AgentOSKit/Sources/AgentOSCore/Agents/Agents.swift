@@ -7,10 +7,27 @@ public struct AgentTask: Sendable {
     public let run: RunID
     /// The leaf's own working copy (its branch). The only place the agent may write.
     public let directory: URL
+    /// The leaf's own test folder, relative to `directory`: the test author writes only there, and nobody
+    /// changes it afterwards.
+    public let testFolder: String
+    /// The repo's layout and rules for agents (from the workspace).
+    public let context: String
     public let attempt: Int
     public let previousFailure: String?
     /// Simulation only: `sim:` labels on the ticket that make scripted agents misbehave on purpose.
     public let simulationHints: Set<String>
+
+    public init(spec: NodeSpec, run: RunID, directory: URL, testFolder: String, context: String = "", attempt: Int = 1,
+                previousFailure: String? = nil, simulationHints: Set<String> = []) {
+        self.spec = spec
+        self.run = run
+        self.directory = directory
+        self.testFolder = testFolder
+        self.context = context
+        self.attempt = attempt
+        self.previousFailure = previousFailure
+        self.simulationHints = simulationHints
+    }
 }
 
 /// A proposed child, before it becomes a Work Node.
@@ -32,6 +49,15 @@ public struct ChildProposal: Codable, Sendable {
 public struct AgentFailure: Error, CustomStringConvertible {
     public let description: String
     public init(_ description: String) { self.description = description }
+}
+
+/// An agent run changed repo state outside the harness's own branches (see `Workspace.userGitState`).
+public struct UserGitStateChanged: Error, CustomStringConvertible {
+    public let names: [String]
+    public var description: String {
+        "The agent changed your repo outside agentos/: \(names.joined(separator: ", ")). "
+            + "Check it (e.g. `git reflog`, `git config --list`); if you did this yourself while it ran, just retry."
+    }
 }
 
 /// Proposes how to split a node. Output is only a proposal: the harness turns it into nodes.

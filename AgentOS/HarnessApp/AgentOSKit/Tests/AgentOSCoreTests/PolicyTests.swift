@@ -57,6 +57,46 @@ struct PolicyTests {
         let policy = resolve(repo)
         #expect(policy.deniedTools == HarnessSettings.deniedTools + ["rm -rf"])
         #expect(policy.protectedPaths == HarnessSettings.protectedPaths + ["Secrets/"])
+        #expect(policy.policy.protectedPaths == policy.protectedPaths)
+    }
+
+    @Test func protectedPathsMatchLikeGitignore() {
+        let policy = Policy(protectedPaths: HarnessSettings.protectedPaths + ["Secrets/", "Config/*.plist"])
+        let files = ["AGENTS.md", "App/AGENTS.md", "CONTRIBUTING.md", ".agentos/config.json", ".github/copilot-instructions.md",
+                     "App/Secrets/key.txt", "Config/Info.plist", "Config/Sub/Info.plist", "App/Agents.swift", "docs/CODEOWNERS.md"]
+        #expect(policy.protectedPathViolations(files) == Array(files.prefix(7)))
+    }
+
+    @Test func agentModelsComeFromTheHarnessUnlessTheRepoPicksAnOfferedOne() {
+        var harness = HarnessSettings()
+        harness.offeredModels = ["model-a", "model-b"]
+        harness.models = AgentModels(decomposer: "model-a", implementer: "model-a")
+        var repo = config()
+        repo.agents = .init(models: AgentModels(testAuthor: "model-b", implementer: "model-x"))
+
+        let policy = EffectivePolicy.resolve(harness: harness, repo: repo, defaultBranch: "main")
+
+        #expect(policy.agentModels == AgentModels(decomposer: "model-a", testAuthor: "model-b", implementer: "model-a"))
+        #expect(policy.problems.map(\.title) == ["Repo config picks model model-x for implementation"])
+        let tests = policy.settings.first { $0.name == "Acceptance tests agent" }
+        #expect(tests?.value == "Copilot CLI · model-b")
+        #expect(tests?.source == .repo)
+        #expect(policy.settings.first { $0.name == "Implementation agent" }?.note == "repo asked for model-x: not offered")
+    }
+
+    @Test func leafBranchNamesAreReserved() {
+        #expect(resolve(config(landing: "agentos")).problems.count == 1)
+        #expect(resolve(config(landing: "agentos/leaf/x")).problems.count == 1)
+        #expect(resolve(config(landing: "agentos/landing")).problems.isEmpty)
+    }
+
+    @Test func settingsSavedByAnOlderVersionStillLoad() throws {
+        let old = #"{"landingBranch":"mine","maxAttempts":2,"maxReworks":3,"maxParallelAgents":2,"offeredSignals":["go"]}"#
+        let settings = try JSONDecoder().decode(HarnessSettings.self, from: Data(old.utf8))
+        #expect(settings.landingBranch == "mine")
+        #expect(settings.offeredSignals == [.go])
+        #expect(settings.offeredModels.isEmpty)
+        #expect(settings.models == AgentModels())
     }
 
     @Test func parsingReportsUnknownKeysAndMissingFields() throws {

@@ -14,6 +14,9 @@ let usage = """
            agentos scan [<repo path>]      readiness scan of a real repo (read-only)
            agentos baseline [<repo path>] [--config <file>]
                                            run the repo's checks on its default branch, outside your checkout
+           agentos work [<repo path>] [--ticket <title> [--description <text>] [--criterion <text>]... [--go]]
+                                           run Copilot agents on the repo's local tracker until nothing is left
+                                           to do without a human; proven work lands on agentos/main
     """
 
 let arguments = Array(CommandLine.arguments.dropFirst())
@@ -21,8 +24,27 @@ func option(_ name: String) -> String? {
     guard let index = arguments.firstIndex(of: name), index + 1 < arguments.count else { return nil }
     return arguments[index + 1]
 }
+func options(_ name: String) -> [String] {
+    arguments.indices.filter { arguments[$0] == name && $0 + 1 < arguments.count }.map { arguments[$0 + 1] }
+}
+/// The first argument after the command that is neither an option nor an option's value.
+func positional() -> String? {
+    let withValues: Set<String> = ["--dir", "--agents", "--config", "--ticket", "--description", "--criterion"]
+    var index = 1
+    while index < arguments.count {
+        if withValues.contains(arguments[index]) { index += 2; continue }
+        if !arguments[index].hasPrefix("--") { return arguments[index] }
+        index += 1
+    }
+    return nil
+}
 let command = arguments.first ?? "demo"
 let directory = URL(filePath: option("--dir") ?? FileManager.default.temporaryDirectory.appending(path: "agentos-demo").path)
+
+/// An absolute folder URL: git runs with it as its working directory, where a relative path doesn't resolve.
+func repoURL(_ path: String) -> URL {
+    URL(filePath: path, directoryHint: .isDirectory, relativeTo: .currentDirectory()).absoluteURL.standardized
+}
 
 func makeTeam() -> AgentTeam {
     guard option("--agents") == "copilot" else { return .scripted }
@@ -119,7 +141,7 @@ case "tree":
 
 case "scan":
     let path = arguments.dropFirst().first { !$0.hasPrefix("--") } ?? FileManager.default.currentDirectoryPath
-    let url = URL(filePath: path, directoryHint: .isDirectory)
+    let url = repoURL(path)
     let scanner = ReadinessScanner()
     let result: ScannedRepository
     switch await scanner.locate(url) {
@@ -147,7 +169,7 @@ case "baseline":
     let path = arguments.dropFirst().first { !$0.hasPrefix("--") && $0 != option("--config") }
         ?? FileManager.default.currentDirectoryPath
     let scanner = ReadinessScanner()
-    guard case .repo(let location) = await scanner.locate(URL(filePath: path, directoryHint: .isDirectory)) else {
+    guard case .repo(let location) = await scanner.locate(repoURL(path)) else {
         print("Not a git repo with a default branch: \(path)")
         exit(1)
     }
@@ -180,6 +202,50 @@ case "baseline":
         print("Trial config: not recorded.")
     }
     exit(baseline.passed ? 0 : 1)
+
+case "work":
+    // Uses the default harness settings (the app's Settings window doesn't apply here).
+    let path = positional() ?? FileManager.default.currentDirectoryPath
+    let scanner = ReadinessScanner()
+    guard case .repo(let location) = await scanner.locate(repoURL(path)) else {
+        print("Not a git repo with a default branch: \(path)")
+        exit(1)
+    }
+    let ledger = try Ledger(store: RepositoryStorage.ledgerStore(for: location.identity))
+    let scanned = await scanner.scan(location, baseline: await ledger.workingState().baseline)
+    try await ledger.record(scanned.scan)
+    let blockers = RepositorySession.blockers(scanned.scan)
+    guard blockers.isEmpty, let config = scanned.config else {
+        print("Not ready for agents (run `agentos scan` for details):")
+        for blocker in blockers { print("  ⛔️ \(blocker)") }
+        exit(1)
+    }
+    guard let copilot = CopilotCLI.locate() else {
+        print("Copilot CLI not found.")
+        exit(1)
+    }
+    let session = try RepositorySession(
+        location: location, storage: RepositoryStorage.directory(for: location.identity), ledger: ledger, config: config,
+        policy: scanned.policy, team: RepositorySession.copilotTeam(executable: copilot, policy: scanned.policy))
+    for note in await session.reconciler.recoverAfterRestart() { print("  · \(note)") }
+    let you = Participant.human(NSUserName())
+    if let title = option("--ticket") {
+        let ticket = await session.tracker.createTicket(
+            title: title, description: option("--description") ?? title, acceptanceCriteria: options("--criterion"), by: you)
+        print("Created \(ticket.key): \(title)")
+        if arguments.contains("--go") { await session.tracker.addLabel(HarnessCommand.go.label, to: ticket.key, by: you) }
+    }
+    say("Working on \(location.root.lastPathComponent); landing on \(scanned.policy.landingBranch)")
+    await session.runUntilIdle { report in
+        for action in report.actions { print("  · \(action)") }
+        if let stop = report.safeStop { print("  ⛔️ \(stop)") }
+    }
+    let state = await ledger.workingState()
+    for ticket in await session.tracker.tickets() {
+        let phase = state.node(forTicket: ticket.key).map { " [\($0.phase.rawValue)]" } ?? ""
+        print("  \(ticket.key) \(ticket.status)\(phase): \(ticket.title)")
+        if let last = ticket.comments.last { print("     💬 " + last.text.replacingOccurrences(of: "\n", with: "\n        ")) }
+    }
 
 case "verify":
     let report = await (try Simulation(directory: directory)).ledger.verifyChain()

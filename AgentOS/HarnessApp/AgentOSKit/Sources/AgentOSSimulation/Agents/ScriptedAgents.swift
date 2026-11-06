@@ -94,7 +94,7 @@ public struct ScriptedTestAuthor: TestAuthor {
             }
             return "@Test(\(swiftLiteral(criterion)))\nfunc criterion\(index + 1)() {\n\(expectations.joined(separator: "\n"))\n}"
         }
-        let url = task.directory.appending(path: "Tests/\(target)/\(target).swift")
+        let url = task.directory.appending(path: "\(task.testFolder)/\(target).swift")
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try """
         // Acceptance tests for \(task.spec.id): \(task.spec.title)

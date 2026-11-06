@@ -21,7 +21,7 @@ final class SettingsModel {
 
 struct SettingsView: View {
     @Environment(SettingsModel.self) private var model
-
+    @State private var offeredModels = ""
     var body: some View {
         @Bindable var model = model
         Form {
@@ -44,6 +44,28 @@ struct SettingsView: View {
                         set: { if $0 { model.settings.offeredSignals.insert(command) } else { model.settings.offeredSignals.remove(command) } }))
                 }
             }
+            Section {
+                TextField("Offered models", text: $offeredModels)
+                    .onSubmit {
+                        model.settings.offeredModels = offeredModels.split(separator: ",")
+                            .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+                    }
+                    .onAppear { offeredModels = model.settings.offeredModels.joined(separator: ", ") }
+                    .onChange(of: model.settings.offeredModels) { _, new in offeredModels = new.joined(separator: ", ") }
+                ForEach(AgentModels.roles, id: \.self) { role in
+                    Picker("\(role.job) agent", selection: Binding(
+                        get: { model.settings.models[role] ?? "" },
+                        set: { model.settings.models[role] = $0.isEmpty ? nil : $0 })) {
+                        Text("Default model").tag("")
+                        ForEach(modelChoices(for: role), id: \.self) { Text($0).tag($0) }
+                    }
+                }
+            } header: {
+                Text("Agents: \(HarnessSettings.agentProvider)")
+            } footer: {
+                Text("Comma-separated model names as the agent CLI knows them (`copilot --model`); press Return to apply. A repo may pick a model per role only among these.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section("Always") {
                 LabeledContent("Denied agent tools", value: HarnessSettings.deniedTools.joined(separator: ", "))
                 LabeledContent("Protected paths", value: HarnessSettings.protectedPaths.joined(separator: ", "))
@@ -52,5 +74,12 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .frame(width: 460)
+    }
+
+    /// The offered models, plus the role's current pick if it's no longer offered (so the picker can show it).
+    private func modelChoices(for role: AgentRole) -> [String] {
+        let offered = model.settings.offeredModels
+        guard let current = model.settings.models[role], !offered.contains(current) else { return offered }
+        return offered + [current]
     }
 }

@@ -2,8 +2,9 @@
 
 A Mac app for the agent harness. It has two kinds of window:
 - the **simulator** (below), and
-- **repository windows** for real repos (File → Open Repository…). Today these run the read-only
-  readiness scan, show the effective policy and run the baseline; letting agents work there comes next
+- **repository windows** for real repos (File → Open Repository…). These run the read-only readiness
+  scan, show the effective policy, run the baseline and, once nothing blocks it, let Copilot agents work
+  on tickets from a local tracker, landing proven work on the local branch `agentos/main`
   ([design](docs/real-repo-mode.md)).
 
 ## The simulator
@@ -29,7 +30,7 @@ It simulates the whole loop:
 |---|---|
 | `AgentOSHarness.xcodeproj` | The Mac app. Generated from `project.yml` with [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`xcodegen generate`); the generated project is committed. |
 | `App/` | The app target: windows, toolbar, the other team's system, `SimulatorModel` (runs the simulation behind the shared panes) and `RepositoryModel` (a real repo). |
-| [`docs/`](docs) | App design docs, e.g. [running the harness on a real repo](docs/real-repo-mode.md) (proposal). |
+| [`docs/`](docs) | App design docs, e.g. [running the harness on a real repo](docs/real-repo-mode.md). |
 | [`AgentOSKit/`](AgentOSKit) | The harness as a Swift package (Core, Adapters, Simulation, UI), with a terminal demo and tests. See its [README](AgentOSKit/README.md) for how it works and where each concept lives in code. |
 
 ## Run it
@@ -64,6 +65,14 @@ yourself. The harness never changes your checkout or `main`, and never edits the
 With a config, **Run baseline** runs its checks on a clean export of `main`, outside your checkout, and
 records the result and log in the ledger. Agents may only start once the baseline passes at `main`'s
 current commit. To try a config before committing it: `swift run agentos baseline <path> --config <file>`.
+
+Once nothing blocks agents (the toolbar says why if something does), work happens like in the simulator:
+create a ticket in the **tracker** pane, add `harness:breakdown`, `harness:build` or `harness:go`, then
+**Step** or **Run**. The tracker is private to this Mac (stored with the ledger). Each leaf is built by
+Copilot CLI in its own git worktree outside the repo; its acceptance tests go in the config's `leafTests`
+folder. Proven work lands on `agentos/main`; review, merge and push it yourself. **Settings** picks the
+models offered to agents and a default per role; a repo may choose among them in `agents.models`. From the
+terminal: `swift run agentos work <path> --ticket "<title>" --criterion "<criterion>" --go`.
 
 ## Try this in the app
 

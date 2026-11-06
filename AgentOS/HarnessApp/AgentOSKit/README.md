@@ -6,11 +6,11 @@ simple as the concepts allow. Comments marked *Production:* say what a real syst
 | Target | What |
 |---|---|
 | `AgentOSCore` (library) | The harness: model, ledger, reconciler, policy, and the protocols for everything outside it (tracker adapter, workspace, check runner, agents, ledger/ticket/artifact stores). No UI, files or processes. |
-| `AgentOSAdapters` (library) | Real adapters: file stores, the local tracker, the SwiftPM and config-driven check runners, the baseline runner, Copilot CLI agents, and the read-only readiness scan of a real repo. |
+| `AgentOSAdapters` (library) | Real adapters: file stores, the local tracker, the SwiftPM and config-driven check runners, the baseline runner, Copilot CLI agents (denied tools, a model per role), the read-only readiness scan, and the real-repo workspace and session (worktrees outside the repo, landing on `agentos/main`). |
 | `AgentOSSimulation` (library) | The simulated world: a generated git monorepo, the other team's system, scripted agents, demo tickets. `Simulation` wires everything together. |
 | `AgentOSUI` (library) | The SwiftUI panes (tracker, work tree, ledger, readiness findings, policy) and `HarnessViewModel`, which any backend can drive. |
-| `agentos` (executable) | Runs the whole demo in the terminal, with the human steps scripted; scans a real repo and runs its baseline. |
-| `AgentOS…Tests` | Ledger rules and policy resolution (Core), file stores, the readiness scan and the check runners (Adapters), and the flows with a fast fake check runner (Simulation), in Swift Testing. |
+| `agentos` (executable) | Runs the whole demo in the terminal, with the human steps scripted; scans a real repo, runs its baseline, and runs Copilot agents on it (`work`). |
+| `AgentOS…Tests` | Ledger rules and policy resolution (Core), file stores, the readiness scan, the check runners and the repository workspace with fake agents (Adapters), and the flows with a fast fake check runner (Simulation), in Swift Testing. |
 
 Dependencies point one way: Adapters, Simulation and UI depend on Core, never the reverse. So the
 harness can run on a real repo by swapping adapters, without touching the reconciler.
@@ -20,6 +20,7 @@ swift run agentos demo [--agents scripted|copilot] [--dir <path>] [--keep]
 swift run agentos tree|verify --dir <path>
 swift run agentos scan <repo path>   # readiness scan of a real repo; exits 1 while there are blockers
 swift run agentos baseline <repo path> [--config <file>]   # the repo's checks on main; --config tries one, unrecorded
+swift run agentos work <repo path> [--ticket <title> --criterion <text> --go]   # Copilot agents on the local tracker; lands on agentos/main
 swift test
 ```
 
@@ -71,6 +72,8 @@ restart.
 | Readiness scan of a real repo: read-only, findings recorded in the ledger (01) | `Model/Readiness.swift`, `Ledger.record(_:)`, `AgentOSAdapters/Readiness/`, `AgentOSUI/FindingsPane.swift` |
 | Two policy layers: harness limits, repo config may only tighten (04 §8) | `Config/` (`RepoConfig`, `HarnessSettings`, `EffectivePolicy`), `AgentOSUI/PolicyPane.swift` |
 | Baseline: checks pass on main before any work (08) | `Baseline` in `Model/Readiness.swift`, `AgentOSAdapters/Checks/CommandCheckRunner.swift` (`BaselineRunner`) |
+| Real repo: worktrees outside the repo, leaf tests in its own folder, protected paths, landing by update-ref (08) | `AgentOSAdapters/Workspace/` (`RepositoryWorkspace`, `RepositorySession`), `Policy.protectedPathViolations`, `Reconciler.protectedTestsViolation` |
+| Agents follow the policy layers: denied tools, a model per role (04 §8) | `Config/AgentModels.swift`, `EffectivePolicy.agentModels`, `AgentOSAdapters/Agents/CopilotAgents.swift` (`denyPatterns`) |
 
 ## Deliberate simplifications
 

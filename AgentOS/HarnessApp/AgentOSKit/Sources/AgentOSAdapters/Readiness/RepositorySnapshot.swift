@@ -16,6 +16,8 @@ struct RepositorySnapshot: Sendable {
     var uncommittedChanges = 0
     /// Installed simulators by runtime, e.g. `"iOS 18.6": ["iPhone 14"]`; nil if not looked up.
     var simulators: [String: Set<String>]?
+    /// When `branch` is a remote-tracking branch (`origin/…`): when it was last updated by a fetch or the clone.
+    var lastFetched: Date?
 
     private static let vendored: Set<String> = [".build", "Pods", "Carthage", "DerivedData", "SourcePackages", "node_modules"]
 

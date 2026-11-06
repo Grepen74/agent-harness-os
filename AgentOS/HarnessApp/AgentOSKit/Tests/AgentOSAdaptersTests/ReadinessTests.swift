@@ -18,7 +18,7 @@ struct ReadinessTests {
         "AGENTS.md": "Build with `swift build`, test with `swift test`.",
         "CONTRIBUTING.md": "## Definition of Done\nTests pass.",
         ".github/CODEOWNERS": "* @team",
-        ".agentos/config.json": #"{"test": {"command": "swift test"}}"#,
+        ".agentos/config.json": #"{"test": {"command": "swift test", "only": "--filter {suite}"}, "leafTests": {"target": "AppTests", "folder": "Tests/AppTests"}}"#,
         "Package.swift": "targets: [.target(name: \"App\"), .testTarget(name: \"AppTests\")]",
     ]
 
@@ -91,8 +91,11 @@ struct ReadinessTests {
             var contents = wellPrepared
             contents[".agentos/config.json"] = nil
             return ReadinessRules.findings(for: snapshot(contents.merging(files) { $1 }), baseline: passed)
-                .filter { $0.check.hasPrefix("config") && $0.severity != .info }.map(\.title)
+                .filter { $0.check.hasPrefix("config") && $0.check != "config.leafTests" && $0.severity != .info }.map(\.title)
         }
+        let leafTests = ReadinessRules.findings(for: snapshot(wellPrepared.merging(
+            [".agentos/config.json": #"{"test": {"command": "x"}}"#]) { $1 }), baseline: passed).filter { $0.check == "config.leafTests" }
+        #expect(leafTests.map(\.severity) == [.blocker, .warning])
         #expect(configFindings([".agentos/config.json": "{"]) == [".agentos/config.json can't be read"])
         #expect(configFindings([".agentos/config.json": #"{"test": {"command": "x"}, "limts": {}}"#])
             == ["Unknown keys in .agentos/config.json: limts"])
@@ -215,6 +218,27 @@ struct ReadinessTests {
 
         let rescanned = await ReadinessScanner().scan(location, baseline: baseline)
         #expect(rescanned.scan.findings.contains { $0.title == "Baseline passes on main" })
+    }
+
+    @Test("Without a local copy of the remote's default branch, the scan reads origin/<branch> and says so")
+    func aRemoteDefaultBranchWithoutALocalCopyIsReadFromTheRemote() async throws {
+        let repo = try await makeRepo(["README.md": "# App"])
+        for arguments in [["update-ref", "refs/remotes/origin/develop", "HEAD"],
+                          ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/develop"]] {
+            _ = try await ProcessRunner.run("/usr/bin/env", ["git"] + arguments, in: repo)
+        }
+        // Not the stale local main, and nothing created in your repo.
+        let result = await ReadinessScanner().scan(repo)
+        #expect(result.scan.branch == "origin/develop")
+        let finding = try #require(result.scan.findings.first { $0.title.hasPrefix("Reads the remote's develop as of your last fetch") })
+        #expect(finding.title.contains("last fetched"), "has a fetch date from the reflog: \(finding.title)")
+        let branches = try await ProcessRunner.run("/usr/bin/env", ["git", "branch", "--list", "develop"], in: repo).output
+        #expect(branches.isEmpty)
+
+        _ = try await ProcessRunner.run("/usr/bin/env", ["git", "branch", "develop", "origin/develop"], in: repo)
+        let local = await ReadinessScanner().scan(repo)
+        #expect(local.scan.branch == "develop")
+        #expect(local.identity == result.identity, "same repo either way")
     }
 
     private func makeRepo(_ files: [String: String]) async throws -> URL {

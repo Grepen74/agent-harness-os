@@ -8,8 +8,11 @@ public enum RebaseResult: Sendable {
 /// The product's code as the reconciler sees it (doc 08): `main`, one branch and working copy per leaf,
 /// and a landing step that moves `main` forward. The reconciler never runs git itself.
 ///
-/// Adapters: `SimulationWorkspace` (a git monorepo the simulator creates). Planned: a workspace on an
-/// existing repo, with worktrees outside it and landing on a local branch.
+/// "`main`" here means the branch work is based on and lands on: `main` in the simulator, the landing
+/// branch (`agentos/main`) on a real repo.
+///
+/// Adapters: `SimulationWorkspace` (a git monorepo the simulator creates) and `RepositoryWorkspace` (an
+/// existing repo, with worktrees outside it and landing on a local branch).
 public protocol Workspace: Sendable {
     /// Makes sure the repository exists and is usable. Called at the start of every round.
     func prepare() async throws
@@ -24,8 +27,14 @@ public protocol Workspace: Sendable {
     @discardableResult
     func commitAll(in directory: URL, message: String, author: String) async throws -> String?
     func head(of directory: URL) async throws -> String
-    /// Files under Tests/ that this branch changed since it left `main`.
-    func changedTestFiles(in directory: URL) async throws -> [String]
+    /// Every file this branch changed since it left `main`, relative to the repo's top folder.
+    func changedFiles(in directory: URL) async throws -> [String]
+    /// Where every node's acceptance tests live, relative to the repo's top folder, ending in "/".
+    var testArea: String { get }
+    /// The folder with this node's own acceptance tests (inside `testArea`, no trailing "/").
+    func testFolder(for spec: NodeSpec) -> String
+    /// What agents need to know about the repo: its layout, how to build and test, what not to do.
+    var agentContext: String { get }
 
     /// Replays the branch on top of the latest `main`. On conflict, everything is put back as it was.
     func rebaseOntoMain(_ directory: URL) async throws -> RebaseResult
@@ -39,4 +48,12 @@ public protocol Workspace: Sendable {
     func existingComponents() -> [String]
     /// Whatever must happen before building, e.g. generating a manifest or project file.
     func prepareBuild(in directory: URL) async throws
+
+    /// A fingerprint of the repo state that belongs to you, not the harness: refs outside its own branches, git
+    /// config, hooks. An agent run must leave it unchanged. Empty when the harness owns the whole repo.
+    func userGitState() async throws -> [String]
+}
+
+extension Workspace {
+    public func userGitState() async throws -> [String] { [] }
 }

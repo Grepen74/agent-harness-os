@@ -325,11 +325,15 @@ public actor Reconciler {
         let directory = try await workspace.createWorktree(for: node.id)
         let task = await makeTask(node, run: run, in: directory)
         do {
+            let before = try await workspace.userGitState()
             try await team.testAuthor.writeAcceptanceTests(task)
-            let outside = try await workspace.changedTestFiles(in: directory).filter { !$0.hasPrefix("Tests/\(node.spec.testTarget)/") }
+            try await checkUserGitState(before)
+            let own = workspace.testFolder(for: node.spec) + "/"
             let changed = try await workspace.commitAll(in: directory, message: "\(node.spec.id): acceptance tests", author: run)
+            // After the commit, so the check sees everything the author wrote (changes are compared commit to commit).
+            let outside = try await workspace.changedFiles(in: directory).filter { !$0.hasPrefix(own) }
             guard outside.isEmpty, changed != nil else {
-                throw AgentFailure(changed == nil ? "no tests written" : "wrote outside its own test folder: \(outside.joined(separator: ", "))")
+                throw AgentFailure(changed == nil ? "no tests written" : "wrote outside its own test folder \(own): \(outside.joined(separator: ", "))")
             }
         } catch {
             try await write(node.id, by: author, [
@@ -352,12 +356,21 @@ public actor Reconciler {
         let directory = workspace.worktree(for: node.id)
         do {
             try await workspace.prepareBuild(in: directory)
+            let before = try await workspace.userGitState()
             try await team.implementer.implement(await makeTask(node, run: run, in: directory))
+            try await checkUserGitState(before)
             guard let commit = try await workspace.commitAll(in: directory, message: "\(node.spec.id): \(node.spec.title)", author: run)
             else { throw AgentFailure("submitted no changes") }
             try await write(node.id, by: author, [
                 .runFinished(run: run, outcome: "submitted"), .changeSubmitted(run: run, commit: commit), .phaseChanged(to: .checking)])
             return "\(node.ticket) implemented by \(run) → Checking"
+        } catch let error as UserGitStateChanged {
+            // Not something another attempt fixes: a human checks what happened to their repo first.
+            try await write(node.id, by: author, [
+                .runFinished(run: run, outcome: "failed"), .attemptFailed(summary: "\(error)"), .phaseChanged(to: .ready),
+                .flagSet(.escalated, reason: "\(error)")])
+            await tracker.comment(on: node.ticket, "⚠️ Needs a human: \(error)\nWhen checked, add label harness:retry.")
+            return "\(node.ticket) escalated: \(error)"
         } catch {
             try await write(node.id, by: author, [
                 .runFinished(run: run, outcome: "failed"), .attemptFailed(summary: "\(error)"), .phaseChanged(to: .ready)])
@@ -469,25 +482,40 @@ public actor Reconciler {
         try await team.decomposer.proposeChildren(of: spec, existingComponents: workspace.existingComponents())
     }
 
+    /// Agents may only change their own worktree and branch. Anything else in your repo (fetched or new refs,
+    /// stashes, config, hooks) means the agent got around its denied tools.
+    private func checkUserGitState(_ before: [String]) async throws {
+        let after = try await workspace.userGitState()
+        guard after != before else { return }
+        let changed = Set(before).symmetricDifference(after).compactMap { $0.split(separator: " ").last.map(String.init) }
+        throw UserGitStateChanged(names: Array(Set(changed)).sorted())
+    }
+
     private func makeTask(_ node: NodeState, run: RunID, in directory: URL) async -> AgentTask {
         let labels = await tracker.ticket(node.ticket)?.labels.map(\.name) ?? []
         return AgentTask(
-            spec: node.spec, run: run, directory: directory, attempt: node.failedAttempts + 1,
+            spec: node.spec, run: run, directory: directory, testFolder: workspace.testFolder(for: node.spec),
+            context: workspace.agentContext, attempt: node.failedAttempts + 1,
             previousFailure: node.recentFailures.last, simulationHints: Set(labels.filter { $0.hasPrefix("sim:") }))
     }
 
     private func testsDigest(_ node: NodeState, in directory: URL) -> String {
-        Hashing.digest(of: directory.appending(path: "Tests/\(node.spec.testTarget)"))
+        Hashing.digest(of: directory.appending(path: workspace.testFolder(for: node.spec)))
     }
 
     /// Acceptance tests are locked: the node's own must match their fingerprint, and the branch may not touch
-    /// any other node's tests (the implementer must never "fix" a conflict by editing someone else's tests).
+    /// any other node's tests (the implementer must never "fix" a conflict by editing someone else's tests),
+    /// nor any protected path (e.g. the agents' own instructions).
     private func protectedTestsViolation(_ node: NodeState, in directory: URL) async throws -> String? {
         if testsDigest(node, in: directory) != node.testsDigest {
             return "Acceptance tests were changed after they were fixed (not allowed)"
         }
-        let others = try await workspace.changedTestFiles(in: directory).filter { !$0.hasPrefix("Tests/\(node.spec.testTarget)/") }
-        return others.isEmpty ? nil : "Changed other nodes' tests (not allowed): \(others.joined(separator: ", "))"
+        let changed = try await workspace.changedFiles(in: directory)
+        let own = workspace.testFolder(for: node.spec) + "/"
+        let others = changed.filter { $0.hasPrefix(workspace.testArea) && !$0.hasPrefix(own) }
+        if !others.isEmpty { return "Changed other nodes' tests (not allowed): \(others.joined(separator: ", "))" }
+        let protected = policy.protectedPathViolations(changed)
+        return protected.isEmpty ? nil : "Changed protected files (not allowed): \(protected.joined(separator: ", "))"
     }
 
     private func makeEvidence(_ node: NodeState, check: String, output: CheckOutput, builtBy: RunID, checkedBy: RunID,

@@ -4,9 +4,9 @@ import AgentOSUI
 import AppKit
 import Observation
 
-/// The harness on one real repo: the read-only readiness scan, the repo's config and effective policy, and the
-/// baseline, all recorded in the repo's own ledger (outside the repo, see `RepositoryStorage`).
-/// Tickets and agents come in later phases.
+/// The harness on one real repo: the read-only readiness scan, the repo's config and effective policy, the
+/// baseline, the local tracker and, once nothing blocks it, Copilot agents working through a `RepositorySession`.
+/// Everything is recorded in the repo's own ledger, outside the repo (see `RepositoryStorage`).
 @Observable @MainActor
 final class RepositoryModel: HarnessActions {
     let url: URL
@@ -15,18 +15,31 @@ final class RepositoryModel: HarnessActions {
     private(set) var storage: URL?
     /// The harness's limits (Settings window); a change means a rescan.
     var harness = HarnessSettings()
+    /// Why agents can't start: the scan's blockers, or a missing Copilot CLI. Empty when a session is ready.
+    private(set) var startBlockers: [String] = ["Scanning…"]
+    var isRunning = false
+    var isBusy = false
+    /// Shown only for rounds that take noticeable time.
+    var showsActivity = false
+    var canWork: Bool { session != nil }
     @ObservationIgnored private var location: RepositoryLocation?
     /// Settings changed while a scan was running.
     @ObservationIgnored private var rescanAgain = false
     @ObservationIgnored private var ledger: Ledger?
+    @ObservationIgnored private var tracker: LocalTracker?
+    @ObservationIgnored private var session: RepositorySession?
+    @ObservationIgnored private var recovered = false
+    @ObservationIgnored private var runTask: Task<Void, Never>?
     @ObservationIgnored private let scanner = ReadinessScanner()
 
     init(url: URL) {
         self.url = url
         view.actions = self
+        view.you = NSUserName()
     }
 
     var name: String { (root ?? url).lastPathComponent }
+    private var human: Participant { .human(view.you.isEmpty ? NSUserName() : view.you) }
 
     func rescan() async {
         guard !view.isScanning else {
@@ -48,6 +61,7 @@ final class RepositoryModel: HarnessActions {
         case .blocked(let result):
             root = result.root
             show(result)
+            startBlockers = RepositorySession.blockers(result.scan)
             log("Scanned \(url.path): \(result.scan.summary). Not recorded: no repo to record it for.")
             return
         case .repo(let found):
@@ -61,11 +75,86 @@ final class RepositoryModel: HarnessActions {
             show(result)
             let recorded = try await ledger.record(result.scan)
             log("Scanned: \(result.scan.summary). " + (recorded ? "Recorded in the ledger." : "Same as the last recorded scan."))
-            await refreshLedger()
+            await startSession(result, at: location, ledger: ledger)
+            await refresh()
         } catch {
             log("⛔️ Couldn't record the scan: \(error)")
         }
     }
+
+    /// A new session for every scan, so agents always work with the current config and policy. A running round
+    /// finishes first; Run continues with the new session.
+    private func startSession(_ result: ScannedRepository, at location: RepositoryLocation, ledger: Ledger) async {
+        let wasRunning = isRunning
+        await stopAndWait()
+        session = nil
+        guard let storage else { return }
+        var blockers = RepositorySession.blockers(result.scan)
+        let copilot = CopilotCLI.locate()
+        if copilot == nil { blockers.append("Copilot CLI not found") }
+        guard blockers.isEmpty, let config = result.config, let copilot else {
+            startBlockers = blockers
+            return
+        }
+        do {
+            session = try RepositorySession(
+                location: location, storage: storage, ledger: ledger, config: config, policy: result.policy,
+                team: RepositorySession.copilotTeam(executable: copilot, policy: result.policy), tracker: tracker)
+            startBlockers = []
+        } catch {
+            startBlockers = ["Couldn't prepare the workspace: \(error)"]
+            return
+        }
+        if !recovered, let session {
+            recovered = true
+            let notes = await session.reconciler.recoverAfterRestart()
+            if !notes.isEmpty { view.activity.insert(contentsOf: notes, at: 0) }
+        }
+        if wasRunning { setRunning(true) }
+    }
+
+    // MARK: Agents
+
+    /// One reconciler round.
+    func step() async {
+        guard !isBusy, let session else { return }
+        isBusy = true
+        let indicator = Task {
+            try? await Task.sleep(for: .milliseconds(400))
+            if !Task.isCancelled { showsActivity = true }
+        }
+        let report = await session.step()
+        indicator.cancel()
+        showsActivity = false
+        isBusy = false
+        if let stop = report.safeStop {
+            log("⛔️ \(stop)")
+            setRunning(false)
+        }
+        for action in report.actions { log(action) }
+        await refresh()
+    }
+
+    /// Run = a round about every 2 seconds while the window is open.
+    func setRunning(_ running: Bool) {
+        isRunning = running && session != nil
+        runTask?.cancel()
+        guard isRunning else { return }
+        runTask = Task {
+            while !Task.isCancelled {
+                await step()
+                try? await Task.sleep(for: .seconds(2))
+            }
+        }
+    }
+
+    /// Stops Run and waits for a round already under way.
+    func stopAndWait() async {
+        setRunning(false)
+        while isBusy { try? await Task.sleep(for: .milliseconds(50)) }
+    }
+
+    // MARK: Baseline and ledger
 
     func runBaseline() async {
         guard !view.isRunningBaseline, let location, let config = view.config, let storage, let ledger else { return }
@@ -96,8 +185,10 @@ final class RepositoryModel: HarnessActions {
     private func openLedger(_ identity: String) throws -> Ledger {
         if let ledger { return ledger }
         let ledger = try Ledger(store: RepositoryStorage.ledgerStore(for: identity))
+        let storage = RepositoryStorage.directory(for: identity)
         self.ledger = ledger
-        storage = RepositoryStorage.directory(for: identity)
+        self.storage = storage
+        tracker = RepositorySession.tracker(storage: storage)
         return ledger
     }
 
@@ -109,7 +200,8 @@ final class RepositoryModel: HarnessActions {
         view.configDraft = result.draft
     }
 
-    private func refreshLedger() async {
+    private func refresh() async {
+        if let tracker { view.tickets = await tracker.tickets() }
         guard let ledger else { return }
         view.records = await ledger.allRecords()
         view.state = await ledger.workingState()
@@ -117,12 +209,23 @@ final class RepositoryModel: HarnessActions {
 
     private func log(_ message: String) {
         view.activity.insert("\(Date.now.formatted(date: .omitted, time: .standard))  \(message)", at: 0)
+        view.activity = Array(view.activity.prefix(300))
     }
 
-    // The tracker pane isn't shown for repos yet (phase 4: local tracker).
-    func addLabel(_ name: String, to key: String) async {}
-    func removeLabel(_ name: String, from key: String) async {}
-    func comment(_ text: String, on key: String) async {}
-    func createTicket(title: String, description: String, criteria: [String], blockedBy: [String]) async {}
-    func edit(_ key: String, title: String, description: String, criteria: [String], blockedBy: [String]) async {}
+    // MARK: The local tracker (private to this Mac, outside the repo)
+
+    func addLabel(_ name: String, to key: String) async { await tracker?.addLabel(name, to: key, by: human); await refresh() }
+    func removeLabel(_ name: String, from key: String) async { await tracker?.removeLabel(name, from: key); await refresh() }
+    func comment(_ text: String, on key: String) async { await tracker?.addComment(text, to: key, by: human); await refresh() }
+
+    func createTicket(title: String, description: String, criteria: [String], blockedBy: [String]) async {
+        await tracker?.createTicket(title: title, description: description, acceptanceCriteria: criteria,
+                                    blockedBy: blockedBy, by: human)
+        await refresh()
+    }
+
+    func edit(_ key: String, title: String, description: String, criteria: [String], blockedBy: [String]) async {
+        await tracker?.edit(key, title: title, description: description, acceptanceCriteria: criteria, blockedBy: blockedBy)
+        await refresh()
+    }
 }

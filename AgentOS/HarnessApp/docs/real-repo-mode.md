@@ -36,7 +36,7 @@ than one user, pushing or opening pull requests.
 |---|---|---|
 | Repo | Created by the harness, `Package.swift` generated | Exists. The harness never restructures it, so it must **discover** how it's built |
 | Build and test | `swift test`, hard-coded | Commands from the repo config, e.g. `xcodebuild test -scheme App -destination 'platform=iOS Simulator,name=iPhone 14,OS=18.6'` |
-| A leaf's tests | A new test target per leaf | Files in an **existing** test target, in a suite named after the leaf, run with `-only-testing:` (XCTest and Swift Testing). The protected-tests fingerprint covers those files |
+| A leaf's tests | A new test target per leaf | Files in an **existing** test target, in the leaf's own folder `<leafTests.folder>/<suite>`, as a suite named after the leaf (e.g. `WORK_1Tests`), run with `test.only` (e.g. `-only-testing:`; XCTest and Swift Testing). The protected-tests fingerprint covers that folder |
 | Components (touch set) | `Sources/<Component>` folders | Detected: Swift package targets, Xcode targets, or top-level folders; listed in the repo config |
 | Agents | Scripted or Copilot CLI | Copilot CLI only. It already reads AGENTS.md and `.github/copilot-instructions.md` |
 | Working copies | Harness-owned folder | Git worktrees **outside** the repo folder; your own checkout is never touched |
@@ -62,7 +62,8 @@ read from `main` only.
 |---|---|---|
 | Landing target | Local branch `agentos/main` | Choose another *local* branch name |
 | Push / open pull requests | Never | Nothing (later: allowed only if the harness allows it) |
-| Agent tools | Copilot CLI, with `git push` and network installs denied | Deny more |
+| Agent tools | Copilot CLI, with `git push`/`fetch`/`pull`/`remote`/`config`/`stash`, `gh` and network installs denied | Deny more |
+| Agent models | Offered models, plus a default model per role (breakdown, acceptance tests, implementation); none = the CLI's default | Pick a model per role among the offered ones |
 | Max attempts / reworks per leaf | 3 / 3 | Lower |
 | Max parallel agents | 2 | Lower |
 | Signals people may use (doc 05 §3) | All, including `harness:go` | Switch some off, e.g. `go` to force a breakdown review |
@@ -89,12 +90,14 @@ unknown keys are reported as likely typos. For an iOS app:
   "landing": { "branch": "agentos/main" },
   "signals": { "disable": ["go"] },
   "limits": { "maxAttempts": 2 },
-  "agents": { "deny": ["rm -rf"] },
+  "agents": { "deny": ["rm -rf"], "models": { "implementer": "claude-sonnet-4.5" } },
   "protectedPaths": ["App/Secrets/"]
 }
 ```
 
-Only `test.command` is required. Checks run in order (prepare, build, test, then `checks`) with `/bin/sh -c`
+Only `test.command` is required to scan and run the baseline; agents also need `leafTests` (where a leaf's
+acceptance tests go; missing = blocker) and should have `test.only` (missing = warning: every leaf then runs
+all tests). Checks run in order (prepare, build, test, then `checks`) with `/bin/sh -c`
 from the repo's top folder, and stop at the first failure. `{suite}` in `test.only` is replaced with a
 leaf's suite, so a leaf runs only its own tests; the extra checks run at landing.
 
@@ -107,6 +110,7 @@ never edits it (see Safety).
 | Check | Severity if it fails |
 |---|---|
 | It's a git repo with at least one commit; the default branch is found | Blocker |
+| The default branch has a local copy (otherwise `origin/<branch>` is read, with its last fetch date) | Info |
 | A repo config exists, can be read, and doesn't loosen any harness limit | Blocker |
 | **Tests pass on `main`** at its current commit (the baseline) | Blocker |
 | AGENTS.md or copilot-instructions exist and say how to build and test | Warning |
@@ -137,7 +141,8 @@ The harness's state for a repo is private and lives outside the repo:
   tracker.json     local tracker tickets (when no tracker adapter is configured)
   artifacts/       check logs (evidence), e.g. baseline-<commit>.log
   baseline/src/    the export of main the baseline last ran on
-  worktrees/       one working copy per leaf
+  worktrees/       one working copy per leaf, on branch agentos/leaf/<node>
+  exclude          files git ignores in worktrees (.build/, DerivedData/, xcuserdata/, .DS_Store…)
 ```
 
 `<repo-id>` is derived from the repo's first commit plus its path, so two clones of the same repo don't
@@ -150,6 +155,40 @@ Code talks to storage through small protocols, with file-based adapters first:
 - `ArtifactStore`: put a file, get its path and checksum.
 
 SQLite and server-based adapters can be added later without touching the reconciler.
+
+## The workspace
+
+A `RepositorySession` runs the simulator's reconciler on the repo: its `RepositoryWorkspace`, the
+config-driven checks, the local tracker (project key `WORK`) and the repo's ledger.
+
+- **Worktrees.** Each leaf gets a git worktree in the harness's storage, on its own branch
+  `agentos/leaf/<node>`, started from the landing branch. The landing branch is created from the default
+  branch the first time. Git runs with the harness's own exclude file, so build output is never committed
+  even if the repo's `.gitignore` misses it. Uncommitted leftovers (e.g. a regenerated project file) are
+  discarded before a rebase or rework.
+- **Agents** get the repo's context in their prompt: the configured commands, where their tests go, and the
+  protected paths. The test author may only add files in the leaf's own test folder; anything else fails
+  the run.
+- **Checks** before landing: the leaf's tests are unchanged since they were approved, no other leaf's tests
+  changed, and no protected path changed. Then the leaf's tests (`test.only`), then all checks at landing.
+- **Landing** is a fast-forward of the landing branch with `git update-ref` (compare-and-swap), so no checkout
+  is involved. It's refused while any checkout has the landing branch checked out, because moving it there
+  would make that working copy look modified.
+- **Copilot agents** run with `--allow-all-tools` plus a `--deny-tool` per effective denied tool (network
+  installs as one `shell(…)` pattern) and per protected file (`write(AGENTS.md)`), and `--model` per role.
+  Copilot's `write()` patterns only cover file names; folders and globs are enforced by the check above.
+- **Your git state** is fingerprinted before and compared after each test-author and implementer run: refs
+  outside `agentos/` (tags, remote-tracking refs, the stash; for local branches only whether they exist,
+  since you may commit while agents work), and the shared git config, hooks and `info/` files. Worktrees
+  share all of these with your repo. Any change escalates the leaf instead of retrying it, naming what
+  changed; if it was you (e.g. you fetched meanwhile), add `harness:retry`.
+
+Known limits: rounds run one after the other (max parallel agents isn't applied yet); tickets blocked by
+another system never unblock (there's no external system adapter yet).
+
+`agentos work [<repo>] [--ticket <title> --criterion <text>… --go]` runs it from the terminal until nothing
+more can happen without a human. In the app, the repository window shows the tracker and work tree next to
+the findings, policy and ledger, with Step and Run once nothing blocks agents.
 
 ## Packaging
 
@@ -182,8 +221,18 @@ worktrees for it). Three rules bound that:
 - **Code only arrives through the landing branch, with evidence.** Any other write would skip the checks
   and the ledger.
 
-Agent processes also get a clean environment and restricted tools (`git push` denied). Removing
-`agentos/main` and the harness's storage removes every trace of it.
+Agent processes also get a clean environment and restricted tools (see the workspace's denied tools), and a
+run that changes your refs or git config anyway is escalated. Branch refs and worktree records do live in
+the repo's `.git`. Removing the `agentos/` branches and the harness's storage removes every trace of it.
+
+The harness itself never fetches or creates your branches. If the remote's default branch (`origin/HEAD`)
+has no local copy, the scan, baseline and landing read **`origin/<branch>`** as of your last fetch; the
+scan shows when that was and suggests `git fetch` or `git branch <branch> origin/<branch>`. The landing
+branch is created with `--no-track`, so no upstream is written to your config.
+
+Denied tools are a speed bump, not a wall: agents run as you, with your SSH agent and `gh` login, so a
+determined agent could still reach the remote by other means. The git state check catches the local
+traces; running agents without your credentials (a sandbox or separate user) is future work.
 
 ## Phases
 
@@ -203,7 +252,8 @@ Each phase is usable on its own.
    settings name the providers and models on offer, plus a default model per role (breakdown, tests,
    implementation); the repo's `agents` section may only pick among those and deny more tools. The
    policy pane shows each role's agent and model with its source, and the effective denied tools are
-   passed to the agent (`--deny-tool`) instead of allowing all tools.
+   passed to the agent (`--deny-tool`) instead of allowing all tools. *Done:* see The workspace;
+   `agentos work`; Step / Run in the repository window; agent models in Settings.
 5. **GitHub Issues adapter**, as the first real tracker.
 
 ## Pilot: this repo
@@ -220,6 +270,12 @@ Phase 3: the scan drafted a config with `xcodegen generate` as the prepare step,
 `AgentOSKit` as the test command (`--filter {suite}` for a leaf), and an `xcodebuild build` of the app as an
 extra check. Tried uncommitted with `agentos baseline --config .agentos/config.json`: it passed on `main` in
 44 seconds, running `main`'s tests rather than the working copy's.
+
+Phase 4: with `leafTests` in the config (leaf suites go in `AgentOSAdaptersTests`), the scan's only blocker
+was a baseline for the new `main` commit. With that, `agentos work` starts a session and creates
+`agentos/main`, leaving the checkout untouched. A first baseline run failed once on a flaky simulator test
+(`contradictingWorkIsEscalatedAsARequirementsConflict`) and passed when run again. A real Copilot run on
+this repo hasn't been done yet.
 
 ## Open questions
 

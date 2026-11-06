@@ -57,6 +57,15 @@ public struct ReadinessScanner: Sendable {
                 detail: "The harness works from the default branch, and there's nothing on it.",
                 suggestion: "Commit what's there first.")))
         }
+        // The remote names the default branch but this clone has no local copy (common after cloning with another
+        // branch checked out): read the remote-tracking branch rather than a stale local main/master. Read-only;
+        // it's as fresh as the last fetch, which the scan reports.
+        if let remote = await remoteDefaultBranch(in: root),
+           await git(["rev-parse", "--verify", "--quiet", "refs/heads/\(remote)"], in: root) == nil,
+           let commit = await git(["rev-parse", "--verify", "--quiet", "refs/remotes/origin/\(remote)"], in: root) {
+            let branch = "origin/\(remote)"
+            return .repo(RepositoryLocation(root: root, identity: await identity(of: root, branch: branch), branch: branch, commit: commit))
+        }
         guard let branch = await defaultBranch(in: root),
               let commit = await git(["rev-parse", "refs/heads/\(branch)"], in: root) else {
             return .blocked(blocked(root: root, Finding(
@@ -78,6 +87,11 @@ public struct ReadinessScanner: Sendable {
         snapshot.swiftTestingFiles = await filesImporting("Testing", on: branch, in: root)
         snapshot.xctestFiles = await filesImporting("XCTest", on: branch, in: root)
         snapshot.checkoutBranch = await git(["symbolic-ref", "--quiet", "--short", "HEAD"], in: root)
+        if branch.hasPrefix("origin/"),
+           let entry = await git(["log", "-g", "-1", "--date=unix", "--format=%gd", "refs/remotes/\(branch)"], in: root),
+           let seconds = entry.split(separator: "{").last?.dropLast().description, let time = TimeInterval(seconds) {
+            snapshot.lastFetched = Date(timeIntervalSince1970: time)
+        }
         // --no-optional-locks: don't even refresh the index.
         snapshot.uncommittedChanges = (await git(["--no-optional-locks", "status", "--porcelain"], in: root) ?? "")
             .split(separator: "\n").count
@@ -121,11 +135,14 @@ public struct ReadinessScanner: Sendable {
         ScannedRepository(root: root, identity: nil, scan: ReadinessScan(branch: nil, commit: nil, findings: [finding]))
     }
 
+    private func remoteDefaultBranch(in root: URL) async -> String? {
+        await git(["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], in: root)
+            .map { String($0.dropFirst("origin/".count)) }
+    }
+
     private func defaultBranch(in root: URL) async -> String? {
         var candidates: [String] = []
-        if let remoteHead = await git(["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], in: root) {
-            candidates.append(String(remoteHead.dropFirst("origin/".count)))
-        }
+        if let remote = await remoteDefaultBranch(in: root) { candidates.append(remote) }
         candidates += ["main", "master"]
         for candidate in candidates where await git(["rev-parse", "--verify", "--quiet", "refs/heads/\(candidate)"], in: root) != nil {
             return candidate

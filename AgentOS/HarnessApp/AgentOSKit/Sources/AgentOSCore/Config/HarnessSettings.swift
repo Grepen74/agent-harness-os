@@ -10,12 +10,33 @@ public struct HarnessSettings: Codable, Sendable, Equatable {
     public var maxParallelAgents = 2
     /// The signals people may use at all (doc 05 §3).
     public var offeredSignals: Set<HarnessCommand> = Set(HarnessCommand.allCases)
+    /// Models a repo may choose for its agents. Empty: only the agent CLI's default model.
+    public var offeredModels: [String] = []
+    /// The model per role when the repo doesn't choose one (nil: the agent CLI's default).
+    public var models = AgentModels()
 
-    /// Not settings: the harness never pushes, and these are always denied and protected.
-    public static let deniedTools = ["git push", "network installs"]
+    /// Not settings: the harness never pushes, and these are always denied and protected. Agents work in worktrees
+    /// that share the repo's `.git`: fetches, stashes, remotes and config would change your repo, and `gh` could push.
+    public static let deniedTools = ["git push", "git fetch", "git pull", "git remote", "git config", "git stash", "gh",
+                                     "network installs"]
     public static let protectedPaths = ["AGENTS.md", "CONTRIBUTING*", "CODEOWNERS", ".github/copilot-instructions.md", ".agentos/"]
+    /// The only agent provider so far.
+    public static let agentProvider = "Copilot CLI"
 
     public init() {}
+
+    /// Settings saved by an older version lack the newer keys; those get their defaults.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = HarnessSettings()
+        landingBranch = try container.decodeIfPresent(String.self, forKey: .landingBranch) ?? defaults.landingBranch
+        maxAttempts = try container.decodeIfPresent(Int.self, forKey: .maxAttempts) ?? defaults.maxAttempts
+        maxReworks = try container.decodeIfPresent(Int.self, forKey: .maxReworks) ?? defaults.maxReworks
+        maxParallelAgents = try container.decodeIfPresent(Int.self, forKey: .maxParallelAgents) ?? defaults.maxParallelAgents
+        offeredSignals = try container.decodeIfPresent(Set<HarnessCommand>.self, forKey: .offeredSignals) ?? defaults.offeredSignals
+        offeredModels = try container.decodeIfPresent([String].self, forKey: .offeredModels) ?? defaults.offeredModels
+        models = try container.decodeIfPresent(AgentModels.self, forKey: .models) ?? defaults.models
+    }
 }
 
 /// One effective value and where it comes from, for the settings pane.
@@ -40,6 +61,8 @@ public struct EffectivePolicy: Sendable, Equatable {
     public var maxParallelAgents: Int
     public var deniedTools: [String]
     public var protectedPaths: [String]
+    /// The model per agent role.
+    public var agentModels = AgentModels()
     /// The repo config tried to loosen a limit or set something invalid; the harness's value applies instead.
     public var problems: [Finding] = []
 
@@ -56,7 +79,8 @@ public struct EffectivePolicy: Sendable, Equatable {
         // Landing branch: any other local branch name, but never the default branch itself.
         var landingNote: String?
         if let wanted = repo?.landing?.branch {
-            if wanted == defaultBranch {
+            // `origin/develop` when the clone only has the remote's default branch: its local name counts too.
+            if wanted == defaultBranch || defaultBranch.map({ "origin/" + wanted == $0 }) == true {
                 refuse("Repo config lands on \(wanted) directly",
                        "Proven work must land on a separate branch so a human reviews it before it reaches \(wanted).")
                 landingNote = "repo asked for \(wanted): refused"
@@ -124,11 +148,36 @@ public struct EffectivePolicy: Sendable, Equatable {
         }
         result.deniedTools = extend("Denied agent tools", HarnessSettings.deniedTools, with: repo?.agents?.deny)
         result.protectedPaths = extend("Protected paths", HarnessSettings.protectedPaths, with: repo?.protectedPaths)
+        result.policy.protectedPaths = result.protectedPaths
+
+        // Agents: the harness's model per role, unless the repo picks another one the harness offers.
+        for role in AgentModels.roles {
+            var model = harness.models[role]
+            var source = EffectiveSetting.Source.harness
+            var note: String?
+            if let wanted = repo?.agents?.models?[role], wanted != model {
+                if harness.offeredModels.contains(wanted) {
+                    model = wanted
+                    source = .repo
+                } else {
+                    let offered = harness.offeredModels.isEmpty ? "none (only the default model)" : harness.offeredModels.joined(separator: ", ")
+                    refuse("Repo config picks model \(wanted) for \(role.job.lowercased())",
+                           "The harness doesn't offer it. Offered: \(offered).")
+                    note = "repo asked for \(wanted): not offered"
+                }
+            }
+            result.agentModels[role] = model
+            result.settings.append(EffectiveSetting(
+                name: "\(role.job) agent", value: "\(HarnessSettings.agentProvider) · \(model ?? "default model")",
+                source: source, note: note))
+        }
         return result
     }
 
     static func isLocalBranchName(_ name: String) -> Bool {
-        !name.isEmpty && !name.hasPrefix("origin/") && !name.hasPrefix("refs/") && !name.hasPrefix("-") && !name.hasSuffix("/")
+        // `agentos/leaf/…` holds the leaves' branches, so `agentos` itself can't be a branch too.
+        guard name != "agentos", !name.hasPrefix("agentos/leaf/") else { return false }
+        return !name.isEmpty && !name.hasPrefix("origin/") && !name.hasPrefix("refs/") && !name.hasPrefix("-") && !name.hasSuffix("/")
             && !name.contains("..") && !name.contains(where: { $0.isWhitespace || "~^:?*[\\".contains($0) })
     }
 }

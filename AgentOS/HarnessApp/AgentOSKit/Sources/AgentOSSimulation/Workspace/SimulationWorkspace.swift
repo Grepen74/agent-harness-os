@@ -75,10 +75,25 @@ public struct SimulationWorkspace: Workspace {
         try await git(["rev-parse", "HEAD"], in: directory).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// Files under Tests/ that this branch changed since it left `main`.
-    public func changedTestFiles(in directory: URL) async throws -> [String] {
-        try await git(["diff", "--name-only", "main...HEAD", "--", "Tests/"], in: directory)
-            .split(separator: "\n").map(String.init)
+    /// Every file this branch changed since it left `main`.
+    public func changedFiles(in directory: URL) async throws -> [String] {
+        try await git(["diff", "--name-only", "--no-renames", "-z", "main...HEAD"], in: directory)
+            .split(separator: "\0").map(String.init)
+    }
+
+    public var testArea: String { "Tests/" }
+
+    /// Each node has its own test target (doc 08 §2).
+    public func testFolder(for spec: NodeSpec) -> String { "Tests/\(spec.testTarget)" }
+
+    public var agentContext: String {
+        """
+        The current directory is a Swift package monorepo (a git working copy for one work item). \
+        Every folder in Sources/ is one module (component); every folder in Tests/ is one work item's test target, \
+        which may import all modules. Package.swift is GENERATED from the folders and not committed: you may \
+        regenerate it to try things out, but don't rely on edits to it. Check your work with `swift test`. \
+        Don't run git commands.
+        """
     }
 
     // MARK: Landing

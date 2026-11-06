@@ -26,6 +26,15 @@ enum ReadinessRules {
             title: "Works from \(repo.branch) at \(repo.commit.prefix(8))",
             detail: "\(repo.files.count) tracked files. The scan reads this branch only, never your working copy."
         )]
+        if repo.branch.hasPrefix("origin/") {
+            let local = String(repo.branch.dropFirst("origin/".count))
+            let fetched = repo.lastFetched.map { "last fetched \($0.formatted(date: .abbreviated, time: .shortened))" } ?? "fetch time unknown"
+            findings.append(Finding(
+                check: "repo.branch", severity: .info, title: "Reads the remote's \(local) as of your last fetch (\(fetched))",
+                detail: "This clone has no local \(local), so the harness reads origin/\(local). It never fetches or creates "
+                    + "branches of yours: newer work on the remote only shows up after you fetch.",
+                suggestion: "Run `git fetch` for the latest, or `git branch \(local) origin/\(local)` to work from a local branch."))
+        }
         let build = BuildSystems(repo)
         let config = RepoConfigFile(repo)
         let policy = EffectivePolicy.resolve(harness: harness, repo: config.config, defaultBranch: repo.branch)
@@ -86,7 +95,8 @@ enum ReadinessRules {
             if packages.isEmpty && projects.isEmpty {
                 findings.append(Finding(
                     check: "build.system", severity: .blocker, title: "No way to build found",
-                    detail: "No Package.swift, Xcode project, XcodeGen or Tuist spec on the branch.",
+                    detail: "No Package.swift, Xcode project, XcodeGen or Tuist spec committed on \(repo.branch). "
+                        + "The scan reads that branch, not the files in your folder.",
                     suggestion: "Name the build and test commands in \(RepoConfig.path)."))
             }
         }
@@ -135,8 +145,20 @@ enum ReadinessRules {
                                         detail: "On \(repo.branch): \(error).", suggestion: "Fix the file and commit it."))
                 return findings
             }
-            if config != nil {
+            if let config {
                 findings.append(Finding(check: "config", severity: .info, title: "Repo config found: \(RepoConfig.path)"))
+                if config.leafTests == nil {
+                    findings.append(Finding(
+                        check: "config.leafTests", severity: .blocker, title: "No place for leaves' acceptance tests",
+                        detail: "Each leaf adds its acceptance tests as a folder and suite of its own in an existing test target.",
+                        suggestion: "Add \"leafTests\": {\"target\": …, \"folder\": …} to \(RepoConfig.path)."))
+                }
+                if config.test.only == nil {
+                    findings.append(Finding(
+                        check: "config.leafTests", severity: .warning, title: "No way to run one leaf's tests",
+                        detail: "Without test.only, every pre-check on a leaf's branch runs all tests.",
+                        suggestion: "Add \"only\" to test, e.g. \"--filter {suite}\" or \"-only-testing:AppTests/{suite}\"."))
+                }
                 if !unknownKeys.isEmpty {
                     findings.append(Finding(
                         check: "config", severity: .warning, title: "Unknown keys in \(RepoConfig.path): \(unknownKeys.joined(separator: ", "))",
