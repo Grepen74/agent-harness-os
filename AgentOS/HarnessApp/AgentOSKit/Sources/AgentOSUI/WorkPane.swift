@@ -21,7 +21,7 @@ public struct WorkPane: View {
                     }
                 }
             }
-            .frame(minHeight: 260)
+            .frame(minHeight: 260, maxHeight: .infinity)
 
             Group {
                 if let id = selection, let node = model.state.nodes[id] {
@@ -30,7 +30,7 @@ public struct WorkPane: View {
                     ContentUnavailableView("No node selected", systemImage: "point.3.connected.trianglepath.dotted")
                 }
             }
-            .frame(minHeight: 160)
+            .frame(minHeight: 160, maxHeight: .infinity)
         }
     }
 }

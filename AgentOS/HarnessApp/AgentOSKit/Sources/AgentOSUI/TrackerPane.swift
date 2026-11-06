@@ -29,7 +29,7 @@ public struct TrackerPane: View {
                     .tag(ticket.key)
                 }
             }
-            .frame(minHeight: 180)
+            .frame(minHeight: 180, maxHeight: .infinity)
 
             Group {
                 if let ticket = model.ticket(selection) {
@@ -39,7 +39,7 @@ public struct TrackerPane: View {
                                            description: Text("Create a ticket with +."))
                 }
             }
-            .frame(minHeight: 260)
+            .frame(minHeight: 260, maxHeight: .infinity)
         }
         .sheet(item: $editor) { TicketEditor(mode: $0) }
     }
