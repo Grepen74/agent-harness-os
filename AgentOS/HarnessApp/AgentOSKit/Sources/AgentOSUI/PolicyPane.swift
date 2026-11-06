@@ -39,7 +39,14 @@ public struct PolicyPane: View {
 
     @ViewBuilder private var baseline: some View {
         HStack {
-            Button("Run baseline") { Task { await model.runBaseline() } }.disabled(model.isRunningBaseline)
+            Button("Run baseline") { Task { await model.runBaseline() } }
+                .disabled(model.isRunningBaseline)
+                .help("Run the configured checks on a clean export of the default branch")
+            Button {} label: {
+                Image(systemName: "info.circle")
+            }
+            .buttonStyle(.plain)
+            .help("A baseline records whether the default branch passes its configured checks, so agent changes can be compared against it.")
             ProgressView().controlSize(.small).opacity(model.isRunningBaseline ? 1 : 0)
             Spacer()
         }
