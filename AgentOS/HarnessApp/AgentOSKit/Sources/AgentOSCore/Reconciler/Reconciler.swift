@@ -11,8 +11,8 @@ public struct RoundReport: Sendable {
 /// next small step per node, record it. No AI in here: every decision is a plain, testable rule.
 ///
 /// Simplifications vs. production (doc 07):
-/// - Steps run one after another; production hands them to many agents in parallel. Leaves still work
-///   in parallel in the sense that matters for conflicts: each on its own branch, unaware of the others.
+/// - Up to `policy.maxParallelAgents` nodes take their step at the same time, each on its own branch and
+///   working copy; landing is one at a time. Production hands steps to agents on many machines.
 /// - It runs when asked (Step / Run in the app); production is an always-on service woken by events
 ///   plus a regular full check, with one leader per system and fencing tokens.
 /// - Claims don't time out while running; after a restart, unfinished runs are treated as expired.
@@ -25,6 +25,9 @@ public actor Reconciler {
     let checks: any CheckRunner
     public nonisolated let policy: Policy
     public private(set) var team: AgentTeam
+    /// When each agent of the current round started and finished, in steps of `clock`.
+    private var agentRuns: [RunID: AgentRunSpan] = [:]
+    private var clock = 0
 
     public init(ledger: Ledger, tracker: any TrackerAdapter, external: any ExternalDependencySource,
                 workspace: any Workspace, artifacts: any ArtifactStore, checks: any CheckRunner, team: AgentTeam,
@@ -59,17 +62,7 @@ public actor Reconciler {
         await intakeSignals(&report)
         await intakeExternal(&report)
 
-        for id in await ledger.workingState().creationOrder {
-            let state = await ledger.workingState()
-            guard let node = state.nodes[id] else { continue }
-            do {
-                if let action = try await advance(node, in: state) { report.actions.append(action) }
-            } catch LedgerError.conflict {
-                continue // The node changed meanwhile; the next round sees the new state.
-            } catch {
-                report.actions.append("⚠️ \(node.ticket): \(error)")
-            }
-        }
+        await advanceAll(&report)
 
         // The landing queue: the only place where work happens strictly one at a time (doc 08 §4).
         for node in await ledger.workingState().landingQueue {
@@ -145,7 +138,7 @@ public actor Reconciler {
             let problems = policy.readinessProblems(ticket)
             guard problems.isEmpty else { throw Rejection(reason: "Not ready yet. Missing: \(problems.joined(separator: ", ")).") }
             let spec = Planner.rootSpec(for: ticket)
-            let children = Planner.childSpecs(parent: spec, proposals: try await propose(spec))
+            let children = Planner.childSpecs(parent: spec, proposals: try await propose(spec, log: nil))
             let number = (state.previews[ticket.key]?.number ?? 0) + 1
             try await write(nil, by: .reconciler, [
                 .previewRecorded(ticket: ticket.key, number: number, specHash: spec.specHash, proposal: children)])
@@ -226,6 +219,43 @@ public actor Reconciler {
 
     // MARK: Controllers: one step per node per round
 
+    /// One step per node, up to `maxParallelAgents` nodes at a time. The steps interleave only while they wait
+    /// (for an agent, a check, git): each node has its own branch and working copy, and every claim is a
+    /// compare-and-swap on the node's version. Actions are reported in node order, whatever finished first.
+    private func advanceAll(_ report: inout RoundReport) async {
+        agentRuns.removeAll()
+        let order = await ledger.workingState().creationOrder
+        let limit = max(1, policy.maxParallelAgents)
+        var actions: [Int: String] = [:]
+        await withTaskGroup(of: (Int, String?).self) { group in
+            var running = 0
+            for (index, id) in order.enumerated() {
+                if running == limit, let (finished, action) = await group.next() {
+                    running -= 1
+                    if let action { actions[finished] = action }
+                }
+                group.addTask { (index, await self.step(id)) }
+                running += 1
+            }
+            for await (finished, action) in group {
+                if let action { actions[finished] = action }
+            }
+        }
+        report.actions += actions.keys.sorted().compactMap { actions[$0] }
+    }
+
+    private func step(_ id: NodeID) async -> String? {
+        let state = await ledger.workingState()
+        guard let node = state.nodes[id] else { return nil }
+        do {
+            return try await advance(node, in: state)
+        } catch LedgerError.conflict {
+            return nil // The node changed meanwhile; the next round sees the new state.
+        } catch {
+            return "⚠️ \(node.ticket): \(error)"
+        }
+    }
+
     private func advance(_ node: NodeState, in state: WorkingState) async throws -> String? {
         guard node.flags[.escalated] == nil, node.activeRun == nil else { return nil }
 
@@ -278,7 +308,7 @@ public actor Reconciler {
             author = .agent(run: run, role: .decomposer)
             try await write(node.id, by: .reconciler, [.runStarted(run: run, role: .decomposer)], expecting: node.version)
             do {
-                children = Planner.childSpecs(parent: node.spec, proposals: try await propose(node.spec))
+                children = Planner.childSpecs(parent: node.spec, proposals: try await propose(node.spec, log: agentLog(node, run)))
             } catch {
                 try await write(node.id, by: author, [
                     .runFinished(run: run, outcome: "failed: \(error)"),
@@ -323,11 +353,9 @@ public actor Reconciler {
         let author = Participant.agent(run: run, role: .testAuthor)
         try await write(node.id, by: .reconciler, [.runStarted(run: run, role: .testAuthor)], expecting: node.version)
         let directory = try await workspace.createWorktree(for: node.id)
-        let task = await makeTask(node, run: run, in: directory)
+        let task = await makeTask(node, run: run, in: directory, log: agentLog(node, run))
         do {
-            let before = try await workspace.userGitState()
-            try await team.testAuthor.writeAcceptanceTests(task)
-            try await checkUserGitState(before)
+            try await watchingUserGitState(node, run: run) { try await team.testAuthor.writeAcceptanceTests(task) }
             let own = workspace.testFolder(for: node.spec) + "/"
             let changed = try await workspace.commitAll(in: directory, message: "\(node.spec.id): acceptance tests", author: run)
             // After the commit, so the check sees everything the author wrote (changes are compared commit to commit).
@@ -356,9 +384,8 @@ public actor Reconciler {
         let directory = workspace.worktree(for: node.id)
         do {
             try await workspace.prepareBuild(in: directory)
-            let before = try await workspace.userGitState()
-            try await team.implementer.implement(await makeTask(node, run: run, in: directory))
-            try await checkUserGitState(before)
+            let task = await makeTask(node, run: run, in: directory, log: agentLog(node, run))
+            try await watchingUserGitState(node, run: run) { try await team.implementer.implement(task) }
             guard let commit = try await workspace.commitAll(in: directory, message: "\(node.spec.id): \(node.spec.title)", author: run)
             else { throw AgentFailure("submitted no changes") }
             try await write(node.id, by: author, [
@@ -478,25 +505,49 @@ public actor Reconciler {
         node.links.filter { $0.type == .dependsOn && !state.resolvedExternal.contains($0.to) }.map(\.to)
     }
 
-    private func propose(_ spec: NodeSpec) async throws -> [ChildProposal] {
-        try await team.decomposer.proposeChildren(of: spec, existingComponents: workspace.existingComponents())
+    private func propose(_ spec: NodeSpec, log: URL?) async throws -> [ChildProposal] {
+        try await team.decomposer.proposeChildren(of: spec, existingComponents: workspace.existingComponents(), log: log)
+    }
+
+    /// A fresh file for the run's own output (see `AgentLog`). Not having one never stops the work.
+    private func agentLog(_ node: NodeState, _ run: RunID) -> URL? {
+        try? artifacts.liveFile(named: AgentLog.fileName(node: node.id, run: run))
     }
 
     /// Agents may only change their own worktree and branch. Anything else in your repo (fetched or new refs,
-    /// stashes, config, hooks) means the agent got around its denied tools.
-    private func checkUserGitState(_ before: [String]) async throws {
+    /// stashes, config, hooks) means an agent got around its denied tools. With agents running side by side,
+    /// the change can't be pinned on one: every agent that ran at the same time is named, and each of them
+    /// notices the change itself too.
+    private func watchingUserGitState(_ node: NodeState, run: RunID, _ agent: () async throws -> Void) async throws {
+        // The span covers both snapshots: whatever changed between them happened during it.
+        clock += 1
+        agentRuns[run] = AgentRunSpan(ticket: node.ticket, start: clock)
+        defer {
+            clock += 1
+            agentRuns[run]?.end = clock
+        }
+        let before = try await workspace.userGitState()
+        try await agent()
         let after = try await workspace.userGitState()
-        guard after != before else { return }
+        guard after != before, let mine = agentRuns[run] else { return }
         let changed = Set(before).symmetricDifference(after).compactMap { $0.split(separator: " ").last.map(String.init) }
-        throw UserGitStateChanged(names: Array(Set(changed)).sorted())
+        let alongside = agentRuns.filter { $0.key != run && $0.value.start <= clock && ($0.value.end ?? .max) > mine.start }
+            .map(\.value.ticket)
+        throw UserGitStateChanged(names: Array(Set(changed)).sorted(), alongside: Array(Set(alongside)).sorted())
     }
 
-    private func makeTask(_ node: NodeState, run: RunID, in directory: URL) async -> AgentTask {
+    private struct AgentRunSpan {
+        let ticket: String
+        let start: Int
+        var end: Int?
+    }
+
+    private func makeTask(_ node: NodeState, run: RunID, in directory: URL, log: URL?) async -> AgentTask {
         let labels = await tracker.ticket(node.ticket)?.labels.map(\.name) ?? []
         return AgentTask(
             spec: node.spec, run: run, directory: directory, testFolder: workspace.testFolder(for: node.spec),
             context: workspace.agentContext, attempt: node.failedAttempts + 1,
-            previousFailure: node.recentFailures.last, simulationHints: Set(labels.filter { $0.hasPrefix("sim:") }))
+            previousFailure: node.recentFailures.last, simulationHints: Set(labels.filter { $0.hasPrefix("sim:") }), log: log)
     }
 
     private func testsDigest(_ node: NodeState, in directory: URL) -> String {

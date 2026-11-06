@@ -22,6 +22,12 @@ public protocol TicketStore: Sendable {
 /// Evidence files such as check logs. The ledger keeps only their path and checksum.
 public protocol ArtifactStore: Sendable {
     func put(named name: String, contents: Data) throws -> StoredArtifact
+    /// Where to write a file that grows over time, such as an agent's log while it runs. Nil: not kept.
+    func liveFile(named name: String) throws -> URL?
+}
+
+extension ArtifactStore {
+    public func liveFile(named name: String) throws -> URL? { nil }
 }
 
 public struct StoredArtifact: Codable, Sendable, Hashable {

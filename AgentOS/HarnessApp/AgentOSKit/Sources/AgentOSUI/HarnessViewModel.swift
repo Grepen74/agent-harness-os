@@ -20,6 +20,16 @@ public protocol HarnessActions: AnyObject {
     /// Runs the readiness scan again (findings pane).
     func rescan() async
     func open(_ path: String)
+
+    // Watching agents work (all optional)
+    /// The node's working copy, if it has one right now.
+    func worktree(of node: NodeID) -> URL?
+    /// The run's own output file (see `AgentLog`), if it has one.
+    func agentLog(of node: NodeID, run: RunID) -> URL?
+    /// What the node's working copy changed so far, committed or not.
+    func changes(of node: NodeID) async -> String
+    func reveal(_ url: URL)
+    func openInXcode(_ url: URL)
 }
 
 extension HarnessActions {
@@ -27,6 +37,11 @@ extension HarnessActions {
     public func restoreLedger() async {}
     public func rescan() async {}
     public func runBaseline() async {}
+    public func worktree(of node: NodeID) -> URL? { nil }
+    public func agentLog(of node: NodeID, run: RunID) -> URL? { nil }
+    public func changes(of node: NodeID) async -> String { "" }
+    public func reveal(_ url: URL) {}
+    public func openInXcode(_ url: URL) {}
 }
 
 /// Snapshots of the harness for SwiftUI. The backend copies data in after every change; the panes only
@@ -75,4 +90,9 @@ public final class HarnessViewModel {
     func rescan() async { await actions?.rescan() }
     func runBaseline() async { await actions?.runBaseline() }
     func open(_ path: String) { actions?.open(path) }
+    func worktree(of node: NodeID) -> URL? { actions?.worktree(of: node) }
+    func agentLog(of node: NodeID, run: RunID) -> URL? { actions?.agentLog(of: node, run: run) }
+    func changes(of node: NodeID) async -> String { await actions?.changes(of: node) ?? "" }
+    func reveal(_ url: URL) { actions?.reveal(url) }
+    func openInXcode(_ url: URL) { actions?.openInXcode(url) }
 }

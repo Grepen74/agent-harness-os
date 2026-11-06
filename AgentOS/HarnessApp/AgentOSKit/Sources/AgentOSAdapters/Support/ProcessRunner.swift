@@ -12,14 +12,16 @@ public enum ProcessRunner {
         let process = Process()
     }
 
+    /// - `log`: a file to write the output to as it comes, e.g. to follow it live, which is kept afterwards.
+    ///   Without one, the output goes to a temporary file.
     public static func run(_ executable: String, _ arguments: [String], in directory: URL,
-                    timeout: Duration = .seconds(1200)) async throws -> Result {
-        let logURL = FileManager.default.temporaryDirectory.appending(path: "agentos-\(UUID().uuidString).log")
+                    timeout: Duration = .seconds(1200), log keptLog: URL? = nil) async throws -> Result {
+        let logURL = keptLog ?? FileManager.default.temporaryDirectory.appending(path: "agentos-\(UUID().uuidString).log")
         FileManager.default.createFile(atPath: logURL.path, contents: nil)
         let log = try FileHandle(forWritingTo: logURL)
         defer {
             try? log.close()
-            try? FileManager.default.removeItem(at: logURL)
+            if keptLog == nil { try? FileManager.default.removeItem(at: logURL) }
         }
 
         let box = Box()

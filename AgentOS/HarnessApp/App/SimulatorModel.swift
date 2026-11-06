@@ -27,6 +27,7 @@ final class SimulatorModel: HarnessActions {
     var agentMode = AgentMode.scripted { didSet { Task { await applyAgentMode() } } }
     var you: String { view.you }
     private var runTask: Task<Void, Never>?
+    @ObservationIgnored private let follower = LedgerFollower()
 
     init() {
         directory = URL.applicationSupportDirectory.appending(path: "AgentOSSimulator")
@@ -34,6 +35,7 @@ final class SimulatorModel: HarnessActions {
         view.actions = self
         view.offersLedgerDemo = true
         view.extraLabels = ("Simulation (make agents misbehave)", ["sim:fail-once", "sim:always-fail", "sim:stuck"])
+        followLedger()
         Task { await refresh() }
     }
 
@@ -154,6 +156,7 @@ final class SimulatorModel: HarnessActions {
         await stopAndWait()
         try? Simulation.reset(directory: directory)
         simulation = Self.open(directory)
+        followLedger()
         view.activity = ["Reset."]
         view.chain = nil
         await applyAgentMode()
@@ -164,6 +167,7 @@ final class SimulatorModel: HarnessActions {
     func restartHarness() async {
         await stopAndWait()
         simulation = Self.open(directory)
+        followLedger()
         await applyAgentMode()
         let notes = await simulation.reconciler.recoverAfterRestart()
         view.activity.insert(contentsOf: ["🔄 Harness restarted from the ledger."] + notes, at: 0)
@@ -172,6 +176,23 @@ final class SimulatorModel: HarnessActions {
 
     func openWorkspace() { NSWorkspace.shared.open(simulation.workspace.root) }
     func open(_ path: String) { NSWorkspace.shared.open(URL(filePath: path)) }
+
+    private func followLedger() { follower.follow(simulation.ledger) { [weak self] in await self?.refresh() } }
+
+    // MARK: Watching agents work
+
+    func worktree(of node: NodeID) -> URL? { WorkingCopy.existing(simulation.workspace.worktree(for: node)) }
+
+    func agentLog(of node: NodeID, run: RunID) -> URL? {
+        WorkingCopy.agentLog(in: simulation.workspace.artifactsDirectory, node: node, run: run)
+    }
+
+    func changes(of node: NodeID) async -> String {
+        do { return try await simulation.workspace.changes(for: node) } catch { return "Couldn't read the changes: \(error)" }
+    }
+
+    func reveal(_ url: URL) { WorkingCopy.reveal(url) }
+    func openInXcode(_ url: URL) { WorkingCopy.openInXcode(url) }
 
     func refresh() async {
         view.tickets = await simulation.tracker.tickets()

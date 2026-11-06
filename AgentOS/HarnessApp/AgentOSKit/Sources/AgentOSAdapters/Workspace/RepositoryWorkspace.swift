@@ -21,6 +21,9 @@ public struct RepositoryWorkspace: Workspace {
     public let landingBranch: String
     public let defaultBranch: String
     public let protectedPaths: [String]
+    /// Worktrees share the repo's `.git`: adding, removing and pruning them one at a time avoids git's lock
+    /// errors when leaves start side by side. Agents and checks still run in parallel.
+    private let worktreeLock = AsyncSemaphore(1)
 
     public struct NotConfigured: Error, CustomStringConvertible {
         public let description = "\(RepoConfig.path) has no leafTests: leaves have nowhere to put their acceptance tests."
@@ -55,7 +58,7 @@ public struct RepositoryWorkspace: Workspace {
         if !FileManager.default.fileExists(atPath: excludeFile.path) {
             try Self.buildOutput.joined(separator: "\n").write(to: excludeFile, atomically: true, encoding: .utf8)
         }
-        try await git(["worktree", "prune"], in: root)
+        try await worktreeLock.withPermit { try await git(["worktree", "prune"], in: root) }
     }
 
     /// Never committed from a worktree, even if the repo's .gitignore misses them.
@@ -65,13 +68,19 @@ public struct RepositoryWorkspace: Workspace {
 
     public func createWorktree(for id: NodeID) async throws -> URL {
         let directory = worktree(for: id)
-        try? await removeWorktree(for: id)
-        try FileManager.default.createDirectory(at: worktreesDirectory, withIntermediateDirectories: true)
-        try await git(["worktree", "add", "-q", "-B", branch(for: id), directory.path, landingBranch], in: root)
+        try await worktreeLock.withPermit {
+            try? await removeWorktreeNow(for: id)
+            try FileManager.default.createDirectory(at: worktreesDirectory, withIntermediateDirectories: true)
+            try await git(["worktree", "add", "-q", "-B", branch(for: id), directory.path, landingBranch], in: root)
+        }
         return directory
     }
 
     public func removeWorktree(for id: NodeID) async throws {
+        try await worktreeLock.withPermit { try await removeWorktreeNow(for: id) }
+    }
+
+    private func removeWorktreeNow(for id: NodeID) async throws {
         try await git(["worktree", "remove", "--force", worktree(for: id).path], in: root)
         try await git(["worktree", "prune"], in: root)
     }
@@ -218,6 +227,12 @@ public struct RepositoryWorkspace: Workspace {
     }
 
     /// Check byproducts (generated projects, logs) left in a worktree after its work was committed.
+    /// Everything the leaf's working copy changed since it left the landing branch, committed or not.
+    public func changes(for id: NodeID) async throws -> String {
+        try await WorkingChanges.describe(worktree(for: id), since: landingBranch,
+                                          gitOptions: ["-c", "core.excludesFile=\(excludeFile.path)"])
+    }
+
     private func discardUncommitted(_ directory: URL) async throws {
         try await git(["reset", "-q", "--hard"], in: directory)
         try await git(["clean", "-fdq"], in: directory)

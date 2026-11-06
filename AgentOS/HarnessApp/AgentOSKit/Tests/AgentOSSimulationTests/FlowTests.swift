@@ -84,6 +84,23 @@ struct FlowTests {
         #expect(node.testsDigest != nil) // went straight on to its acceptance tests
     }
 
+    @Test func everyAgentRunKeepsItsOwnLog() async throws {
+        let sim = try makeSimulation()
+        await sim.tracker.createTicket(title: "Greeting", description: "Say hi", acceptanceCriteria: ["Says hello"], by: alice)
+        await sim.signal(.go, "APP-1")
+
+        let records = await sim.ledger.allRecords()
+        let runs = records.compactMap { record -> (RunID, AgentRole)? in
+            if case .runStarted(let run, let role) = record.event.kind, role != .verifier { return (run, role) }
+            return nil
+        }
+        #expect(runs.map(\.1) == [.decomposer, .testAuthor, .implementer])
+        for (run, role) in runs {
+            let log = sim.workspace.artifactsDirectory.appending(path: AgentLog.fileName(node: "wn-APP-1", run: run))
+            #expect(try !String(contentsOf: log, encoding: .utf8).isEmpty, "\(role)")
+        }
+    }
+
     @Test func breakdownOnALeafIsRejected() async throws {
         let sim = try makeSimulation()
         await sim.loadDemo()

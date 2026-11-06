@@ -31,6 +31,7 @@ final class RepositoryModel: HarnessActions {
     @ObservationIgnored private var recovered = false
     @ObservationIgnored private var runTask: Task<Void, Never>?
     @ObservationIgnored private let scanner = ReadinessScanner()
+    @ObservationIgnored private let follower = LedgerFollower()
 
     init(url: URL) {
         self.url = url
@@ -148,6 +149,12 @@ final class RepositoryModel: HarnessActions {
         }
     }
 
+    /// The window closed: stop Run and stop following the ledger.
+    func close() {
+        setRunning(false)
+        follower.stop()
+    }
+
     /// Stops Run and waits for a round already under way.
     func stopAndWait() async {
         setRunning(false)
@@ -175,6 +182,22 @@ final class RepositoryModel: HarnessActions {
 
     func open(_ path: String) { NSWorkspace.shared.open(URL(filePath: path)) }
 
+    // MARK: Watching agents work
+
+    func worktree(of node: NodeID) -> URL? { session.flatMap { WorkingCopy.existing($0.workspace.worktree(for: node)) } }
+
+    func agentLog(of node: NodeID, run: RunID) -> URL? {
+        session.flatMap { WorkingCopy.agentLog(in: $0.workspace.artifactsDirectory, node: node, run: run) }
+    }
+
+    func changes(of node: NodeID) async -> String {
+        guard let session else { return "No session: agents can't run on this repo right now." }
+        do { return try await session.workspace.changes(for: node) } catch { return "Couldn't read the changes: \(error)" }
+    }
+
+    func reveal(_ url: URL) { WorkingCopy.reveal(url) }
+    func openInXcode(_ url: URL) { WorkingCopy.openInXcode(url) }
+
     func revealRepository() { NSWorkspace.shared.activateFileViewerSelecting([root ?? url]) }
 
     func revealStorage() {
@@ -189,6 +212,7 @@ final class RepositoryModel: HarnessActions {
         self.ledger = ledger
         self.storage = storage
         tracker = RepositorySession.tracker(storage: storage)
+        follower.follow(ledger) { [weak self] in await self?.refresh() }
         return ledger
     }
 

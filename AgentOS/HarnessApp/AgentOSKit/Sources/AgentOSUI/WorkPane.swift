@@ -14,6 +14,7 @@ public struct WorkPane: View {
             VStack(spacing: 0) {
                 PaneHeader(title: "Work tree", subtitle: "Derived from the ledger. Tickets only mirror this.")
                 AttentionList()
+                RunningAgents()
                 List(selection: $selection) {
                     OutlineGroup(model.state.roots.map { TreeItem($0, in: model.state) }, children: \.children) { item in
                         NodeRow(node: item.node).tag(item.node.id)
@@ -93,6 +94,7 @@ struct NodeDetail: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("\(node.spec.id) · \(node.spec.kind.rawValue)").font(.headline)
                 grid
+                AgentRuns(node: node)
                 if !node.evidence.isEmpty {
                     Text("Evidence").font(.caption.bold()).padding(.top, 4)
                     ForEach(Array(node.evidence.enumerated()), id: \.offset) { _, evidence in

@@ -164,6 +164,11 @@ public struct SimulationWorkspace: Workspace {
         }.sorted()
     }
 
+    /// Everything the leaf's working copy changed since it left `main`, committed or not.
+    public func changes(for id: NodeID) async throws -> String {
+        try await WorkingChanges.describe(worktree(for: id), since: "main")
+    }
+
     @discardableResult
     private func git(_ arguments: [String], in directory: URL) async throws -> String {
         let result = try await ProcessRunner.run("/usr/bin/env", ["git"] + arguments, in: directory, timeout: .seconds(60))

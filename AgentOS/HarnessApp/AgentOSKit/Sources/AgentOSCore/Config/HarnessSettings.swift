@@ -58,7 +58,10 @@ public struct EffectivePolicy: Sendable, Equatable {
     /// For the reconciler.
     public var policy = Policy()
     public var landingBranch: String
-    public var maxParallelAgents: Int
+    public var maxParallelAgents: Int {
+        get { policy.maxParallelAgents }
+        set { policy.maxParallelAgents = newValue }
+    }
     public var deniedTools: [String]
     public var protectedPaths: [String]
     /// The model per agent role.
@@ -68,8 +71,9 @@ public struct EffectivePolicy: Sendable, Equatable {
 
     /// - `defaultBranch`: the repo's main branch. Landing there directly would skip your review.
     public static func resolve(harness: HarnessSettings, repo: RepoConfig?, defaultBranch: String?) -> EffectivePolicy {
-        var result = EffectivePolicy(landingBranch: harness.landingBranch, maxParallelAgents: harness.maxParallelAgents,
-                                     deniedTools: HarnessSettings.deniedTools, protectedPaths: HarnessSettings.protectedPaths)
+        var result = EffectivePolicy(landingBranch: harness.landingBranch, deniedTools: HarnessSettings.deniedTools,
+                                     protectedPaths: HarnessSettings.protectedPaths)
+        result.maxParallelAgents = harness.maxParallelAgents
 
         func refuse(_ title: String, _ detail: String) {
             result.problems.append(Finding(check: "config.policy", severity: .blocker, title: title, detail: detail,

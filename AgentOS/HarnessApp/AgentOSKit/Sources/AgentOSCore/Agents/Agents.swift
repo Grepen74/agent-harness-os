@@ -16,9 +16,11 @@ public struct AgentTask: Sendable {
     public let previousFailure: String?
     /// Simulation only: `sim:` labels on the ticket that make scripted agents misbehave on purpose.
     public let simulationHints: Set<String>
+    /// Where the agent writes its output as it works (see `AgentLog`); nil when not kept.
+    public let log: URL?
 
     public init(spec: NodeSpec, run: RunID, directory: URL, testFolder: String, context: String = "", attempt: Int = 1,
-                previousFailure: String? = nil, simulationHints: Set<String> = []) {
+                previousFailure: String? = nil, simulationHints: Set<String> = [], log: URL? = nil) {
         self.spec = spec
         self.run = run
         self.directory = directory
@@ -27,6 +29,7 @@ public struct AgentTask: Sendable {
         self.attempt = attempt
         self.previousFailure = previousFailure
         self.simulationHints = simulationHints
+        self.log = log
     }
 }
 
@@ -54,16 +57,29 @@ public struct AgentFailure: Error, CustomStringConvertible {
 /// An agent run changed repo state outside the harness's own branches (see `Workspace.userGitState`).
 public struct UserGitStateChanged: Error, CustomStringConvertible {
     public let names: [String]
+    /// Tickets whose agents ran at the same time: any of them may have made the change.
+    public var alongside: [String] = []
+
+    public init(names: [String], alongside: [String] = []) {
+        self.names = names
+        self.alongside = alongside
+    }
+
     public var description: String {
-        "The agent changed your repo outside agentos/: \(names.joined(separator: ", ")). "
-            + "Check it (e.g. `git reflog`, `git config --list`); if you did this yourself while it ran, just retry."
+        let check = "Check it (e.g. `git reflog`, `git config --list`); if you did this yourself while it ran, just retry."
+        guard !alongside.isEmpty else {
+            return "The agent changed your repo outside agentos/: \(names.joined(separator: ", ")). " + check
+        }
+        return "Your repo changed outside agentos/ while this agent ran: \(names.joined(separator: ", ")). "
+            + "Agents for \(alongside.joined(separator: ", ")) ran at the same time, so it may have been one of them. " + check
     }
 }
 
 /// Proposes how to split a node. Output is only a proposal: the harness turns it into nodes.
 public protocol Decomposer: Sendable {
     /// `existingComponents`: the catalog of components already on main, so leaves reuse them.
-    func proposeChildren(of parent: NodeSpec, existingComponents: [String]) async throws -> [ChildProposal]
+    /// `log`: where to write its output as it works (see `AgentLog`); nil when not kept.
+    func proposeChildren(of parent: NodeSpec, existingComponents: [String], log: URL?) async throws -> [ChildProposal]
 }
 
 /// Turns acceptance criteria into tests in the node's own test target, before implementation starts.

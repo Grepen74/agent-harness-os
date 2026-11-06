@@ -17,7 +17,7 @@ struct RepositoryWorkspaceTests {
         leafTests: .init(target: "AppTests", folder: "Tests/AppTests/"))
 
     struct Leaf: Decomposer {
-        func proposeChildren(of parent: NodeSpec, existingComponents: [String]) async throws -> [ChildProposal] {
+        func proposeChildren(of parent: NodeSpec, existingComponents: [String], log: URL?) async throws -> [ChildProposal] {
             [ChildProposal(title: parent.title, acceptanceCriteria: parent.acceptanceCriteria, touches: ["App"])]
         }
     }
@@ -59,17 +59,17 @@ struct RepositoryWorkspaceTests {
                   implementer: Implementer(alsoEdits: alsoEdits, renames: renames, runsGit: runsGit))
     }
 
-    func session(_ repo: URL, team: AgentTeam) async throws -> RepositorySession {
+    func session(_ repo: URL, team: AgentTeam, harness: HarnessSettings = HarnessSettings()) async throws -> RepositorySession {
         let storage = FileManager.default.temporaryDirectory.appending(path: "agentos-storage-\(UUID().uuidString)")
         let ledger = try Ledger(store: FileLedgerStore(fileURL: storage.appending(path: "ledger.jsonl")))
-        let policy = EffectivePolicy.resolve(harness: HarnessSettings(), repo: Self.config, defaultBranch: "main")
+        let policy = EffectivePolicy.resolve(harness: harness, repo: Self.config, defaultBranch: "main")
         let location = RepositoryLocation(root: repo, identity: "test", branch: "main", commit: try await git(["rev-parse", "main"], in: repo))
         return try RepositorySession(location: location, storage: storage, ledger: ledger, config: Self.config, policy: policy, team: team)
     }
 
-    func ticket(_ session: RepositorySession) async -> String {
+    func ticket(_ session: RepositorySession, title: String = "Greeting") async -> String {
         let key = await session.tracker.createTicket(
-            title: "Greeting", description: "Say hello", acceptanceCriteria: ["app.txt says hello"], by: .human("Alice")).key
+            title: title, description: "Say hello", acceptanceCriteria: ["app.txt says hello"], by: .human("Alice")).key
         await session.tracker.addLabel("harness:go", to: key, by: .human("Alice"))
         return key
     }
@@ -157,6 +157,117 @@ struct RepositoryWorkspaceTests {
         #expect(try await git(["rev-parse", "agentos/main"], in: repo) == git(["rev-parse", "main"], in: repo))
     }
 
+    /// Counts implementers at work, and can tag the repo behind the harness's back.
+    actor Workbench {
+        private(set) var busy = 0
+        private(set) var peak = 0
+        func start() { busy += 1; peak = max(peak, busy) }
+        func stop() { busy -= 1 }
+    }
+
+    struct SlowImplementer: AgentOSCore.Implementer {
+        let bench: Workbench
+        var tagsFor: String?
+        func implement(_ task: AgentTask) async throws {
+            await bench.start()
+            if task.spec.title == tagsFor {
+                // Midway, while the other agents are still at work.
+                try await Task.sleep(for: .milliseconds(150))
+                _ = try await ProcessRunner.run("/usr/bin/env", ["git", "tag", "sneaky"], in: task.directory)
+                try await Task.sleep(for: .milliseconds(250))
+            } else {
+                try await Task.sleep(for: .milliseconds(400))
+            }
+            try "hello\n".write(to: task.directory.appending(path: "app.txt"), atomically: true, encoding: .utf8)
+            await bench.stop()
+        }
+    }
+
+    @Test("Leaves are built side by side, up to the max parallel agents", arguments: [1, 2])
+    func buildsInParallelUpToTheLimit(limit: Int) async throws {
+        let repo = try await makeRepo()
+        let bench = Workbench()
+        var harness = HarnessSettings()
+        harness.maxParallelAgents = limit
+        let team = AgentTeam(name: "Slow", decomposer: Leaf(), testAuthor: ShellTestAuthor(), implementer: SlowImplementer(bench: bench))
+        let session = try await session(repo, team: team, harness: harness)
+        let keys = [await ticket(session, title: "One"), await ticket(session, title: "Two"), await ticket(session, title: "Three")]
+
+        let reports = await session.runUntilIdle()
+
+        let state = await session.ledger.workingState()
+        for key in keys { #expect(state.node(forTicket: key)?.phase == .proven, "\(reports.flatMap(\.actions))") }
+        #expect(await bench.peak == limit)
+    }
+
+    /// Holds an implementer midway until the test lets it go.
+    actor Pause {
+        private(set) var reached = false
+        private var waiter: CheckedContinuation<Void, Never>?
+        func wait() async {
+            reached = true
+            await withCheckedContinuation { waiter = $0 }
+        }
+        func release() { waiter?.resume() }
+    }
+
+    struct HalfwayImplementer: AgentOSCore.Implementer {
+        let pause: Pause
+        func implement(_ task: AgentTask) async throws {
+            AgentLog.append("Writing app.txt", to: task.log)
+            try "hello\n".write(to: task.directory.appending(path: "app.txt"), atomically: true, encoding: .utf8)
+            try "draft\n".write(to: task.directory.appending(path: "draft.txt"), atomically: true, encoding: .utf8)
+            await pause.wait()
+            try FileManager.default.removeItem(at: task.directory.appending(path: "draft.txt"))
+            AgentLog.append("Done", to: task.log)
+        }
+    }
+
+    @Test("While an agent works you can follow its log and see its changes so far")
+    func agentWorkCanBeFollowedLive() async throws {
+        let repo = try await makeRepo()
+        let pause = Pause()
+        let session = try await session(repo, team: AgentTeam(
+            name: "Halfway", decomposer: Leaf(), testAuthor: ShellTestAuthor(), implementer: HalfwayImplementer(pause: pause)))
+        let key = await ticket(session)
+        let work = Task { await session.runUntilIdle() }
+        while await !pause.reached { try await Task.sleep(for: .milliseconds(20)) }
+
+        let node = try #require(await session.ledger.workingState().running.first)
+        let run = try #require(node.activeRun)
+        #expect(node.ticket == key && run.role == .implementer)
+        #expect(run.since <= .now)
+        let log = session.workspace.artifactsDirectory.appending(path: AgentLog.fileName(node: node.id, run: run.run))
+        #expect(try String(contentsOf: log, encoding: .utf8) == "Writing app.txt\n")
+        let changes = try await session.workspace.changes(for: node.id)
+        #expect(changes.contains("Tests/AppTests/WORK_1Tests/check.sh"))  // committed by the test author
+        #expect(changes.contains("+hello"))                                // not committed yet
+        #expect(changes.contains("+ draft.txt"))                           // new, not added yet
+
+        await pause.release()
+        await work.value
+        #expect(await session.ledger.workingState().node(forTicket: key)?.phase == .proven)
+        #expect(try String(contentsOf: log, encoding: .utf8) == "Writing app.txt\nDone\n") // kept afterwards
+    }
+
+    @Test("When your repo changes while agents run side by side, each names the others it ran with")
+    func gitStateChangesNameConcurrentAgents() async throws {
+        let repo = try await makeRepo()
+        let team = AgentTeam(name: "Slow", decomposer: Leaf(), testAuthor: ShellTestAuthor(),
+                             implementer: SlowImplementer(bench: Workbench(), tagsFor: "Sneaky"))
+        let session = try await session(repo, team: team)
+        let honest = await ticket(session, title: "Honest")
+        let sneaky = await ticket(session, title: "Sneaky")
+
+        await session.runUntilIdle()
+
+        let state = await session.ledger.workingState()
+        let honestFlag = try #require(state.node(forTicket: honest)?.flags[.escalated])
+        let sneakyFlag = try #require(state.node(forTicket: sneaky)?.flags[.escalated])
+        #expect(honestFlag.contains("refs/tags/sneaky") && honestFlag.contains("Agents for \(sneaky) ran at the same time"), "\(honestFlag)")
+        #expect(sneakyFlag.contains("Agents for \(honest) ran at the same time"), "\(sneakyFlag)")
+    }
+
     @Test("Landing refuses to move the landing branch while a checkout has it checked out")
     func refusesToMoveACheckedOutBranch() async throws {
         let repo = try await makeRepo()
@@ -182,6 +293,8 @@ struct RepositoryWorkspaceTests {
                              protectedPaths: ["AGENTS.md", ".agentos/", "CONTRIBUTING*"])
         cli.model = "model-a"
         let arguments = cli.arguments(prompt: "do it", in: URL(filePath: "/tmp/leaf"))
+        #expect(arguments.contains("-s"))
+        #expect(!cli.arguments(prompt: "do it", in: URL(filePath: "/tmp/leaf"), silent: false).contains("-s"))
         let denied = zip(arguments, arguments.dropFirst()).filter { $0.0 == "--deny-tool" }.map(\.1)
         #expect(denied.contains("shell(git push)"))
         #expect(denied.contains("shell(npm install)"))

@@ -30,4 +30,12 @@ struct FileStoreTests {
         #expect(ticket.acceptanceCriteria == ["Shows °C"])
         #expect(ticket.labels.map(\.name) == ["harness:preview"])
     }
+
+    @Test func processOutputCanBeKeptInALogFile() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "agentos-log-\(UUID().uuidString)")
+        let log = try #require(try FileArtifactStore(directory: directory).liveFile(named: "run-agent.log"))
+        let result = try await ProcessRunner.run("/bin/echo", ["hello"], in: directory, log: log)
+        #expect(result.output == "hello\n")
+        #expect(try String(contentsOf: log, encoding: .utf8) == "hello\n")
+    }
 }

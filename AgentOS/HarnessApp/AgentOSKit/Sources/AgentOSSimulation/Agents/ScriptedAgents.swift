@@ -70,8 +70,9 @@ enum ScriptedFacts {
 public struct ScriptedDecomposer: Decomposer {
     public init() {}
 
-    public func proposeChildren(of parent: NodeSpec, existingComponents: [String]) async throws -> [ChildProposal] {
+    public func proposeChildren(of parent: NodeSpec, existingComponents: [String], log: URL?) async throws -> [ChildProposal] {
         guard !parent.acceptanceCriteria.isEmpty else { throw AgentFailure("Nothing to break down: no acceptance criteria") }
+        AgentLog.append("Proposing one leaf per acceptance criterion (\(parent.acceptanceCriteria.count))", to: log)
         return parent.acceptanceCriteria.map { text in
             let (criterion, hinted) = ScriptedFacts.touchHint(in: text)
             let touches = hinted ?? [ComponentName.from(parent.title, maxWords: 3)]
@@ -95,6 +96,7 @@ public struct ScriptedTestAuthor: TestAuthor {
             return "@Test(\(swiftLiteral(criterion)))\nfunc criterion\(index + 1)() {\n\(expectations.joined(separator: "\n"))\n}"
         }
         let url = task.directory.appending(path: "\(task.testFolder)/\(target).swift")
+        AgentLog.append("Writing \(tests.count) acceptance tests to \(task.testFolder)/\(target).swift", to: task.log)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try """
         // Acceptance tests for \(task.spec.id): \(task.spec.title)
@@ -118,12 +120,14 @@ public struct ScriptedImplementer: Implementer {
 
     public func implement(_ task: AgentTask) async throws {
         if task.simulationHints.contains("sim:stuck") {
+            AgentLog.append("Giving up: no progress", to: task.log)
             throw AgentFailure("Agent gave up: couldn't make progress")
         }
         let defect = task.simulationHints.contains("sim:always-fail")
             || (task.simulationHints.contains("sim:fail-once") && task.attempt == 1)
         let criteria = defect ? Array(task.spec.acceptanceCriteria.dropFirst()) : task.spec.acceptanceCriteria
         for component in task.spec.touches {
+            AgentLog.append("Changing \(component) (attempt \(task.attempt))", to: task.log)
             let url = ScriptedFacts.sourceFile(component, in: task.directory)
             var facts = ScriptedFacts.read(url)
             for criterion in criteria {

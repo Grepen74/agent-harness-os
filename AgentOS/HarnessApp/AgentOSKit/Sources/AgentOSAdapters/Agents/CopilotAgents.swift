@@ -32,8 +32,10 @@ public struct CopilotCLI: Sendable {
             .first { FileManager.default.isExecutableFile(atPath: $0) }
     }
 
-    public func arguments(prompt: String, in directory: URL) -> [String] {
-        var arguments = ["-p", prompt, "-s", "--allow-all-tools", "--disable-builtin-mcps", "-C", directory.path]
+    /// `silent`: only the agent's final response, for agents whose answer is parsed. Otherwise the output also
+    /// shows each step as it happens, which is what you follow in the live log.
+    public func arguments(prompt: String, in directory: URL, silent: Bool = true) -> [String] {
+        var arguments = ["-p", prompt] + (silent ? ["-s"] : []) + ["--allow-all-tools", "--disable-builtin-mcps", "-C", directory.path]
         for pattern in Self.denyPatterns(tools: deniedTools, protectedPaths: protectedPaths) {
             arguments += ["--deny-tool", pattern]
         }
@@ -61,8 +63,9 @@ public struct CopilotCLI: Sendable {
         return patterns.filter { seen.insert($0).inserted }
     }
 
-    func run(_ prompt: String, in directory: URL) async throws -> String {
-        let result = try await ProcessRunner.run(executable, arguments(prompt: prompt, in: directory), in: directory, timeout: timeout)
+    func run(_ prompt: String, in directory: URL, log: URL? = nil, silent: Bool = true) async throws -> String {
+        let result = try await ProcessRunner.run(executable, arguments(prompt: prompt, in: directory, silent: silent), in: directory,
+                                                 timeout: timeout, log: log)
         guard result.status == 0 else {
             throw AgentFailure("copilot exited with \(result.status): \(result.output.suffix(300))")
         }
@@ -87,7 +90,7 @@ public struct CopilotCLI: Sendable {
 public struct CopilotDecomposer: Decomposer {
     let cli: CopilotCLI
 
-    public func proposeChildren(of parent: NodeSpec, existingComponents: [String]) async throws -> [ChildProposal] {
+    public func proposeChildren(of parent: NodeSpec, existingComponents: [String], log: URL?) async throws -> [ChildProposal] {
         let scratch = FileManager.default.temporaryDirectory.appending(path: "agentos-decompose-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: scratch) }
@@ -106,7 +109,7 @@ public struct CopilotDecomposer: Decomposer {
 
         \(CopilotCLI.dataBlock(parent))
         """
-        let output = try await cli.run(prompt, in: scratch)
+        let output = try await cli.run(prompt, in: scratch, log: log)
         guard let start = output.firstIndex(of: "["), let end = output.lastIndex(of: "]"),
               let proposals = try? JSONDecoder().decode([ChildProposal].self, from: Data(output[start...end].utf8)),
               !proposals.isEmpty
@@ -132,7 +135,7 @@ public struct CopilotTestAuthor: TestAuthor {
 
         \(CopilotCLI.dataBlock(task.spec))
         """
-        _ = try await cli.run(prompt, in: task.directory)
+        _ = try await cli.run(prompt, in: task.directory, log: task.log, silent: false)
     }
 }
 
@@ -151,7 +154,7 @@ public struct CopilotImplementer: Implementer {
         \(failure)
         \(CopilotCLI.dataBlock(task.spec))
         """
-        _ = try await cli.run(prompt, in: task.directory)
+        _ = try await cli.run(prompt, in: task.directory, log: task.log, silent: false)
     }
 }
 

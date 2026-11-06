@@ -227,25 +227,6 @@ enum ReadinessRules {
         }
     }
 
-    /// `name=` and `OS=` from an `xcodebuild -destination 'platform=iOS Simulator,…'`.
-    struct SimulatorDestination: Equatable {
-        var name: String
-        var os: String?
-
-        init?(_ command: String) {
-            guard let match = command.firstMatch(of: /-destination\s+['"]?([^'"]*Simulator[^'"]*)['"]?/) else { return nil }
-            var name: String?
-            for part in match.output.1.split(separator: ",") {
-                let pair = part.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
-                guard pair.count == 2 else { continue }
-                if pair[0] == "name" { name = pair[1] }
-                if pair[0] == "OS", pair[1] != "latest" { os = pair[1] }
-            }
-            guard let name else { return nil }
-            self.name = name
-        }
-    }
-
     // MARK: Files that steer agents (doc 01)
 
     static func instructions(_ repo: RepositorySnapshot) -> [Finding] {

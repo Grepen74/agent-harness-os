@@ -47,7 +47,7 @@ struct RepositoryView: View {
             model.harness = new
             Task { await model.rescan() }
         }
-        .onDisappear { model.setRunning(false) }
+        .onDisappear { model.close() }
         .toolbar {
             ToolbarItemGroup(placement: .navigation) {
                 Toggle(isOn: Binding(get: { model.isRunning }, set: { model.setRunning($0) })) {

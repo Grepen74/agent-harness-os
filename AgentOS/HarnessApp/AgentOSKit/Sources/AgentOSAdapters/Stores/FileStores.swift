@@ -66,4 +66,11 @@ public struct FileArtifactStore: ArtifactStore {
         try contents.write(to: url, options: .atomic)
         return StoredArtifact(path: url.path, sha256: Hashing.sha256(contents))
     }
+
+    public func liveFile(named name: String) throws -> URL? {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appending(path: name)
+        FileManager.default.createFile(atPath: url.path, contents: nil)
+        return url
+    }
 }

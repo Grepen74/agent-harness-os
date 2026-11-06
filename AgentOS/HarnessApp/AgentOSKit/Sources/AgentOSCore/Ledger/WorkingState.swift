@@ -3,6 +3,7 @@ import Foundation
 public struct ActiveRun: Sendable, Hashable {
     public let run: RunID
     public let role: AgentRole
+    public let since: Date
 }
 
 public struct Submission: Sendable, Hashable {
@@ -68,6 +69,11 @@ public struct WorkingState: Sendable {
             .sorted { ($0.queuedAt ?? 0) < ($1.queuedAt ?? 0) }
     }
 
+    /// Nodes with an agent or check running right now, oldest run first.
+    public var running: [NodeState] {
+        nodes.values.filter { $0.activeRun != nil }.sorted { $0.activeRun!.since < $1.activeRun!.since }
+    }
+
     public func node(forTicket key: String) -> NodeState? {
         nodes.values.first { $0.ticket == key }
     }
@@ -131,7 +137,7 @@ public struct WorkingState: Sendable {
             node.failedAttempts = 0
             node.recentFailures = []
         case .testsFixed(let digest): node.testsDigest = digest
-        case .runStarted(let run, let role): node.activeRun = ActiveRun(run: run, role: role)
+        case .runStarted(let run, let role): node.activeRun = ActiveRun(run: run, role: role, since: event.at)
         case .runFinished: node.activeRun = nil
         case .changeSubmitted(let run, let commit): node.lastSubmission = Submission(run: run, commit: commit)
         case .reworkNeeded:

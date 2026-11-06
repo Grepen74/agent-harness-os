@@ -26,7 +26,8 @@ public final class RepositorySession: Sendable {
         reconciler = Reconciler(
             ledger: ledger, tracker: LocalTrackerAdapter(tracker: self.tracker), external: NoExternalSystem(), workspace: workspace,
             artifacts: FileArtifactStore(directory: workspace.artifactsDirectory),
-            checks: checks ?? CommandCheckRunner(config: config), team: team, policy: policy.policy)
+            checks: checks ?? CommandCheckRunner(config: config, simulators: SimulatorPool(size: policy.maxParallelAgents)),
+            team: team, policy: policy.policy)
     }
 
     /// The repo's local tracker. Pass one to `init` to keep using it across sessions (e.g. after a policy change).

@@ -7,6 +7,9 @@ public struct Policy: Sendable, Equatable {
     public var maxAttempts = 3
     /// Merge-conflict reworks per leaf before a human (or a smarter planner) should order the work (doc 08 §5).
     public var maxReworks = 3
+    /// Nodes worked on at the same time in a round: the agents the harness starts, not the sub-agents they use.
+    /// Landing is always one at a time.
+    public var maxParallelAgents = 1
     /// The signals people may use (doc 05 §3). Production: the harness layer sets what each profile may offer
     /// and the repo config may only switch signals off (doc 04 §8); strict profiles leave out `go`.
     public var allowedSignals: Set<HarnessCommand>
@@ -14,10 +17,11 @@ public struct Policy: Sendable, Equatable {
     /// without "/" matches a file name in any folder, a trailing "/" means a folder, `*` is a wildcard.
     public var protectedPaths: [String]
 
-    public init(maxAttempts: Int = 3, maxReworks: Int = 3, allowedSignals: Set<HarnessCommand> = Set(HarnessCommand.allCases),
-                protectedPaths: [String] = []) {
+    public init(maxAttempts: Int = 3, maxReworks: Int = 3, maxParallelAgents: Int = 1,
+                allowedSignals: Set<HarnessCommand> = Set(HarnessCommand.allCases), protectedPaths: [String] = []) {
         self.maxAttempts = maxAttempts
         self.maxReworks = maxReworks
+        self.maxParallelAgents = maxParallelAgents
         self.allowedSignals = allowedSignals
         self.protectedPaths = protectedPaths
     }

@@ -139,7 +139,8 @@ The harness's state for a repo is private and lives outside the repo:
 ~/Library/Application Support/AgentOS/repos/<repo-id>/
   ledger.jsonl     events, hash-chained
   tracker.json     local tracker tickets (when no tracker adapter is configured)
-  artifacts/       check logs (evidence), e.g. baseline-<commit>.log
+  artifacts/       check logs (evidence), e.g. baseline-<commit>.log, and each agent run's own log,
+                   <node>-<run>-agent.log, written as it runs
   baseline/src/    the export of main the baseline last ran on
   worktrees/       one working copy per leaf, on branch agentos/leaf/<node>
   exclude          files git ignores in worktrees (.build/, DerivedData/, xcuserdata/, .DS_Store…)
@@ -152,7 +153,7 @@ Code talks to storage through small protocols, with file-based adapters first:
 - `LedgerStore`: append records; read all records. The ledger itself checks node versions
   (compare-and-swap) before it appends.
 - `TicketStore`: the local tracker's tickets.
-- `ArtifactStore`: put a file, get its path and checksum.
+- `ArtifactStore`: put a file, get its path and checksum; or get a file to write to as it grows (agent logs).
 
 SQLite and server-based adapters can be added later without touching the reconciler.
 
@@ -181,10 +182,35 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
   outside `agentos/` (tags, remote-tracking refs, the stash; for local branches only whether they exist,
   since you may commit while agents work), and the shared git config, hooks and `info/` files. Worktrees
   share all of these with your repo. Any change escalates the leaf instead of retrying it, naming what
-  changed; if it was you (e.g. you fetched meanwhile), add `harness:retry`.
+  changed; if it was you (e.g. you fetched meanwhile), add `harness:retry`. When agents ran side by side,
+  the change can't be pinned on one: each of them is escalated and names the others it ran with.
+- **Parallel work.** Each round, up to *max parallel agents* nodes take their step at the same time
+  (breakdown, tests, build, pre-check), each in its own worktree; landing stays one at a time. The limit
+  counts the agents the harness starts, not the sub-agents they use. Adding and removing worktrees is
+  serialized, because they share the repo's `.git`. Running side by side costs no more agent work than one
+  after the other, except that leaves built from the same landing branch conflict more often at landing,
+  and a conflict means rework.
+- **Simulators.** A check whose command names a simulator (`-destination '…Simulator,name=…'`) borrows one
+  of the harness's own copies of it: same model and OS, named `AgentOS <model> (<OS>) <n>`, one per
+  parallel agent, made with `simctl create` the first time and reused after. Your own simulator is left
+  alone. Checks that name no simulator (e.g. `swift test` on a package) don't wait for one. If no copies
+  can be made, checks use the configured simulator, one at a time. Remove the copies in Xcode → Devices and
+  Simulators.
+- **Watching agents work.** The window refreshes on every ledger event (a run starting, a submission,
+  evidence), not only after a round. *Running now*, above the work tree, lists each run under way with its
+  role and time so far, and offers:
+  - **Log**: the agent's output, followed live. Copilot writes each step as it goes (only the decomposer
+    runs with `-s`, since its answer is parsed). The file is kept, and the node's details list every agent
+    run with its log. Checks have no live log; theirs is recorded as evidence when they finish.
+  - **Changes**: what the worktree changed since it left the landing branch, committed or not, including new
+    files. Read with `git --no-optional-locks`, so looking never takes the index lock from an agent.
+  - **Finder** and **Xcode**: the worktree itself. Look, don't change: anything changed there is committed
+    as the agent's work.
 
-Known limits: rounds run one after the other (max parallel agents isn't applied yet); tickets blocked by
-another system never unblock (there's no external system adapter yet).
+Known limits: a leaf's tests go in the one configured test target, so if that target needs a simulator,
+every leaf's checks do; picking a target per leaf (e.g. a package's tests for service-layer work) would
+let those skip it. Tickets blocked by another system never unblock (there's no external system adapter
+yet).
 
 `agentos work [<repo>] [--ticket <title> --criterion <text>… --go]` runs it from the terminal until nothing
 more can happen without a human. In the app, the repository window shows the tracker and work tree next to
@@ -254,7 +280,11 @@ Each phase is usable on its own.
    policy pane shows each role's agent and model with its source, and the effective denied tools are
    passed to the agent (`--deny-tool`) instead of allowing all tools. *Done:* see The workspace;
    `agentos work`; Step / Run in the repository window; agent models in Settings.
-5. **GitHub Issues adapter**, as the first real tracker.
+5. **Parallel agents.** Up to *max parallel agents* nodes at a time, worktree setup serialized, a pool of
+   the harness's own simulators for checks that need one, and the git state check naming the agents that
+   ran together; and watching it happen: live refresh, the runs under way with their live logs, changes so
+   far and worktree. *Done:* see The workspace.
+6. **GitHub Issues adapter**, as the first real tracker.
 
 ## Pilot: this repo
 

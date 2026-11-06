@@ -12,10 +12,13 @@ public struct CommandCheckRunner: CheckRunner {
 
     public let config: RepoConfig
     public let timeout: Duration
+    /// Where commands that name a simulator get one of their own; nil runs them as written.
+    public let simulators: SimulatorPool?
 
-    public init(config: RepoConfig, timeout: Duration = .seconds(1800)) {
+    public init(config: RepoConfig, timeout: Duration = .seconds(1800), simulators: SimulatorPool? = nil) {
         self.config = config
         self.timeout = timeout
+        self.simulators = simulators
     }
 
     /// The commands in order. `only` names one test suite; it's substituted into `test.only`.
@@ -38,11 +41,20 @@ public struct CommandCheckRunner: CheckRunner {
     public func runChecks(in directory: URL, only suite: String?) async -> CheckOutput {
         var log = ""
         for step in steps(only: suite) {
-            log += "$ \(step.command)\n"
             let result: ProcessRunner.Result
             do {
-                result = try await ProcessRunner.run("/bin/sh", ["-c", step.command], in: directory, timeout: timeout)
+                let run: @Sendable (String) async throws -> (String, ProcessRunner.Result) = { [timeout] command in
+                    (command, try await ProcessRunner.run("/bin/sh", ["-c", command], in: directory, timeout: timeout))
+                }
+                let (command, output) = if let simulators {
+                    try await simulators.withSimulator(for: step.command, run)
+                } else {
+                    try await run(step.command)
+                }
+                log += "$ \(command)\n"
+                result = output
             } catch {
+                log += "$ \(step.command)\n"
                 log += "\(error)\n"
                 return CheckOutput(passed: false, summary: "\(step.name): could not run: \(error)", log: log)
             }
