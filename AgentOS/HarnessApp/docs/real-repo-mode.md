@@ -15,7 +15,7 @@ and watch it. Keep it simple: one machine, one repo, one user.
 The simulator stays. It becomes one of two kinds of window in the same app.
 
 **Not in scope yet:** several repos forming one system (integration nodes), shared or cloud storage, more
-than one user, pushing or opening pull requests.
+than one user. Following `main` and pushing or opening pull requests are planned (phases 7 and 8).
 
 ## How it's used
 
@@ -61,7 +61,7 @@ read from `main` only.
 | Setting | Harness default (limit) | Repo may |
 |---|---|---|
 | Landing target | Local branch `agentos/main` | Choose another *local* branch name |
-| Push / open pull requests | Never | Nothing (later: allowed only if the harness allows it) |
+| Push / open pull requests | Never (phase 8: an opt-in setting; only the harness pushes, never agents) | Switch it off |
 | Agent tools | Copilot CLI, with `git push`/`fetch`/`pull`/`remote`/`config`/`stash`, `gh` and network installs denied | Deny more |
 | Agent models | Offered models, plus a default model per role (breakdown, acceptance tests, implementation); none = the CLI's default | Pick a model per role among the offered ones |
 | Max attempts / reworks per leaf | 3 / 3 | Lower |
@@ -285,6 +285,21 @@ Each phase is usable on its own.
    ran together; and watching it happen: live refresh, the runs under way with their live logs, changes so
    far and worktree. *Done:* see The workspace.
 6. **GitHub Issues adapter**, as the first real tracker.
+7. **Catching up with `main`.** Today `agentos/main` is created from `main` once and never follows it, so
+   your later commits never reach the agents. When `main` moves and its baseline passes, the harness
+   rebases `agentos/main` onto it (or merges, if rebasing would rewrite landed work you've already
+   merged). Leaves in progress then rebase as usual; conflicts go to rework, as at landing. Nothing is
+   fetched: `main` is whatever your clone has.
+8. **Publishing pull requests.** The way out to the world, and the end state of concept docs 04 and 08 (every
+   change a reviewed pull request). One pull request per **requirement** (a top-level ticket, or a
+   composite node), opened once all its leaves are proven; single leaves are too small to review on their
+   own. The **harness** pushes the branch (e.g. `agentos/WORK-1`) and opens the pull request; agents keep
+   `git push` and `gh` denied. The description carries the requirement, its breakdown, which tests prove
+   which acceptance criteria and the check results, with links to the evidence. With phase 6 the pull
+   request links to its issue, and the issue follows the pull request's state. Governed by *Push / open
+   pull requests*: the harness setting allows it (off by default), the repo may only switch it off.
+   Later, in production, each leaf goes through the remote's merge queue with CI as the check runner,
+   replacing the local `agentos/main` (doc 08).
 
 ## Pilot: this repo
 
