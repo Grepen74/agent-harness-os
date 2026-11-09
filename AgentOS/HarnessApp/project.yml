@@ -23,6 +23,9 @@ targets:
     type: application
     platform: macOS
     sources: [App]
+    # Generates the shared AgentOSHarness scheme (Debug to run, Release to profile and archive). Without
+    # this, `xcodegen generate` deletes the committed scheme.
+    scheme: {}
     dependencies:
       - package: AgentOSKit
         product: AgentOSCore

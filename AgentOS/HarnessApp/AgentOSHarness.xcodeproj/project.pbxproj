@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		00342B399A1637F75417D6BB /* WatchingAgents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58616AB04E7EC1B5290C0652 /* WatchingAgents.swift */; };
 		30AFD386237FE9AC21B54D9A /* ExternalSystemView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26E7E7D1CAF1A8D3FED6EA07 /* ExternalSystemView.swift */; };
+		3A518B492C284DD964523EEB /* WelcomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDCBA8A671A55442565047E1 /* WelcomeView.swift */; };
 		418CF15F8959F3968ED79FAB /* AgentOSAdapters in Frameworks */ = {isa = PBXBuildFile; productRef = FE296BE1A993FA323E062E12 /* AgentOSAdapters */; };
 		56AF553AEE2C2BFB764E5AAB /* RepositoryModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F381171DA2FE4E2FC283F1E /* RepositoryModel.swift */; };
 		6442A8ECDC9DE1AE1944721B /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56FB234A7EE189B8E1D578A3 /* SettingsView.swift */; };
@@ -18,6 +19,7 @@
 		AE7742C7230AA8DA43547C06 /* AgentOSUI in Frameworks */ = {isa = PBXBuildFile; productRef = 2DF16EF0B38E44188D54C793 /* AgentOSUI */; };
 		BF20E8D66076B6B0E20618DC /* SimulatorModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97DDF3944C94CAA7FE84FD06 /* SimulatorModel.swift */; };
 		E44D7E06A5BD46CEAFA5D505 /* RepositoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 570782AF2459BDAC2449DF49 /* RepositoryView.swift */; };
+		EA4DED5FCC479BE95819292D /* SimulatorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA00C04A15E9FB73A6076D00 /* SimulatorView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -31,8 +33,10 @@
 		570782AF2459BDAC2449DF49 /* RepositoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepositoryView.swift; sourceTree = "<group>"; };
 		58616AB04E7EC1B5290C0652 /* WatchingAgents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchingAgents.swift; sourceTree = "<group>"; };
 		97DDF3944C94CAA7FE84FD06 /* SimulatorModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimulatorModel.swift; sourceTree = "<group>"; };
+		CDCBA8A671A55442565047E1 /* WelcomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeView.swift; sourceTree = "<group>"; };
 		CF459F8315CC9DCCADFD42D8 /* project.yml */ = {isa = PBXFileReference; lastKnownFileType = text.yaml; path = project.yml; sourceTree = "<group>"; };
 		D4ADCC1A3D6173BE48BC902E /* real-repo-mode.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = "real-repo-mode.md"; sourceTree = "<group>"; };
+		EA00C04A15E9FB73A6076D00 /* SimulatorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimulatorView.swift; sourceTree = "<group>"; };
 		FA9718ACE196DA8E32EE3BEA /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -61,7 +65,9 @@
 				570782AF2459BDAC2449DF49 /* RepositoryView.swift */,
 				56FB234A7EE189B8E1D578A3 /* SettingsView.swift */,
 				97DDF3944C94CAA7FE84FD06 /* SimulatorModel.swift */,
+				EA00C04A15E9FB73A6076D00 /* SimulatorView.swift */,
 				58616AB04E7EC1B5290C0652 /* WatchingAgents.swift */,
+				CDCBA8A671A55442565047E1 /* WelcomeView.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -174,7 +180,9 @@
 				E44D7E06A5BD46CEAFA5D505 /* RepositoryView.swift in Sources */,
 				6442A8ECDC9DE1AE1944721B /* SettingsView.swift in Sources */,
 				BF20E8D66076B6B0E20618DC /* SimulatorModel.swift in Sources */,
+				EA4DED5FCC479BE95819292D /* SimulatorView.swift in Sources */,
 				00342B399A1637F75417D6BB /* WatchingAgents.swift in Sources */,
+				3A518B492C284DD964523EEB /* WelcomeView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

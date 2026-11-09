@@ -35,8 +35,9 @@ It simulates the whole loop:
 
 ## Run it
 
-Open `AgentOSHarness.xcodeproj` and run the **AgentOSHarness** scheme. No Xcode? Run the same flow in
-the terminal: `cd AgentOSKit && swift run agentos demo`.
+Open `AgentOSHarness.xcodeproj` and run the **AgentOSHarness** scheme. It opens with a welcome window:
+open a repo (or a recent one), or **Show Simulator** (⇧⌘N). No Xcode? Run the same flow in the terminal:
+`cd AgentOSKit && swift run agentos demo`.
 
 - The app keeps its data in `~/Library/Application Support/AgentOSSimulator`. **⚙︎ → Reset everything**
   starts over.
@@ -48,7 +49,7 @@ the terminal: `cd AgentOSKit && swift run agentos demo`.
 
 **File → Open Repository…** (⌘O) and choose a git repo. The window runs the **readiness scan** (doc 01)
 and lists its findings: blockers must be fixed before agents may work there, warnings can be accepted.
-**File → Show Simulator** (⇧⌘N) brings the simulator back.
+**File → Show Simulator** (⇧⌘N) opens the simulator; it's only created when you first open it.
 
 - The scan is read-only. It reads the default branch through git and never touches your working copy.
 - Each scan is recorded in that repo's own ledger, outside the repo, in

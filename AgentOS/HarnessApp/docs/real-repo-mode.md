@@ -14,8 +14,8 @@ and watch it. Keep it simple: one machine, one repo, one user.
 
 The simulator stays. It becomes one of two kinds of window in the same app.
 
-**Not in scope yet:** several repos forming one system (integration nodes), shared or cloud storage, more
-than one user. Following `main` and pushing or opening pull requests are planned (phases 7 and 8).
+**Not in scope yet:** shared or cloud storage, more than one user. Following `main`, pushing or opening pull
+requests, and several repos forming one system are planned (phases 8, 9 and 10).
 
 ## How it's used
 
@@ -61,11 +61,12 @@ read from `main` only.
 | Setting | Harness default (limit) | Repo may |
 |---|---|---|
 | Landing target | Local branch `agentos/main` | Choose another *local* branch name |
-| Push / open pull requests | Never (phase 8: an opt-in setting; only the harness pushes, never agents) | Switch it off |
+| Push / open pull requests | Never (phase 9: an opt-in setting; only the harness pushes, never agents) | Switch it off |
 | Agent tools | Copilot CLI, with `git push`/`fetch`/`pull`/`remote`/`config`/`stash`, `gh` and network installs denied | Deny more |
 | Agent models | Offered models, plus a default model per role (breakdown, acceptance tests, implementation); none = the CLI's default | Pick a model per role among the offered ones |
 | Max attempts / reworks per leaf | 3 / 3 | Lower |
 | Max parallel agents | 2 | Lower |
+| Guesswork (phase 6) | `assume and report`: carry on, list assumptions, a person approves the build gate. Guesses about what users observe (acceptance criteria, which screen, which behaviour) always stop the node; guesses about implementation don't. Other levels: `ask` (any open question stops the node), `autonomous` (report assumptions afterwards) | Lower, to `ask` |
 | Signals people may use (doc 05 §3) | All, including `harness:go` | Switch some off, e.g. `go` to force a breakdown review |
 | Required checks | Build + the leaf's tests on branch; all tests at landing | Add more (lint, snapshot tests…) |
 | Protected paths | Tests of proven leaves, `.agentos/`, AGENTS.md, CONTRIBUTING, CODEOWNERS, copilot-instructions | Add more |
@@ -284,22 +285,43 @@ Each phase is usable on its own.
    the harness's own simulators for checks that need one, and the git state check naming the agents that
    ran together; and watching it happen: live refresh, the runs under way with their live logs, changes so
    far and worktree. *Done:* see The workspace.
-6. **GitHub Issues adapter**, as the first real tracker.
-7. **Catching up with `main`.** Today `agentos/main` is created from `main` once and never follows it, so
+6. **Clarifying questions.** Agents say what they're unsure of instead of guessing (doc 05: open questions
+   and assumptions; doc 00: when unsure, escalate). Found on this repo: WORK-3 was a one-line ticket
+   without acceptance criteria, became a leaf at once, and its test author guessed the wrong view.
+   - **Ready check before breakdown:** a ticket without acceptance criteria, or too vague to test, isn't
+     started; the harness comments with what's missing.
+   - **Questions and assumptions from every agent:** the decomposer and test author return them with their
+     result, recorded in the ledger. An open question stops that node (`needs input` flag, the questions
+     on the ticket and in the attention list); the answer on the ticket plus `harness:retry` continues it.
+     Assumptions are posted on the ticket.
+   - **How much guessing is allowed**, a policy setting (see Policy).
+   - **The build gate shows what it approves:** `harness:go` comes after the leaf's acceptance tests and
+     assumptions are visible, since the tests are where intent gets fixed. The test author is told to
+     test behaviour, not source text.
+7. **GitHub Issues adapter**, as the first real tracker.
+8. **Catching up with `main`.** Today `agentos/main` is created from `main` once and never follows it, so
    your later commits never reach the agents. When `main` moves and its baseline passes, the harness
    rebases `agentos/main` onto it (or merges, if rebasing would rewrite landed work you've already
    merged). Leaves in progress then rebase as usual; conflicts go to rework, as at landing. Nothing is
    fetched: `main` is whatever your clone has.
-8. **Publishing pull requests.** The way out to the world, and the end state of concept docs 04 and 08 (every
+9. **Publishing pull requests.** The way out to the world, and the end state of concept docs 04 and 08 (every
    change a reviewed pull request). One pull request per **requirement** (a top-level ticket, or a
    composite node), opened once all its leaves are proven; single leaves are too small to review on their
    own. The **harness** pushes the branch (e.g. `agentos/WORK-1`) and opens the pull request; agents keep
    `git push` and `gh` denied. The description carries the requirement, its breakdown, which tests prove
-   which acceptance criteria and the check results, with links to the evidence. With phase 6 the pull
+   which acceptance criteria and the check results, with links to the evidence. With phase 7 the pull
    request links to its issue, and the issue follows the pull request's state. Governed by *Push / open
    pull requests*: the harness setting allows it (off by default), the repo may only switch it off.
    Later, in production, each leaf goes through the remote's merge queue with CI as the check runner,
    replacing the local `agentos/main` (doc 08).
+10. **Several repos, one system.** Until now one repo is one system: one ledger and work tree per repo,
+   components are parts of it, and other systems appear only as external dependencies. Here a system
+   spans repos, possibly in different source control systems: the ledger and work tree belong to the
+   system, and each node names the repo it lives in. Each repo keeps its own workspace, config, checks,
+   policy and landing branch. **Integration nodes** (composites spanning repos) are proven by checks
+   across them, such as contract or end-to-end tests, once their children have landed in their own repos.
+   With phase 9, one requirement can become pull requests in several repos. Also covers the reverse case:
+   several apps in one repo, as separate systems.
 
 ## Pilot: this repo
 

@@ -1,4 +1,4 @@
-// HarnessToolbar must expose its two control clusters as HStack(spacing: 16) containers.
+// SimulatorToolbar must expose its two control clusters as HStack(spacing: 16) containers.
 
 import Foundation
 import Testing
@@ -34,9 +34,9 @@ struct WORK_3Tests {
             .deletingLastPathComponent()
         let appSource = packageRoot
             .deletingLastPathComponent()
-            .appending(path: "App/App.swift")
+            .appending(path: "App/SimulatorView.swift")
         let source = try String(contentsOf: appSource, encoding: .utf8)
-        let toolbar = try #require(block(startingWith: "struct HarnessToolbar:", in: source))
+        let toolbar = try #require(block(startingWith: "struct SimulatorToolbar:", in: source))
 
         var groups: [String] = []
         var remainder = toolbar[...]

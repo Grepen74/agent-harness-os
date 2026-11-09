@@ -40,6 +40,7 @@ struct RepositoryView: View {
         .navigationTitle(model.name)
         .navigationSubtitle(model.url.path)
         .task {
+            RecentRepositories.add(model.url)
             model.harness = settings.settings
             await model.rescan()
         }
@@ -81,32 +82,5 @@ struct RepositoryView: View {
                 .padding(.horizontal, 12)
             }
         }
-    }
-}
-
-/// File menu: Open Repository… and the simulator.
-struct RepositoryCommands: Commands {
-    @Environment(\.openWindow) private var openWindow
-
-    var body: some Commands {
-        CommandGroup(replacing: .newItem) {
-            Button("Open Repository…") {
-                if let url = Self.chooseRepository() { openWindow(value: url) }
-            }
-            .keyboardShortcut("o")
-            Button("Show Simulator") { openWindow(id: AgentOSHarnessApp.simulatorID) }
-                .keyboardShortcut("n", modifiers: [.command, .shift])
-        }
-    }
-
-    @MainActor
-    private static func chooseRepository() -> URL? {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.prompt = "Open"
-        panel.message = "Choose a git repo. The harness never changes your checkout or its default branch."
-        return panel.runModal() == .OK ? panel.url : nil
     }
 }
