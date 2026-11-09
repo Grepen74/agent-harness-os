@@ -25,5 +25,11 @@
   "test" : {
     "command" : "cd AgentOS/HarnessApp/AgentOSKit && swift test",
     "only" : "--filter {suite}"
+  },
+  "tracker": {
+      "type": "github-issues",
+      "project": {
+          "owner": "Grepen74", "number": 1
+      }
   }
 }

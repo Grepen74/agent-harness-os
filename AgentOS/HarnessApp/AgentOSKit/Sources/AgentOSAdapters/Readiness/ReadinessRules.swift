@@ -362,6 +362,12 @@ enum ReadinessRules {
 
     static func checkout(_ repo: RepositorySnapshot) -> [Finding] {
         var findings: [Finding] = []
+        if let local = repo.checkoutConfig, local != repo.contents[RepoConfig.path] {
+            findings.append(Finding(check: "checkout.config", severity: .warning,
+                                    title: "\(RepoConfig.path) in your checkout isn't the one on \(repo.branch)",
+                                    detail: "The harness reads the config only from \(repo.branch), so your changes don't apply yet.",
+                                    suggestion: "Commit it on \(repo.branch), then rescan (⌘R)."))
+        }
         if let current = repo.checkoutBranch, current != repo.branch {
             findings.append(Finding(check: "checkout", severity: .info, title: "Your checkout is on \(current)",
                                     detail: "The harness works from \(repo.branch), not from your current branch."))

@@ -73,6 +73,10 @@ struct RepositoryView: View {
                 HStack(spacing: 0) {
                     TextField("You", text: Binding(get: { model.view.you }, set: { model.view.you = $0 }))
                         .frame(width: 90).help("Your name as a human in the tracker")
+                    Button { Task { await model.rescan() } } label: { Label("Rescan", systemImage: "arrow.clockwise") }
+                        .help("Rescan the default branch and reload its config. Agents continue with it after the current round (⌘R)")
+                        .keyboardShortcut("r")
+                        .disabled(model.view.isScanning)
                     Button { model.revealRepository() } label: { Label("Show repo in Finder", systemImage: "folder") }
                         .help("Show the repo in Finder")
                     Button { model.revealStorage() } label: { Label("Show harness data", systemImage: "externaldrive") }

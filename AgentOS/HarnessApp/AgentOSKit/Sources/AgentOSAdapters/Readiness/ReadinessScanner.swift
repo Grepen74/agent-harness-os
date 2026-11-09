@@ -132,6 +132,7 @@ public struct ReadinessScanner: Sendable {
         // --no-optional-locks: don't even refresh the index.
         snapshot.uncommittedChanges = (await git(["--no-optional-locks", "status", "--porcelain"], in: root) ?? "")
             .split(separator: "\n").count
+        snapshot.checkoutConfig = try? String(contentsOf: RepoConfigFile.url(in: root), encoding: .utf8)
         // Only ask for simulators when something will need one: it takes a moment.
         let mentionsSimulator = snapshot.contents.contains { $0.key.hasPrefix(".agentos/") && $0.value.contains("Simulator") }
             || snapshot.contents.values.contains { $0.contains("iphoneos") || $0.contains("platform: iOS") }

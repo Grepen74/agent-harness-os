@@ -59,9 +59,12 @@ and lists its findings: blockers must be fixed before agents may work there, war
 
 The **Policy** pane shows what applies to the repo: the harness's limits from **Settings** (⌘,), tightened
 by the repo's `.agentos/config.json`, each value with its source. The config says how to build and test.
-If the repo has none, the pane shows a draft guessed from the scan; check it, then commit it on `main`
-yourself. The harness never changes your checkout or `main`, and never edits the files that steer it
-(the config, AGENTS.md, CONTRIBUTING, CODEOWNERS): otherwise it could raise its own limits.
+**Open .agentos/config.json** opens the copy in your checkout in your default editor. If the repo has none,
+the pane shows a draft guessed from the scan, and **Create .agentos/config.json** writes that draft into your
+checkout. Check it, commit it on `main` yourself, then **Rescan** (toolbar, ⌘R). A rescan reloads the config
+and policy: no restart needed, and agents continue with the new config after the round under way. The harness reads the config only from
+`main`. It writes into your checkout only when you ask it to, never commits, and agents never edit the files
+that steer the harness (the config, AGENTS.md, CONTRIBUTING, CODEOWNERS): otherwise they could raise their own limits.
 
 With a config, **Run baseline** runs its checks on a clean export of `main`, outside your checkout, and
 records the result and log in the ledger. Agents may only start once the baseline passes at `main`'s

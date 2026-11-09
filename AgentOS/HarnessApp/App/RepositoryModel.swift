@@ -185,6 +185,20 @@ final class RepositoryModel: HarnessActions {
 
     func open(_ path: String) { NSWorkspace.shared.open(URL(filePath: path)) }
 
+    func openRepoConfig() {
+        guard let root else { return }
+        do {
+            let (file, created) = try RepoConfigFile.prepare(in: root, draft: view.configDraft)
+            if created {
+                log("Wrote \(view.configDraft == nil ? "an empty" : "the draft") \(RepoConfig.path) in your checkout. "
+                    + "Commit it on \(location?.branch ?? "the default branch"), then rescan.")
+            }
+            NSWorkspace.shared.open(file)
+        } catch {
+            log("⛔️ Couldn't create \(RepoConfig.path): \(error)")
+        }
+    }
+
     // MARK: Watching agents work
 
     func worktree(of node: NodeID) -> URL? { session.flatMap { WorkingCopy.existing($0.workspace.worktree(for: node)) } }

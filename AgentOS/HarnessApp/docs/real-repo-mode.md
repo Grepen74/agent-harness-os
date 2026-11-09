@@ -105,8 +105,9 @@ from the repo's top folder, and stop at the first failure. `{suite}` in `test.on
 leaf's suite, so a leaf runs only its own tests; the extra checks run at landing.
 
 When the repo has no config, the scan **drafts** one from what it found and shows it with a Copy button
-(also printed by `agentos scan`). You commit it yourself: the config steers the harness, so the harness
-never edits it (see Safety).
+(also printed by `agentos scan`). In the Policy pane, **Create** writes the draft into your checkout and
+opens it; with a config, **Open** opens the checkout's copy. You commit it yourself: the config steers the
+harness, so the harness never commits it and agents never edit it (see Safety).
 
 ## Readiness scan for an Xcode repo
 

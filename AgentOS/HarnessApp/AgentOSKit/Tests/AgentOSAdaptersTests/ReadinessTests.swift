@@ -154,6 +154,33 @@ struct ReadinessTests {
         #expect(try RepoConfig.parse(draft.json).config == draft)
     }
 
+    @Test func aConfigChangedOnlyInTheCheckoutIsAWarning() {
+        var repo = snapshot(wellPrepared)
+        repo.checkoutConfig = wellPrepared[RepoConfig.path]
+        #expect(!ReadinessRules.checkout(repo).contains { $0.check == "checkout.config" })
+
+        repo.checkoutConfig = #"{"tracker": {"type": "github-issues"}}"#
+        let finding = ReadinessRules.checkout(repo).first { $0.check == "checkout.config" }
+        #expect(finding?.severity == .warning)
+        #expect(finding?.title == ".agentos/config.json in your checkout isn't the one on main")
+    }
+
+    @Test func openingTheConfigWritesTheDraftOnlyWhenThereIsNone() throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "agentos-config-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let first = try RepoConfigFile.prepare(in: root, draft: #"{"test": {"command": "swift test"}}"#)
+        #expect(first.created)
+        #expect(first.url.path.hasSuffix(".agentos/config.json"))
+        #expect(try String(contentsOf: first.url, encoding: .utf8) == #"{"test": {"command": "swift test"}}"# + "\n")
+
+        try "edited".write(to: first.url, atomically: true, encoding: .utf8)
+        let second = try RepoConfigFile.prepare(in: root, draft: "other draft")
+        #expect(!second.created)
+        #expect(try String(contentsOf: second.url, encoding: .utf8) == "edited")
+    }
+
     @Test func vendoredPackagesAreIgnored() {
         #expect(RepositorySnapshot.interestingPaths(of: ["Package.swift", "Pods/X/Package.swift", ".build/y/Package.swift"])
             == ["Package.swift"])

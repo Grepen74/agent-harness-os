@@ -14,6 +14,8 @@ struct RepositorySnapshot: Sendable {
     /// The branch your own checkout is on, if any.
     var checkoutBranch: String?
     var uncommittedChanges = 0
+    /// The repo config in your checkout (nil if there's none), to tell you when it isn't the one on `branch`.
+    var checkoutConfig: String?
     /// Installed simulators by runtime, e.g. `"iOS 18.6": ["iPhone 14"]`; nil if not looked up.
     var simulators: [String: Set<String>]?
     /// When `branch` is a remote-tracking branch (`origin/…`): when it was last updated by a fetch or the clone.

@@ -20,6 +20,8 @@ public protocol HarnessActions: AnyObject {
     /// Runs the readiness scan again (findings pane).
     func rescan() async
     func open(_ path: String)
+    /// Opens the repo config in your checkout, writing the draft there first if there's none (policy pane).
+    func openRepoConfig()
 
     // Watching agents work (all optional)
     /// The node's working copy, if it has one right now.
@@ -37,6 +39,7 @@ extension HarnessActions {
     public func restoreLedger() async {}
     public func rescan() async {}
     public func runBaseline() async {}
+    public func openRepoConfig() {}
     public func worktree(of node: NodeID) -> URL? { nil }
     public func agentLog(of node: NodeID, run: RunID) -> URL? { nil }
     public func changes(of node: NodeID) async -> String { "" }
@@ -90,6 +93,7 @@ public final class HarnessViewModel {
     func rescan() async { await actions?.rescan() }
     func runBaseline() async { await actions?.runBaseline() }
     func open(_ path: String) { actions?.open(path) }
+    func openRepoConfig() { actions?.openRepoConfig() }
     func worktree(of node: NodeID) -> URL? { actions?.worktree(of: node) }
     func agentLog(of node: NodeID, run: RunID) -> URL? { actions?.agentLog(of: node, run: run) }
     func changes(of node: NodeID) async -> String { await actions?.changes(of: node) ?? "" }

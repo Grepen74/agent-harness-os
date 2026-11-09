@@ -13,6 +13,7 @@ public struct PolicyPane: View {
         VStack(spacing: 0) {
             PaneHeader(title: "Policy", subtitle: "Harness settings are the limits; \(RepoConfig.path) may only tighten them.")
             List {
+                if model.readiness != nil { configFile }
                 if let policy = model.policy {
                     Section("Effective settings") {
                         ForEach(policy.settings) { SettingRow(setting: $0) }
@@ -33,6 +34,28 @@ public struct PolicyPane: View {
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
+            }
+        }
+    }
+
+    private var configFile: some View {
+        let branch = model.readiness?.branch ?? "the default branch"
+        let create = model.config == nil
+        return Section("Config file") {
+            HStack {
+                Button(create ? "Create \(RepoConfig.path)" : "Open \(RepoConfig.path)") { model.openRepoConfig() }
+                    .help(create ? "Write \(model.configDraft == nil ? "an empty config" : "the draft below") into your checkout and open it"
+                                 : "Open the copy in your checkout in your default editor")
+                Button("Rescan") { Task { await model.rescan() } }
+                    .disabled(model.isScanning)
+                    .help("Read the config on \(branch) again, after you've committed a change")
+                Spacer()
+            }
+            Text("Edits the copy in your checkout. The harness reads the one committed on \(branch), so commit your change there.")
+                .font(.caption).foregroundStyle(.secondary)
+            if let pending = model.readiness?.findings.first(where: { $0.check == "checkout.config" }) {
+                Label(pending.title + ". " + (pending.suggestion ?? ""), systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption).foregroundStyle(.orange)
             }
         }
     }
@@ -93,8 +116,8 @@ private struct DraftView: View {
     let draft: String
 
     var body: some View {
-        Text("Guessed from the scan. Check it, then commit it on the default branch yourself: "
-             + "the harness never changes your checkout or the default branch, and never edits the files that steer it.")
+        Text("Guessed from the scan. Check it, create it in your checkout, then commit it on the default branch yourself: "
+             + "the harness writes it only when you ask, never commits it, and never edits the files that steer it.")
             .font(.caption).foregroundStyle(.secondary)
         Text(draft).font(.caption.monospaced()).textSelection(.enabled)
         Button("Copy") {
