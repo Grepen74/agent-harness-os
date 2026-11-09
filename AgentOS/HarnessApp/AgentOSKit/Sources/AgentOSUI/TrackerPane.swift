@@ -7,12 +7,13 @@ public struct TrackerPane: View {
     @Environment(HarnessViewModel.self) private var model
     @State private var selection: String?
     @State private var editor: TicketEditor.Mode?
+    @State private var showDoneTickets: Bool = true
 
     public init() {}
 
     public var body: some View {
         VSplitView {
-            VStack(spacing: 0) {
+            VStack(alignment: .trailing, spacing: 0) {
                 HStack {
                     PaneHeader(title: "Tracker", subtitle: "Humans work here. Labels are the signals.")
                     Button { editor = .new } label: { Image(systemName: "plus") }.padding(.trailing, 12).help("New ticket")
@@ -28,6 +29,8 @@ public struct TrackerPane: View {
                     .padding(.leading, CGFloat(depth) * 16)
                     .tag(ticket.key)
                 }
+                Toggle("Show Done items", isOn: $showDoneTickets)
+                    .padding()
             }
             .frame(minHeight: 180, maxHeight: .infinity)
 
@@ -46,13 +49,18 @@ public struct TrackerPane: View {
 
     /// Depth-first: each ticket directly followed by its children, so a breakdown stays under its parent.
     private var treeOrdered: [(ticket: Ticket, depth: Int)] {
-        let keys = Set(model.tickets.map(\.key))
-        let children = Dictionary(grouping: model.tickets) { $0.parentKey }
+        let tickets = model.tickets.filter {
+            guard showDoneTickets != true else { return true }
+            return $0.status != "Done"
+        }
+
+        let keys = Set(tickets.map(\.key))
+        let children = Dictionary(grouping: tickets) { $0.parentKey }
         func walk(_ parent: String?, _ depth: Int) -> [(ticket: Ticket, depth: Int)] {
             (children[parent] ?? []).flatMap { [($0, depth)] + walk($0.key, depth + 1) }
         }
         // Tickets whose parent is unknown are treated as roots so nothing disappears.
-        let orphans = model.tickets.filter { $0.parentKey.map { !keys.contains($0) } ?? false }
+        let orphans = tickets.filter { $0.parentKey.map { !keys.contains($0) } ?? false }
         return walk(nil, 0) + orphans.flatMap { [($0, 0)] + walk($0.key, 1) }
     }
 }
@@ -188,4 +196,9 @@ struct TicketEditor: View {
         }
         dismiss()
     }
+}
+
+#Preview {
+    TrackerPane()
+        .environment(HarnessViewModel())
 }
