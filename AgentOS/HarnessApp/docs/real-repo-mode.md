@@ -330,6 +330,9 @@ Each phase is usable on its own.
    - Issues are tickets keyed `GH-<number>`; pull requests are left out. Acceptance criteria are the list
      under an "Acceptance criteria" heading (bullets, numbers or task list); `Blocked by:` and `Parent: #n`
      lines carry the links. Child issues are also linked as GitHub sub-issues where available.
+   - An issue form, `.github/ISSUE_TEMPLATE/agentos-ticket.yml` (in this repo; copy it to yours), has
+     separate Description, Acceptance criteria and Blocked by fields. The parser reads the sections GitHub
+     makes from them (`### …` headings, `_No response_` for empty fields, `#12` meaning `GH-12`).
    - Signals are `harness:` labels, created in the repo on first use. Who set a label comes from the issue's
      events, so only people's labels count, as before. The status is an `agentos: <status>` label.
    - The harness talks to GitHub through `gh api` with your login, or the account set in Settings

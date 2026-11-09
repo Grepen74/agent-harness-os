@@ -1,0 +1,31 @@
+name: Ticket for the harness
+description: A user story or requirement the agent harness can specify, break down and build.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The harness reads the sections below as the ticket's description, acceptance criteria and dependencies.
+        Nothing happens until someone adds a `harness:` label (for example `harness:go`).
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What should change, and why. Context agents can't guess.
+      placeholder: As a … I want … so that …
+    validations:
+      required: true
+  - type: textarea
+    id: criteria
+    attributes:
+      label: Acceptance criteria
+      description: One per line, each as a list item. Each becomes an acceptance test.
+      value: |
+        - [ ] 
+    validations:
+      required: true
+  - type: input
+    id: blocked-by
+    attributes:
+      label: Blocked by
+      description: Tickets that must be done first, comma-separated (#12 or GH-12).
+      placeholder: "#12, #14"

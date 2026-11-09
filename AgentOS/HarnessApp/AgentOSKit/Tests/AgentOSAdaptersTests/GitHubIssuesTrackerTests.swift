@@ -151,6 +151,29 @@ private actor FakeGitHub: GitHubTransport {
         #expect(ticket?.status == "To Do")
     }
 
+    @Test func theIssueFormsSectionsAreRead() {
+        let filled = GitHubIssuesTracker.parse(body: """
+            ### Description
+
+            As a user I want totals.
+
+            ### Acceptance criteria
+
+            - [ ] The total shows below the list
+            - [ ] Zero shows as "—"
+
+            ### Blocked by
+
+            #12, BACKEND-4
+            """)
+        #expect(filled.description == "As a user I want totals.")
+        #expect(filled.criteria == ["The total shows below the list", "Zero shows as \"—\""])
+        #expect(filled.blockedBy == ["GH-12", "BACKEND-4"])
+
+        let empty = GitHubIssuesTracker.parse(body: "### Description\n\nDo it.\n\n### Acceptance criteria\n\n- [ ] A\n\n### Blocked by\n\n_No response_")
+        #expect(empty == .init(description: "Do it.", criteria: ["A"], blockedBy: [], parent: nil, summary: nil, byHarness: false))
+    }
+
     @Test func theBodyItWritesReadsBack() {
         let body = GitHubIssuesTracker.body(description: "Do it.", criteria: ["A", "B"], blockedBy: ["X-1"], parent: 3,
                                             summary: "Work node: wn-1.1 · kind: leaf", byHarness: true)

@@ -279,19 +279,43 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
     }
 
     /// Reads what `body(...)` writes, and what people write by hand: an "Acceptance criteria" heading (or a line
-    /// "Acceptance criteria:") followed by a bulleted, numbered or task list.
+    /// "Acceptance criteria:") followed by a bulleted, numbered or task list. Also what the issue form in
+    /// `.github/ISSUE_TEMPLATE/` produces: `### Description`, `### Acceptance criteria` and `### Blocked by`
+    /// sections, with `_No response_` for fields left empty.
     static func parse(body: String) -> ParsedBody {
         var result = ParsedBody(description: "", criteria: [], blockedBy: [], parent: nil, summary: nil, byHarness: false)
         var kept: [String] = []
         var inCriteria = false
+        var blockedByNext = false
+        func blockers(_ list: Substring) -> [String] {
+            list.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.map { item in
+                if item.hasPrefix("#"), let number = Int(item.dropFirst()) { return key(number) }
+                return item
+            }
+        }
         for line in body.replacingOccurrences(of: "\r\n", with: "\n").split(separator: "\n", omittingEmptySubsequences: false) {
             let text = line.trimmingCharacters(in: .whitespaces)
             let lower = text.lowercased()
             if text == marker { result.byHarness = true; continue }
+            if text == "_No response_" { continue }
             if text.hasPrefix("Work node: ") { result.summary = text; continue }
+            let heading = lower.trimmingCharacters(in: CharacterSet(charactersIn: "#*_: "))
+            let isMarkdownHeading = text.firstMatch(of: /^#{1,6}\s/) != nil
+            if blockedByNext, !text.isEmpty {
+                blockedByNext = false
+                if !isMarkdownHeading {
+                    result.blockedBy = blockers(Substring(text))
+                    continue
+                }
+            }
+            if isMarkdownHeading, heading == "description" { continue }
+            if isMarkdownHeading, heading == "blocked by" {
+                blockedByNext = true
+                inCriteria = false
+                continue
+            }
             if lower.hasPrefix("blocked by:") {
-                result.blockedBy = text.dropFirst("blocked by:".count).split(separator: ",")
-                    .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+                result.blockedBy = blockers(text.dropFirst("blocked by:".count))
                 continue
             }
             if lower.hasPrefix("parent:"), let number = Int(text.dropFirst("parent:".count).trimmingCharacters(in: .whitespaces)
@@ -299,7 +323,6 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
                 result.parent = number
                 continue
             }
-            let heading = lower.trimmingCharacters(in: CharacterSet(charactersIn: "#*_: "))
             if heading == "acceptance criteria" && (text.hasPrefix("#") || text.hasSuffix(":") || text.hasPrefix("**")) {
                 inCriteria = true
                 continue
