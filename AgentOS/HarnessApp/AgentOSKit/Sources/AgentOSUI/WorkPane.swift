@@ -21,7 +21,7 @@ public struct WorkPane: View {
                         guard showProvenNodes == false else { return true }
                         return $0.phase != .proven
                     }).map { TreeItem($0, in: model.state) }, children: \.children) { item in
-                        NodeRow(node: item.node).tag(item.node.id)
+                        NodeRow(node: item.node, status: model.state.status(of: item.node)).tag(item.node.id)
                     }
                 }
                 Toggle("Show proven items", isOn: $showProvenNodes)
@@ -55,6 +55,8 @@ struct TreeItem: Identifiable {
 
 struct NodeRow: View {
     let node: NodeState
+    /// The same words as on the ticket; the phase is in the detail pane.
+    let status: String
 
     var body: some View {
         HStack(spacing: 6) {
@@ -66,7 +68,7 @@ struct NodeRow: View {
                 Image(systemName: flag.symbol).foregroundStyle(flag.color).help(node.flags[flag] ?? "")
             }
             if let run = node.activeRun { Label(run.role.rawValue, systemImage: "cpu").font(.caption).foregroundStyle(.orange) }
-            Text(node.phase.rawValue).font(.caption).foregroundStyle(node.phase.color)
+            Text(status).font(.caption).foregroundStyle(node.phase.color).help("Phase: \(node.phase.rawValue)")
         }
     }
 }

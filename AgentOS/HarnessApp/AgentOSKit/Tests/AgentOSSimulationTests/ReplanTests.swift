@@ -32,6 +32,9 @@ struct ReplanTests {
         #expect(node.phase == .specified && node.gates.isEmpty)
         #expect(node.spec.dependsOn == ["BACKEND-42", "APP-3"])
         #expect(await sim.lastComment("APP-1").contains("are paused"))
+        await sim.runUntilIdle()
+        #expect(await sim.tracker.ticket("APP-1")?.status == "Replanned")
+        #expect(await sim.tracker.ticket(old[0])?.status == "Paused")
 
         await sim.signal(.breakdown, "APP-1")
         #expect(await childTickets(of: "APP-1", in: sim) == old)

@@ -349,12 +349,14 @@ Each phase is usable on its own.
      compares itself with the old one: children it contains unchanged (same title, intent and criteria) are
      kept, with their tickets, acceptance tests and approvals, and take any new dependencies. The others are
      closed as *not planned* with a comment (with the local tracker, status *Superseded*), and signals on them
-     are refused.
+     are refused. The ticket's status is *Replanned* and its children's *Paused* until then. The work tree
+     shows the same statuses as the tickets; the ledger's phase is in the node's details.
    - **Dependencies between tickets.** `Blocked by: #12` on a ticket waits until `GH-12` is proven here. On
      a ticket that's broken down, it holds every leaf unless the breakdown gave that dependency to particular
      leaves.
    - **Projects board (opt-in).** With `tracker.project` (owner, number, optional `statusField` and
-     `statusMap`), the board's Status field follows the harness: Specifying and Breaking down → Backlog,
+     `statusMap`), the board's Status field follows the harness: Specifying, Breaking down, Replanned (waits for
+     preview, breakdown or go) and Paused (a replanned ticket's children) → Backlog,
      Ready, In progress, In review (checking and landing), Done. Issues not on the board are added.
      Statuses needing attention (Needs input, Needs human, Blocked) have no option by default: they stay
      `agentos:` labels and the card stays where it was. A `statusMap` entry overrides a default; `""`

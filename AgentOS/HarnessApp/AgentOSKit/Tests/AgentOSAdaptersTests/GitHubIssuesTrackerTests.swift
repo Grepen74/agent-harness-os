@@ -242,7 +242,9 @@ private actor FakeGitHub: GitHubTransport {
         await tracker.setStatus(of: "GH-1", to: "Ready")
 
         await tracker.close("GH-1", saying: "Superseded")
-        #expect(await github.bodies("PATCH", "repos/o/r/issues/1") == [#"{"state":"closed","state_reason":"not_planned"}"#])
+        let patches = await github.bodies("PATCH", "repos/o/r/issues/1")
+            .compactMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: String] }
+        #expect(patches == [["state": "closed", "state_reason": "not_planned"]])
         #expect(await github.paths("POST").contains("repos/o/r/issues/1/comments"))
         #expect(await tracker.tickets().isEmpty)
         #expect(await tracker.takeProblems().isEmpty)

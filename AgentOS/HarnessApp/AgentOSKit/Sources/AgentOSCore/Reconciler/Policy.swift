@@ -97,14 +97,22 @@ public struct Policy: Sendable, Equatable {
         if ticket.acceptanceCriteria.isEmpty { problems.append("at least one acceptance criterion") }
         return problems
     }
+}
 
-    /// Ticket status shown to humans: a projection of the ledger, never the source (doc 03 §5).
-    func trackerStatus(for node: NodeState) -> String {
+extension WorkingState {
+    /// A node's status in words people use: on its ticket (and board) and in the work tree. A projection of the
+    /// ledger, never the source (doc 03 §5). The phase is the
+    /// ledger's own word for where it is in the V; this also says whether it waits for someone.
+    public func status(of node: NodeState) -> String {
         if node.flags[.escalated] != nil { return "Needs human" }
         if node.flags[.needsInput] != nil { return "Needs input" }
         if node.flags[.blocked] != nil { return "Blocked" }
+        if let parent = node.spec.parent.flatMap({ nodes[$0] }), parent.phase != .split { return "Paused" }
         switch node.phase {
-        case .specified: return node.spec.kind == .composite && node.gates.contains(.breakdown) ? "Breaking down" : "Specifying"
+        case .specified:
+            // Adopted without any gate only after `harness:replan`: it waits for preview, breakdown or go.
+            if node.spec.parent == nil && node.gates.isEmpty { return "Replanned" }
+            return node.spec.kind == .composite ? "Breaking down" : "Specifying"
         case .split: return "In progress"
         case .ready: return "Ready"
         case .building: return "In progress"

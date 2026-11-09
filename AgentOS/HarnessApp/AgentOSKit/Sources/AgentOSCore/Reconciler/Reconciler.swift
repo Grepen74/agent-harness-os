@@ -856,8 +856,9 @@ public actor Reconciler {
     }
 
     private func projectStatuses() async {
-        for node in await ledger.workingState().nodes.values {
-            await tracker.setStatus(of: node.ticket, to: policy.trackerStatus(for: node))
+        let state = await ledger.workingState()
+        for node in state.nodes.values {
+            await tracker.setStatus(of: node.ticket, to: state.status(of: node))
         }
     }
 

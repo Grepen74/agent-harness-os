@@ -26,11 +26,11 @@ actor GitHubProjectBoard {
     /// The issue's card on the board and its option, by issue number.
     private var items: [Int: Item] = [:]
 
-    /// Harness statuses (`Policy.trackerStatus`) → options of GitHub's default board. The ones needing attention
+    /// Harness statuses (`WorkingState.status(of:)`) → options of GitHub's default board. The ones needing attention
     /// (Needs input, Needs human, Blocked) have none: they stay labels, and the card stays where it was.
-    static let defaultMap = ["Specifying": "Backlog", "Breaking down": "Backlog", "Ready": "Ready", "In progress": "In progress",
+    static let defaultMap = ["Replanned": "Backlog", "Paused": "Backlog", "Specifying": "Backlog", "Breaking down": "Backlog", "Ready": "Ready", "In progress": "In progress",
                              "In review": "In review", "Landing": "In review", "Done": "Done"]
-    static let harnessStatuses = ["Specifying", "Breaking down", "Ready", "In progress", "In review", "Landing", "Done",
+    static let harnessStatuses = ["Specifying", "Breaking down", "Ready", "In progress", "In review", "Landing", "Done", "Replanned", "Paused",
                                   "Needs input", "Needs human", "Blocked"]
     /// After a failed read, the board is left alone this long (labels meanwhile), so the log isn't flooded.
     static let retryAfter: Duration = .seconds(300)
