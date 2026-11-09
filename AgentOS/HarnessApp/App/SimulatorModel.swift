@@ -34,7 +34,7 @@ final class SimulatorModel: HarnessActions {
         simulation = Self.open(directory)
         view.actions = self
         view.offersLedgerDemo = true
-        view.extraLabels = ("Simulation (make agents misbehave)", ["sim:fail-once", "sim:always-fail", "sim:stuck"])
+        view.extraLabels = ("Simulation (make agents misbehave)", ["sim:fail-once", "sim:always-fail", "sim:stuck", "sim:ask", "sim:assume"])
         followLedger()
         Task { await refresh() }
     }

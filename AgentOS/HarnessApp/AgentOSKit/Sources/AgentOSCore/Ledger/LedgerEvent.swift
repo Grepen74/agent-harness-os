@@ -53,6 +53,14 @@ public enum EventKind: Codable, Sendable {
     /// Merged into main: the node's change is now part of the product.
     case landed(commit: String)
 
+    // Clarifying questions (doc 05: open questions and assumptions)
+    /// An agent can't go on without a person's answer; replaces the node's open questions.
+    case questionsRaised(role: AgentRole, questions: [String])
+    /// Choices an agent made itself; replaces that role's earlier assumptions for the node.
+    case assumptionsReported(role: AgentRole, assumptions: [String])
+    /// A person's answer, from the ticket. Agents working on the node or below it get it from now on.
+    case questionsAnswered(Clarification)
+
     // Outside world
     case externalDependencyResolved(ref: String)
 
@@ -127,6 +135,10 @@ extension EventKind {
         case .externalDependencyResolved(let ref): "\(ref) delivered"
         case .reworkNeeded(let reason): "rework: \(reason)"
         case .landed(let commit): "landed on main at \(commit.prefix(8))"
+        case .questionsRaised(let role, let questions): "\(role.rawValue) asks: \(questions.joined(separator: " · "))"
+        case .assumptionsReported(let role, let assumptions):
+            assumptions.isEmpty ? "\(role.rawValue) made no assumptions" : "\(role.rawValue) assumed: \(assumptions.joined(separator: " · "))"
+        case .questionsAnswered(let clarification): "answered: \(clarification.answer.prefix(120))"
         case .readinessScanned(let scan):
             "readiness scan of \(scan.branch ?? "?") at \((scan.commit ?? "?").prefix(8)): \(scan.summary)"
         case .baselineChecked(let baseline):

@@ -65,8 +65,53 @@ public struct RepoConfig: Codable, Sendable, Equatable {
         public var deny: [String]?
         /// Models per role, chosen among the ones the harness offers.
         public var models: AgentModels?
+        /// How much agents may guess: `ask`, `assume-and-report` or `autonomous`, at most the harness's level.
+        public var guesswork: String?
 
-        public init(deny: [String]? = nil, models: AgentModels? = nil) { self.deny = deny; self.models = models }
+        public init(deny: [String]? = nil, models: AgentModels? = nil, guesswork: String? = nil) {
+            self.deny = deny
+            self.models = models
+            self.guesswork = guesswork
+        }
+    }
+
+    /// Where the repo's tickets live. Without one, the app's local tracker.
+    public struct Tracker: Codable, Sendable, Equatable {
+        public static let githubIssues = "github-issues"
+        public static let local = "local"
+
+        /// `github-issues` or `local`.
+        public var type: String
+        /// For GitHub Issues, `owner/name`; without it, the repo's `origin` remote.
+        public var repo: String?
+        /// For GitHub Issues: a Projects board whose status field shows the harness's status. Opt-in: without
+        /// one, the status is an `agentos:` label on the issue.
+        public var project: Project?
+
+        /// A GitHub Projects board, e.g. `github.com/users/<owner>/projects/<number>`.
+        public struct Project: Codable, Sendable, Equatable {
+            /// The user or organization that owns the board.
+            public var owner: String
+            public var number: Int
+            /// A single-select field; default "Status".
+            public var statusField: String?
+            /// Harness status → the field's option, e.g. `"Landing": "In review"`; "" leaves the board alone for that
+            /// status. Statuses not named use the defaults (Backlog, Ready, In progress, In review, Done).
+            public var statusMap: [String: String]?
+
+            public init(owner: String, number: Int, statusField: String? = nil, statusMap: [String: String]? = nil) {
+                self.owner = owner
+                self.number = number
+                self.statusField = statusField
+                self.statusMap = statusMap
+            }
+        }
+
+        public init(type: String, repo: String? = nil, project: Project? = nil) {
+            self.type = type
+            self.repo = repo
+            self.project = project
+        }
     }
 
     public var build: Build?
@@ -80,10 +125,11 @@ public struct RepoConfig: Codable, Sendable, Equatable {
     public var limits: Limits?
     public var agents: Agents?
     public var protectedPaths: [String]?
+    public var tracker: Tracker?
 
     public static let path = ".agentos/config.json"
     public static let knownKeys: Set<String> = ["build", "test", "checks", "leafTests", "components", "landing", "signals",
-                                                "limits", "agents", "protectedPaths"]
+                                                "limits", "agents", "protectedPaths", "tracker"]
 
     /// Every command line the config runs, in order.
     public var commands: [String] {
@@ -92,7 +138,7 @@ public struct RepoConfig: Codable, Sendable, Equatable {
 
     public init(build: Build? = nil, test: Test, checks: [NamedCheck]? = nil, leafTests: LeafTests? = nil,
                 components: [String]? = nil, landing: Landing? = nil, signals: Signals? = nil, limits: Limits? = nil,
-                agents: Agents? = nil, protectedPaths: [String]? = nil) {
+                agents: Agents? = nil, protectedPaths: [String]? = nil, tracker: Tracker? = nil) {
         self.build = build
         self.test = test
         self.checks = checks
@@ -103,6 +149,7 @@ public struct RepoConfig: Codable, Sendable, Equatable {
         self.limits = limits
         self.agents = agents
         self.protectedPaths = protectedPaths
+        self.tracker = tracker
     }
 
     public struct ParseError: Error, CustomStringConvertible {

@@ -6,20 +6,26 @@ import SwiftUI
 public struct WorkPane: View {
     @Environment(HarnessViewModel.self) private var model
     @State private var selection: NodeID?
+    @State private var showProvenNodes: Bool = true
 
     public init() {}
 
     public var body: some View {
         VSplitView {
-            VStack(spacing: 0) {
+            VStack(alignment: .trailing, spacing: 0) {
                 PaneHeader(title: "Work tree", subtitle: "Derived from the ledger. Tickets only mirror this.")
                 AttentionList()
                 RunningAgents()
                 List(selection: $selection) {
-                    OutlineGroup(model.state.roots.map { TreeItem($0, in: model.state) }, children: \.children) { item in
+                    OutlineGroup(model.state.roots.filter({
+                        guard showProvenNodes == false else { return true }
+                        return $0.phase != .proven
+                    }).map { TreeItem($0, in: model.state) }, children: \.children) { item in
                         NodeRow(node: item.node).tag(item.node.id)
                     }
                 }
+                Toggle("Show proven items", isOn: $showProvenNodes)
+                    .padding()
             }
             .frame(minHeight: 260, maxHeight: .infinity)
 
@@ -56,8 +62,9 @@ struct NodeRow: View {
             Text(node.ticket).monospaced().foregroundStyle(.secondary)
             Text(node.spec.title).lineLimit(1)
             Spacer()
-            if node.flags[.escalated] != nil { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red) }
-            if node.flags[.blocked] != nil { Image(systemName: "pause.circle.fill").foregroundStyle(.orange) }
+            ForEach(Flag.allCases.filter { node.flags[$0] != nil }, id: \.self) { flag in
+                Image(systemName: flag.symbol).foregroundStyle(flag.color).help(node.flags[flag] ?? "")
+            }
             if let run = node.activeRun { Label(run.role.rawValue, systemImage: "cpu").font(.caption).foregroundStyle(.orange) }
             Text(node.phase.rawValue).font(.caption).foregroundStyle(node.phase.color)
         }
@@ -72,11 +79,12 @@ struct AttentionList: View {
         if !items.isEmpty {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Needs attention").font(.caption.bold())
-                ForEach(items, id: \.node.id) { item in
-                    Label("\(item.node.ticket): \(item.reason)",
-                          systemImage: item.flag == .escalated ? "exclamationmark.triangle.fill" : "pause.circle.fill")
+                // A node can have several flags at once.
+                ForEach(items.map { (id: "\($0.node.id) \($0.flag.rawValue)", item: $0) }, id: \.id) { entry in
+                    let item = entry.item
+                    Label("\(item.node.ticket): \(item.reason)", systemImage: item.flag.symbol)
                         .font(.caption)
-                        .foregroundStyle(item.flag == .escalated ? .red : .orange)
+                        .foregroundStyle(item.flag.color)
                 }
             }
             .padding(8).frame(maxWidth: .infinity, alignment: .leading)
@@ -138,6 +146,24 @@ struct NodeDetail: View {
         GridRow {
             Text(title).foregroundStyle(.secondary)
             Text(value).textSelection(.enabled)
+        }
+    }
+}
+
+extension Flag {
+    var symbol: String {
+        switch self {
+        case .escalated: "exclamationmark.triangle.fill"
+        case .blocked: "pause.circle.fill"
+        case .needsInput: "questionmark.circle.fill"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .escalated: .red
+        case .blocked: .orange
+        case .needsInput: .blue
         }
     }
 }

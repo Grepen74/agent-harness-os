@@ -5,7 +5,7 @@ import AppKit
 import Observation
 
 /// The harness on one real repo: the read-only readiness scan, the repo's config and effective policy, the
-/// baseline, the local tracker and, once nothing blocks it, Copilot agents working through a `RepositorySession`.
+/// baseline, the repo's tracker (local, or GitHub Issues when its config says so) and, once nothing blocks it, Copilot agents working through a `RepositorySession`.
 /// Everything is recorded in the repo's own ledger, outside the repo (see `RepositoryStorage`).
 @Observable @MainActor
 final class RepositoryModel: HarnessActions {
@@ -26,7 +26,9 @@ final class RepositoryModel: HarnessActions {
     /// Settings changed while a scan was running.
     @ObservationIgnored private var rescanAgain = false
     @ObservationIgnored private var ledger: Ledger?
-    @ObservationIgnored private var tracker: LocalTracker?
+    @ObservationIgnored private var tracker: (any TicketBoard)?
+    /// What `tracker` was made for: the scan's choice and the GitHub account from Settings.
+    @ObservationIgnored private var trackerMadeFor: (choice: TrackerChoice, account: String?)?
     @ObservationIgnored private var session: RepositorySession?
     @ObservationIgnored private var recovered = false
     @ObservationIgnored private var runTask: Task<Void, Never>?
@@ -74,6 +76,7 @@ final class RepositoryModel: HarnessActions {
             let ledger = try openLedger(location.identity)
             let result = await scanner.scan(location, harness: harness, baseline: await ledger.workingState().baseline)
             show(result)
+            useTracker(result.tracker)
             let recorded = try await ledger.record(result.scan)
             log("Scanned: \(result.scan.summary). " + (recorded ? "Recorded in the ledger." : "Same as the last recorded scan."))
             await startSession(result, at: location, ledger: ledger)
@@ -211,9 +214,19 @@ final class RepositoryModel: HarnessActions {
         let storage = RepositoryStorage.directory(for: identity)
         self.ledger = ledger
         self.storage = storage
-        tracker = RepositorySession.tracker(storage: storage)
+        useTracker(.local)
         follower.follow(ledger) { [weak self] in await self?.refresh() }
         return ledger
+    }
+
+    /// The same tracker across scans (a session per scan), replaced only when the config or account changes.
+    private func useTracker(_ choice: TrackerChoice) {
+        guard let storage else { return }
+        let account = harness.githubAccount
+        if let made = trackerMadeFor, made.choice == choice, made.account == account { return }
+        tracker = RepositorySession.tracker(choice, storage: storage, githubAccount: account)
+        trackerMadeFor = (choice, account)
+        if let tracker { log("Tickets: \(tracker.name)") }
     }
 
     private func show(_ result: ScannedRepository) {
@@ -225,7 +238,10 @@ final class RepositoryModel: HarnessActions {
     }
 
     private func refresh() async {
-        if let tracker { view.tickets = await tracker.tickets() }
+        if let tracker {
+            view.tickets = await tracker.tickets()
+            for problem in await tracker.takeProblems() { log("⚠️ Tracker: \(problem)") }
+        }
         guard let ledger else { return }
         view.records = await ledger.allRecords()
         view.state = await ledger.workingState()
@@ -236,15 +252,15 @@ final class RepositoryModel: HarnessActions {
         view.activity = Array(view.activity.prefix(300))
     }
 
-    // MARK: The local tracker (private to this Mac, outside the repo)
+    // MARK: The tracker (local: private to this Mac, outside the repo; or the repo's GitHub issues)
 
     func addLabel(_ name: String, to key: String) async { await tracker?.addLabel(name, to: key, by: human); await refresh() }
     func removeLabel(_ name: String, from key: String) async { await tracker?.removeLabel(name, from: key); await refresh() }
     func comment(_ text: String, on key: String) async { await tracker?.addComment(text, to: key, by: human); await refresh() }
 
     func createTicket(title: String, description: String, criteria: [String], blockedBy: [String]) async {
-        await tracker?.createTicket(title: title, description: description, acceptanceCriteria: criteria,
-                                    blockedBy: blockedBy, by: human)
+        _ = await tracker?.newTicket(title: title, description: description, acceptanceCriteria: criteria,
+                                     blockedBy: blockedBy, by: human)
         await refresh()
     }
 

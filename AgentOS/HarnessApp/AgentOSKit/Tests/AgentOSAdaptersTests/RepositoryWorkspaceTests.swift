@@ -17,20 +17,21 @@ struct RepositoryWorkspaceTests {
         leafTests: .init(target: "AppTests", folder: "Tests/AppTests/"))
 
     struct Leaf: Decomposer {
-        func proposeChildren(of parent: NodeSpec, existingComponents: [String], log: URL?) async throws -> [ChildProposal] {
-            [ChildProposal(title: parent.title, acceptanceCriteria: parent.acceptanceCriteria, touches: ["App"])]
+        func proposeChildren(_ request: BreakdownRequest) async throws -> Breakdown {
+            Breakdown(children: [ChildProposal(title: request.spec.title, acceptanceCriteria: request.spec.acceptanceCriteria, touches: ["App"])])
         }
     }
 
     struct ShellTestAuthor: TestAuthor {
         var alsoEdits: String?
-        func writeAcceptanceTests(_ task: AgentTask) async throws {
+        func writeAcceptanceTests(_ task: AgentTask) async throws -> AgentReport {
             let url = task.directory.appending(path: "\(task.testFolder)/check.sh")
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try "grep -q hello app.txt\n".write(to: url, atomically: true, encoding: .utf8)
             if let alsoEdits {
                 try "changed by the test author\n".write(to: task.directory.appending(path: alsoEdits), atomically: true, encoding: .utf8)
             }
+            return AgentReport()
         }
     }
 
@@ -68,8 +69,8 @@ struct RepositoryWorkspaceTests {
     }
 
     func ticket(_ session: RepositorySession, title: String = "Greeting") async -> String {
-        let key = await session.tracker.createTicket(
-            title: title, description: "Say hello", acceptanceCriteria: ["app.txt says hello"], by: .human("Alice")).key
+        let key = await session.tracker.newTicket(
+            title: title, description: "Say hello", acceptanceCriteria: ["app.txt says hello"], blockedBy: [], by: .human("Alice"))!.key
         await session.tracker.addLabel("harness:go", to: key, by: .human("Alice"))
         return key
     }
@@ -285,6 +286,21 @@ struct RepositoryWorkspaceTests {
         try await git(["checkout", "-q", "main"], in: repo)
         let landed = try await workspace.landOnMain("wn-1")
         #expect(try await git(["rev-parse", "agentos/main"], in: repo) == landed)
+    }
+
+    @Test func copilotDecomposerAnswersWithChildrenOrQuestions() throws {
+        let questions = try #require(CopilotDecomposer.parse(#"{"questions": ["Which buttons?"], "assumptions": [], "children": []}"#))
+        #expect(questions.report.questions == ["Which buttons?"])
+        #expect(questions.children.isEmpty)
+
+        let object = try #require(CopilotDecomposer.parse(#"Here: {"assumptions": ["8 pt"], "children": [{"title": "A", "acceptanceCriteria": ["a"], "touches": ["App"], "dependsOn": []}]}"#))
+        #expect(object.children.map(\.title) == ["A"])
+        #expect(object.report.assumptions == ["8 pt"])
+
+        // The older answer: a bare array.
+        let array = try #require(CopilotDecomposer.parse(#"[{"title": "B", "acceptanceCriteria": ["b"], "touches": [], "dependsOn": []}]"#))
+        #expect(array.children.map(\.title) == ["B"])
+        #expect(CopilotDecomposer.parse("{}") == nil)
     }
 
     @Test("Copilot agents get the policy's denied tools, protected files and a model per role")

@@ -40,6 +40,17 @@ public struct NodeState: Sendable, Identifiable {
     /// Position in the landing queue (when it entered `landing`).
     public var queuedAt: Int?
     public var landedCommit: String?
+    /// What an agent asked and nobody answered yet (with the `needsInput` flag).
+    public var openQuestions: [String] = []
+    /// Choices agents made themselves, per role (the decomposer's for a breakdown, the test author's for tests).
+    public var assumptions: [AgentRole: [String]] = [:]
+    /// Answers people gave on this node's ticket.
+    public var clarifications: [Clarification] = []
+
+    /// Every assumption on this node, decomposer first.
+    public var allAssumptions: [String] {
+        [AgentRole.decomposer, .testAuthor, .implementer, .verifier].flatMap { assumptions[$0] ?? [] }
+    }
 }
 
 /// The small, current part of the ledger that the reconciler reads (doc 04 §6).
@@ -95,6 +106,33 @@ public struct WorkingState: Sendable {
         }
     }
 
+    /// The node and its parents, the node first.
+    public func lineage(of id: NodeID) -> [NodeState] {
+        var result: [NodeState] = []
+        var current: NodeID? = id
+        while let nodeID = current, let node = nodes[nodeID] {
+            result.append(node)
+            current = node.spec.parent
+        }
+        return result
+    }
+
+    /// Answers given on the node's ticket and its parents', oldest (topmost) first: they apply below too.
+    public func clarifications(for id: NodeID) -> [Clarification] {
+        lineage(of: id).reversed().flatMap(\.clarifications)
+    }
+
+    /// Assumptions this node's work rests on: its own and its parents', topmost first.
+    public func assumptions(for id: NodeID) -> [String] {
+        lineage(of: id).reversed().flatMap(\.allAssumptions)
+    }
+
+    /// The node and everything below it.
+    public func subtree(of id: NodeID) -> [NodeState] {
+        guard let node = nodes[id] else { return [] }
+        return [node] + node.children.flatMap { subtree(of: $0) }
+    }
+
     mutating func apply(_ record: RecordedEvent) {
         asOf = record.position
         let event = record.event
@@ -144,6 +182,11 @@ public struct WorkingState: Sendable {
             node.reworks += 1
             node.lastSubmission = nil
         case .landed(let commit): node.landedCommit = commit
+        case .questionsRaised(_, let questions): node.openQuestions = questions
+        case .assumptionsReported(let role, let assumptions): node.assumptions[role] = assumptions.isEmpty ? nil : assumptions
+        case .questionsAnswered(let clarification):
+            node.clarifications.append(clarification)
+            node.openQuestions = []
         case .attemptFailed(let summary):
             node.failedAttempts += 1
             node.recentFailures.append(summary)

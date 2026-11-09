@@ -19,7 +19,8 @@ public protocol TrackerAdapter: Sendable {
     func ticket(_ key: String) async -> Ticket?
     /// Labels are one-time requests: remove the label and reply, so the ticket shows what happened.
     func consume(_ signal: Signal, reply: String) async
-    func createChildTicket(parent: String, spec: NodeSpec, by: Participant) async -> String
+    /// Throws when the tracker refuses; the reconciler escalates and creates the rest on retry.
+    func createChildTicket(parent: String, spec: NodeSpec, by: Participant) async throws -> String
     func comment(on key: String, _ text: String) async
     func setStatus(of key: String, to status: String) async
 }

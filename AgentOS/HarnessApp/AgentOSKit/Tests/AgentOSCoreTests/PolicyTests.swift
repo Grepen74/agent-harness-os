@@ -43,6 +43,26 @@ struct PolicyTests {
         #expect(policy.settings.first { $0.name == "Max attempts per leaf" }?.note == "repo asked for 10: refused")
     }
 
+    @Test func aRepoMayOnlyMakeAgentsGuessLess() {
+        func guesswork(_ value: String) -> EffectivePolicy {
+            var repo = config()
+            repo.agents = .init(guesswork: value)
+            return resolve(repo)
+        }
+        let stricter = guesswork("ask")
+        #expect(stricter.problems.isEmpty)
+        #expect(stricter.policy.guesswork == .ask)
+        #expect(stricter.settings.first { $0.name == "Guesswork" }?.source == .repo)
+
+        let looser = guesswork("autonomous")
+        #expect(looser.problems.map(\.severity) == [.blocker])
+        #expect(looser.policy.guesswork == .assumeAndReport)
+
+        let unknown = guesswork("yolo")
+        #expect(unknown.problems.first?.title == "Repo config has an unknown guesswork level: yolo")
+        #expect(unknown.policy.guesswork == .assumeAndReport)
+    }
+
     @Test func invalidBranchesAndUnknownSignalsAreReported() {
         let policy = resolve(config(landing: "origin/main", disable: ["preview", "merge"]))
         #expect(policy.problems.map(\.severity) == [.blocker, .warning])

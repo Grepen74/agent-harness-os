@@ -67,26 +67,40 @@ enum ScriptedFacts {
 /// One leaf per acceptance criterion. A criterion can name its touch set at the end, e.g.
 /// "Temperature unit: Celsius [WeatherService, WeatherUI]"; otherwise the leaf touches one component named
 /// after the parent. A leaf depends on an external item if its criterion mentions it.
+/// A criterion ending in "?" is a question for the ticket's author; once answered, it is dropped.
 public struct ScriptedDecomposer: Decomposer {
     public init() {}
 
-    public func proposeChildren(of parent: NodeSpec, existingComponents: [String], log: URL?) async throws -> [ChildProposal] {
-        guard !parent.acceptanceCriteria.isEmpty else { throw AgentFailure("Nothing to break down: no acceptance criteria") }
-        AgentLog.append("Proposing one leaf per acceptance criterion (\(parent.acceptanceCriteria.count))", to: log)
-        return parent.acceptanceCriteria.map { text in
+    public func proposeChildren(_ request: BreakdownRequest) async throws -> Breakdown {
+        let parent = request.spec
+        let questions = parent.acceptanceCriteria.filter { $0.trimmingCharacters(in: .whitespaces).hasSuffix("?") }
+        if !questions.isEmpty && request.clarifications.isEmpty {
+            AgentLog.append("Unclear criteria: asking \(questions.count) question(s)", to: request.log)
+            return Breakdown(children: [], report: AgentReport(questions: questions))
+        }
+        let criteria = parent.acceptanceCriteria.filter { !questions.contains($0) }
+        guard !criteria.isEmpty else { throw AgentFailure("Nothing to break down: no acceptance criteria") }
+        AgentLog.append("Proposing one leaf per acceptance criterion (\(criteria.count))", to: request.log)
+        return Breakdown(children: criteria.map { text in
             let (criterion, hinted) = ScriptedFacts.touchHint(in: text)
             let touches = hinted ?? [ComponentName.from(parent.title, maxWords: 3)]
             return ChildProposal(title: criterion, acceptanceCriteria: [criterion], touches: touches,
                                  dependsOn: parent.dependsOn.filter { text.contains($0) })
-        }
+        })
     }
 }
 
-/// For every criterion, checks the fact in every touched component.
+/// For every criterion, checks the fact in every touched component. Simulation hints:
+/// - `sim:ask`: asks a question instead, until it is answered
+/// - `sim:assume`: reports an assumption with its tests
 public struct ScriptedTestAuthor: TestAuthor {
     public init() {}
 
-    public func writeAcceptanceTests(_ task: AgentTask) async throws {
+    public func writeAcceptanceTests(_ task: AgentTask) async throws -> AgentReport {
+        if task.simulationHints.contains("sim:ask") && task.clarifications.isEmpty {
+            AgentLog.append("Unclear what users should observe: asking", to: task.log)
+            return AgentReport(questions: ["Which screen should show \(task.spec.title.lowercased())?"])
+        }
         let target = task.spec.testTarget
         let tests = task.spec.acceptanceCriteria.enumerated().map { index, criterion in
             let fact = ScriptedFacts.fact(for: criterion)
@@ -107,6 +121,8 @@ public struct ScriptedTestAuthor: TestAuthor {
         \(tests.joined(separator: "\n\n"))
 
         """.write(to: url, atomically: true, encoding: .utf8)
+        return AgentReport(assumptions: task.simulationHints.contains("sim:assume")
+            ? ["The facts are checked in every touched component"] : [])
     }
 }
 

@@ -14,8 +14,10 @@ public enum ProcessRunner {
 
     /// - `log`: a file to write the output to as it comes, e.g. to follow it live, which is kept afterwards.
     ///   Without one, the output goes to a temporary file.
+    /// - `environment`: added to the cleaned environment, e.g. a token for this one command.
     public static func run(_ executable: String, _ arguments: [String], in directory: URL,
-                    timeout: Duration = .seconds(1200), log keptLog: URL? = nil) async throws -> Result {
+                    timeout: Duration = .seconds(1200), log keptLog: URL? = nil,
+                    environment extra: [String: String] = [:]) async throws -> Result {
         let logURL = keptLog ?? FileManager.default.temporaryDirectory.appending(path: "agentos-\(UUID().uuidString).log")
         FileManager.default.createFile(atPath: logURL.path, contents: nil)
         let log = try FileHandle(forWritingTo: logURL)
@@ -38,7 +40,7 @@ public enum ProcessRunner {
             .filter { !$0.key.hasPrefix("DYLD_") && !$0.key.hasPrefix("__XCODE") && !$0.key.hasPrefix("__XPC_DYLD") }
         // Apps started from Finder get a minimal PATH.
         environment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:" + (environment["PATH"] ?? "")
-        process.environment = environment
+        process.environment = environment.merging(extra) { $1 }
 
         let timeoutTask = Task {
             try await Task.sleep(for: timeout)

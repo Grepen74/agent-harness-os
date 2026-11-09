@@ -69,7 +69,10 @@ current commit. To try a config before committing it: `swift run agentos baselin
 
 Once nothing blocks agents (the toolbar says why if something does), work happens like in the simulator:
 create a ticket in the **tracker** pane, add `harness:breakdown`, `harness:build` or `harness:go`, then
-**Step** or **Run**. The tracker is private to this Mac (stored with the ledger). Each leaf is built by
+**Step** or **Run**. The tracker is private to this Mac (stored with the ledger), unless the repo config
+says `"tracker": { "type": "github-issues" }`: then tickets are the repo's GitHub issues, read and written
+with your `gh` login (Settings → *GitHub account* picks another). Add `"project": { "owner": …, "number": … }`
+and a Projects board's Status field follows the work too. Each leaf is built by
 Copilot CLI in its own git worktree outside the repo; its acceptance tests go in the config's `leafTests`
 folder. Proven work lands on `agentos/main`; review, merge and push it yourself. **Settings** picks the
 models offered to agents and a default per role; a repo may choose among them in `agents.models`. From the
@@ -103,6 +106,10 @@ More things to try:
 - On a leaf ticket, add `sim:always-fail` before building. After repeated failures it escalates to
   *Needs human*. Remove the label, then add `harness:retry`.
 - Use `sim:fail-once` to see a failure followed by a recovery, or `sim:stuck` for an agent that crashes.
+- Clarifying questions: an acceptance criterion ending in "?" makes the decomposer ask instead of guessing,
+  and `sim:ask` makes the test author ask. The node shows *Needs input*; answer in a comment, then add
+  `harness:retry`. With `sim:assume` the test author reports an assumption, so the leaf waits for you to
+  look at its tests: `harness:build` approves them, a comment plus `harness:retry` has them rewritten.
 - Choose **⚙︎ → Restart harness** while it is running. State reloads from the ledger and unfinished runs
   are reclaimed.
 - Switch **Agents** to *Copilot CLI* to have real agents decompose the work, write tests and implement.

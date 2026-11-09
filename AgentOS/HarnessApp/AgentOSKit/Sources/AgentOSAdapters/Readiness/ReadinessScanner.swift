@@ -14,6 +14,43 @@ public struct ScannedRepository: Sendable {
     public var policy = EffectivePolicy.resolve(harness: HarnessSettings(), repo: nil, defaultBranch: nil)
     /// A suggested config, as JSON, when the repo has none.
     public var draft: String?
+    /// Where the repo's tickets live, from its config.
+    public var tracker = TrackerChoice.local
+}
+
+/// Which tracker a repo uses (its config's `tracker`).
+public enum TrackerChoice: Sendable, Equatable {
+    /// The app's own tracker, private to this Mac.
+    case local
+    /// GitHub Issues of `owner/name`, through the GitHub CLI; with a board, its status field shows the status.
+    case githubIssues(repo: String, project: RepoConfig.Tracker.Project? = nil)
+
+    /// What the config asks for, with what's missing to use it as findings (blockers: agents would work on
+    /// tickets nobody sees). `remote` is the `origin` remote URL; `hasGitHubCLI`, whether `gh` is installed.
+    public static func resolve(_ config: RepoConfig.Tracker?, remote: String?, hasGitHubCLI: Bool) -> (TrackerChoice, [Finding]) {
+        guard let config, config.type != RepoConfig.Tracker.local else { return (.local, []) }
+        guard config.type == RepoConfig.Tracker.githubIssues else {
+            return (.local, [Finding(
+                check: "tracker", severity: .blocker, title: "Unknown tracker \"\(config.type)\"",
+                detail: "The harness knows `\(RepoConfig.Tracker.githubIssues)` and `\(RepoConfig.Tracker.local)`.",
+                suggestion: "Fix `tracker.type` in .agentos/config.json.")])
+        }
+        guard let repo = config.repo ?? remote.flatMap(GitHubIssuesTracker.repo(fromRemote:)) else {
+            return (.local, [Finding(
+                check: "tracker", severity: .blocker, title: "Which GitHub repo has the issues?",
+                detail: "The config asks for GitHub Issues, and the `origin` remote isn't on GitHub.",
+                suggestion: "Set `tracker.repo` to `owner/name` in .agentos/config.json.")])
+        }
+        guard hasGitHubCLI else {
+            return (.githubIssues(repo: repo, project: config.project), [Finding(
+                check: "tracker", severity: .blocker, title: "GitHub CLI not found",
+                detail: "The harness reads and writes GitHub Issues with your `gh` login.",
+                suggestion: "`brew install gh`, then `gh auth login`.")])
+        }
+        return (.githubIssues(repo: repo, project: config.project), [Finding(
+            check: "tracker", severity: .info, title: "Tickets are GitHub issues of \(repo)",
+            detail: "Add harness: labels to issues there; the harness answers as your `gh` login (Settings → GitHub account).")])
+    }
 }
 
 /// A git repo with commits on a default branch: enough to find the harness's storage for it.
@@ -101,9 +138,18 @@ public struct ReadinessScanner: Sendable {
         if mentionsSimulator { snapshot.simulators = await Self.installedSimulators() }
 
         let assessment = ReadinessRules.assess(snapshot, harness: harness, baseline: baseline)
+        let (tracker, trackerFindings) = TrackerChoice.resolve(
+            assessment.config?.tracker, remote: await git(["remote", "get-url", "origin"], in: root),
+            hasGitHubCLI: GhCLITransport.locate() != nil)
+        var boardFindings: [Finding] = []
+        if case .githubIssues(let repo, let project?) = tracker, let gh = GhCLITransport.locate() {
+            boardFindings = await GitHubProjectBoard.findings(
+                config: project, repo: repo, transport: GhCLITransport(executable: gh, account: harness.githubAccount),
+                account: harness.githubAccount)
+        }
         return ScannedRepository(root: root, identity: location.identity,
-                                 scan: ReadinessScan(branch: branch, commit: location.commit, findings: assessment.findings),
-                                 config: assessment.config, policy: assessment.policy, draft: assessment.draft?.json)
+                                 scan: ReadinessScan(branch: branch, commit: location.commit, findings: assessment.findings + trackerFindings + boardFindings),
+                                 config: assessment.config, policy: assessment.policy, draft: assessment.draft?.json, tracker: tracker)
     }
 
     /// `xcrun simctl list devices available -j`, as runtime name → device names; nil if it can't be read.

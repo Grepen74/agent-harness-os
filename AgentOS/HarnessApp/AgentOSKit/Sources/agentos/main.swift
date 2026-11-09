@@ -15,6 +15,7 @@ let usage = """
            agentos baseline [<repo path>] [--config <file>]
                                            run the repo's checks on its default branch, outside your checkout
            agentos work [<repo path>] [--ticket <title> [--description <text>] [--criterion <text>]... [--go]]
+                  [--github-account <gh login>]
                                            run Copilot agents on the repo's local tracker until nothing is left
                                            to do without a human; proven work lands on agentos/main
     """
@@ -29,7 +30,7 @@ func options(_ name: String) -> [String] {
 }
 /// The first argument after the command that is neither an option nor an option's value.
 func positional() -> String? {
-    let withValues: Set<String> = ["--dir", "--agents", "--config", "--ticket", "--description", "--criterion"]
+    let withValues: Set<String> = ["--dir", "--agents", "--config", "--ticket", "--description", "--criterion", "--github-account"]
     var index = 1
     while index < arguments.count {
         if withValues.contains(arguments[index]) { index += 2; continue }
@@ -224,14 +225,21 @@ case "work":
         print("Copilot CLI not found.")
         exit(1)
     }
+    let storage = RepositoryStorage.directory(for: location.identity)
     let session = try RepositorySession(
-        location: location, storage: RepositoryStorage.directory(for: location.identity), ledger: ledger, config: config,
-        policy: scanned.policy, team: RepositorySession.copilotTeam(executable: copilot, policy: scanned.policy))
+        location: location, storage: storage, ledger: ledger, config: config,
+        policy: scanned.policy, team: RepositorySession.copilotTeam(executable: copilot, policy: scanned.policy),
+        tracker: RepositorySession.tracker(scanned.tracker, storage: storage, githubAccount: option("--github-account")))
+    say("Tracker: \(session.tracker.name)")
     for note in await session.reconciler.recoverAfterRestart() { print("  · \(note)") }
     let you = Participant.human(NSUserName())
     if let title = option("--ticket") {
-        let ticket = await session.tracker.createTicket(
-            title: title, description: option("--description") ?? title, acceptanceCriteria: options("--criterion"), by: you)
+        guard let ticket = await session.tracker.newTicket(
+            title: title, description: option("--description") ?? title, acceptanceCriteria: options("--criterion"),
+            blockedBy: [], by: you) else {
+            for problem in await session.tracker.takeProblems() { print("  ⛔️ \(problem)") }
+            exit(1)
+        }
         print("Created \(ticket.key): \(title)")
         if arguments.contains("--go") { await session.tracker.addLabel(HarnessCommand.go.label, to: ticket.key, by: you) }
     }
@@ -240,6 +248,7 @@ case "work":
         for action in report.actions { print("  · \(action)") }
         if let stop = report.safeStop { print("  ⛔️ \(stop)") }
     }
+    for problem in await session.tracker.takeProblems() { print("  ⚠️ \(problem)") }
     let state = await ledger.workingState()
     for ticket in await session.tracker.tickets() {
         let phase = state.node(forTicket: ticket.key).map { " [\($0.phase.rawValue)]" } ?? ""

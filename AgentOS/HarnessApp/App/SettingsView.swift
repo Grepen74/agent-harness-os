@@ -22,6 +22,7 @@ final class SettingsModel {
 struct SettingsView: View {
     @Environment(SettingsModel.self) private var model
     @State private var offeredModels = ""
+    @State private var githubAccount = ""
     var body: some View {
         @Bindable var model = model
         Form {
@@ -36,6 +37,14 @@ struct SettingsView: View {
                 Stepper("Max attempts per leaf: \(model.settings.maxAttempts)", value: $model.settings.maxAttempts, in: 1...10)
                 Stepper("Max reworks per leaf: \(model.settings.maxReworks)", value: $model.settings.maxReworks, in: 1...10)
                 Stepper("Max parallel agents: \(model.settings.maxParallelAgents)", value: $model.settings.maxParallelAgents, in: 1...8)
+                Picker("Guesswork", selection: $model.settings.guesswork) {
+                    ForEach(Guesswork.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                .help("""
+                    How much agents may guess before asking. Questions about what users observe always stop the work. \
+                    Ask: any assumption is a question too. Assume and report: assumptions are posted, and a leaf resting on \
+                    them waits for you to see its tests before build. Autonomous: assumptions are posted, nothing waits.
+                    """)
             }
             Section("Signals offered (a repo may switch them off)") {
                 ForEach(HarnessCommand.allCases, id: \.self) { command in
@@ -64,6 +73,19 @@ struct SettingsView: View {
                 Text("Agents: \(HarnessSettings.agentProvider)")
             } footer: {
                 Text("Comma-separated model names as the agent CLI knows them (`copilot --model`); press Return to apply. A repo may pick a model per role only among these.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section {
+                TextField("GitHub account", text: $githubAccount, prompt: Text("The active `gh` login"))
+                    .onSubmit {
+                        let account = githubAccount.trimmingCharacters(in: .whitespaces)
+                        model.settings.githubAccount = account.isEmpty ? nil : account
+                    }
+                    .onAppear { githubAccount = model.settings.githubAccount ?? "" }
+            } header: {
+                Text("GitHub Issues")
+            } footer: {
+                Text("For repos whose config sets `\"tracker\": {\"type\": \"github-issues\"}`. The harness reads and writes issues as this `gh` login (`gh auth login`); agents never get its token. A Projects board in the config also needs the `project` scope (`gh auth refresh -s project`). Press Return to apply.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Always") {

@@ -232,4 +232,51 @@ struct FlowTests {
         #expect(try await sim.restoreLedgerAfterTamperDemo())
         #expect(try await makeSimulation(sim.directory).ledger.verifyChain().isIntact)
     }
+
+    @Test func aTrackerRefusingAChildTicketEscalatesAndRetryCreatesOnlyTheRest() async throws {
+        let sim = try makeSimulation()
+        let flaky = FlakyTracker(inner: LocalTrackerAdapter(tracker: sim.tracker))
+        let reconciler = Reconciler(
+            ledger: sim.ledger, tracker: flaky, external: sim.external, workspace: sim.workspace,
+            artifacts: FileArtifactStore(directory: sim.workspace.artifactsDirectory), checks: FakeCheckRunner(),
+            team: .scripted, policy: Policy())
+        await sim.tracker.createTicket(title: "Greeting", description: "Say hi", acceptanceCriteria: ["Says hello", "Says bye"], by: alice)
+        await sim.tracker.addLabel(HarnessCommand.breakdown.label, to: "APP-1", by: alice)
+        await flaky.refuse(after: 1)
+        for _ in 0..<5 { await reconciler.runRound() }
+
+        let stopped = try #require(await sim.node("APP-1"))
+        #expect(stopped.flags[.escalated] != nil)
+        #expect(stopped.children.count == 1)
+
+        await flaky.refuse(after: nil)
+        await sim.tracker.addLabel(HarnessCommand.retry.label, to: "APP-1", by: alice)
+        for _ in 0..<5 { await reconciler.runRound() }
+        let node = try #require(await sim.node("APP-1"))
+        #expect(node.phase == .split)
+        #expect(node.children.count == 2)
+        #expect(await sim.tracker.tickets().count == 3)
+    }
+}
+
+/// Creates child tickets until told to refuse, like a tracker hitting a rate limit.
+private actor FlakyTracker: TrackerAdapter {
+    let inner: LocalTrackerAdapter
+    private var allowed: Int?
+    init(inner: LocalTrackerAdapter) { self.inner = inner }
+
+    func refuse(after count: Int?) { allowed = count }
+
+    func pendingSignals() async -> [Signal] { await inner.pendingSignals() }
+    func ticket(_ key: String) async -> Ticket? { await inner.ticket(key) }
+    func consume(_ signal: Signal, reply: String) async { await inner.consume(signal, reply: reply) }
+    func comment(on key: String, _ text: String) async { await inner.comment(on: key, text) }
+    func setStatus(of key: String, to status: String) async { await inner.setStatus(of: key, to: status) }
+    func createChildTicket(parent: String, spec: NodeSpec, by who: Participant) async throws -> String {
+        if let left = allowed {
+            guard left > 0 else { throw CancellationError() }
+            allowed = left - 1
+        }
+        return try await inner.createChildTicket(parent: parent, spec: spec, by: who)
+    }
 }

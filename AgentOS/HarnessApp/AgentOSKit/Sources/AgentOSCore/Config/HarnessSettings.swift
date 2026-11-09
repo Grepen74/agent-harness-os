@@ -14,6 +14,10 @@ public struct HarnessSettings: Codable, Sendable, Equatable {
     public var offeredModels: [String] = []
     /// The model per role when the repo doesn't choose one (nil: the agent CLI's default).
     public var models = AgentModels()
+    /// How much agents may guess before asking (a repo may only choose a stricter level).
+    public var guesswork = Guesswork.assumeAndReport
+    /// The `gh` account the harness uses for GitHub Issues, when several are logged in (nil: the active one).
+    public var githubAccount: String?
 
     /// Not settings: the harness never pushes, and these are always denied and protected. Agents work in worktrees
     /// that share the repo's `.git`: fetches, stashes, remotes and config would change your repo, and `gh` could push.
@@ -36,6 +40,8 @@ public struct HarnessSettings: Codable, Sendable, Equatable {
         offeredSignals = try container.decodeIfPresent(Set<HarnessCommand>.self, forKey: .offeredSignals) ?? defaults.offeredSignals
         offeredModels = try container.decodeIfPresent([String].self, forKey: .offeredModels) ?? defaults.offeredModels
         models = try container.decodeIfPresent(AgentModels.self, forKey: .models) ?? defaults.models
+        guesswork = try container.decodeIfPresent(Guesswork.self, forKey: .guesswork) ?? defaults.guesswork
+        githubAccount = try container.decodeIfPresent(String.self, forKey: .githubAccount)
     }
 }
 
@@ -124,6 +130,26 @@ public struct EffectivePolicy: Sendable, Equatable {
         result.policy.maxAttempts = limit("Max attempts per leaf", harness: harness.maxAttempts, repo: repo?.limits?.maxAttempts)
         result.policy.maxReworks = limit("Max reworks per leaf", harness: harness.maxReworks, repo: repo?.limits?.maxReworks)
         result.maxParallelAgents = limit("Max parallel agents", harness: harness.maxParallelAgents, repo: repo?.limits?.maxParallelAgents)
+
+        // Guesswork: the repo may only choose a stricter level.
+        var guesswork = harness.guesswork
+        var guessworkNote: String?
+        if let wanted = repo?.agents?.guesswork {
+            let levels = Guesswork.allCases.map(\.rawValue).joined(separator: ", ")
+            if let level = Guesswork(rawValue: wanted), level <= harness.guesswork {
+                guesswork = level
+            } else if let level = Guesswork(rawValue: wanted) {
+                refuse("Repo config loosens guesswork from \(harness.guesswork.rawValue) to \(level.rawValue)",
+                       "The harness allows at most \(harness.guesswork.rawValue).")
+                guessworkNote = "repo asked for \(wanted): refused"
+            } else {
+                refuse("Repo config has an unknown guesswork level: \(wanted)", "Known levels: \(levels).")
+                guessworkNote = "repo asked for \(wanted): invalid"
+            }
+        }
+        result.policy.guesswork = guesswork
+        result.settings.append(EffectiveSetting(name: "Guesswork", value: guesswork.title,
+                                                source: guesswork == harness.guesswork ? .harness : .repo, note: guessworkNote))
 
         // Signals: the repo may only switch off what the harness offers.
         var signals = harness.offeredSignals

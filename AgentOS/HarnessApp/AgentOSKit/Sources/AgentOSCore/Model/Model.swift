@@ -30,6 +30,9 @@ public enum Participant: Codable, Sendable, Hashable {
 
 public enum AgentRole: String, Codable, Sendable {
     case decomposer, testAuthor, implementer, verifier
+
+    /// For people: "test author" rather than "testAuthor".
+    public var title: String { self == .testAuthor ? "test author" : rawValue }
 }
 
 /// Lifecycle phases (doc 02 §6).
@@ -43,6 +46,8 @@ public enum Phase: String, Codable, Sendable {
 /// Omitted in the mock: stale (spec changes, doc 02 §9) and paused (doc 05).
 public enum Flag: String, Codable, Sendable, CaseIterable {
     case escalated, blocked
+    /// Waiting for a person: an agent's open questions, or a review of the tests and assumptions before build.
+    case needsInput = "needs input"
 }
 
 /// Permissions for one kind of work, opened by a deliberate human signal (doc 05).

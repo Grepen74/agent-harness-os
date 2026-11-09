@@ -24,8 +24,8 @@ requests, and several repos forming one system are planned (phases 8, 9 and 10).
    warnings can be accepted.
 3. The scan **drafts a repo config** from what it found: how to build and test, components, test
    locations. You review it, and it only counts once it's committed on `main`.
-4. Tickets come from a tracker adapter. Without one, the app's **local tracker** is used (the simulator's
-   tracker pane, persisted).
+4. Tickets come from the tracker the repo config names (`tracker`): **GitHub Issues**, or without one the
+   app's **local tracker** (the simulator's tracker pane, persisted).
 5. From here it's the simulator's flow, on real code: preview → breakdown → tests → build → pre-check →
    landing queue → proven.
 6. Proven work lands on the local branch **`agentos/main`**. You review, merge and push it yourself.
@@ -66,7 +66,7 @@ read from `main` only.
 | Agent models | Offered models, plus a default model per role (breakdown, acceptance tests, implementation); none = the CLI's default | Pick a model per role among the offered ones |
 | Max attempts / reworks per leaf | 3 / 3 | Lower |
 | Max parallel agents | 2 | Lower |
-| Guesswork (phase 6) | `assume and report`: carry on, list assumptions, a person approves the build gate. Guesses about what users observe (acceptance criteria, which screen, which behaviour) always stop the node; guesses about implementation don't. Other levels: `ask` (any open question stops the node), `autonomous` (report assumptions afterwards) | Lower, to `ask` |
+| Guesswork | `assume and report`: carry on and post assumptions; a leaf whose work rests on assumptions waits for a person to see its acceptance tests before build, even under `harness:go`. Guesses about what users observe (what to check, which screen, which behaviour) always stop the node; guesses about implementation don't. Other levels: `ask` (assumptions are questions too), `autonomous` (assumptions are posted, nothing waits) | Choose a stricter level (`agents.guesswork`) |
 | Signals people may use (doc 05 §3) | All, including `harness:go` | Switch some off, e.g. `go` to force a breakdown review |
 | Required checks | Build + the leaf's tests on branch; all tests at landing | Add more (lint, snapshot tests…) |
 | Protected paths | Tests of proven leaves, `.agentos/`, AGENTS.md, CONTRIBUTING, CODEOWNERS, copilot-instructions | Add more |
@@ -92,7 +92,9 @@ unknown keys are reported as likely typos. For an iOS app:
   "signals": { "disable": ["go"] },
   "limits": { "maxAttempts": 2 },
   "agents": { "deny": ["rm -rf"], "models": { "implementer": "claude-sonnet-4.5" } },
-  "protectedPaths": ["App/Secrets/"]
+  "protectedPaths": ["App/Secrets/"],
+  "tracker": { "type": "github-issues", "repo": "owner/name",
+               "project": { "owner": "owner", "number": 1, "statusMap": { "Landing": "Done" } } }
 }
 ```
 
@@ -122,6 +124,8 @@ never edits it (see Safety).
 | The config has no unknown keys; there's no other `.agentos/config*` file | Warning |
 | CODEOWNERS covers the files that steer agents | Info (Warning for stricter profiles) |
 | Uncommitted changes in your checkout | Info: the harness works from `main` and won't include them |
+| The config's tracker can be used: a known type, a GitHub repo (`tracker.repo` or `origin`), `gh` installed | Blocker |
+| The config's board (`tracker.project`) can be read and has an option for each mapped status | Warning: the status shows as a label instead |
 
 Findings appear in their own pane and are recorded in the ledger. New findings during work (a flaky
 test, a leaf touching files outside its touch set, repeated reworks on the same file) appear there too.
@@ -298,7 +302,52 @@ Each phase is usable on its own.
    - **The build gate shows what it approves:** `harness:go` comes after the leaf's acceptance tests and
      assumptions are visible, since the tests are where intent gets fixed. The test author is told to
      test behaviour, not source text.
+
+   *Done:*
+   - The decomposer first checks the ticket is ready ("could someone test each criterion without guessing
+     what users observe?") and answers with questions instead of children when it isn't. A preview with
+     questions records nothing; you edit the ticket and preview again.
+   - The decomposer and test author return questions and assumptions with their result. Questions write
+     `questionsRaised` and the `needs input` flag, and post a "❓ Needs input" comment with them. Tests
+     written on a guess are thrown away. You answer in comments, then add `harness:retry`; without a
+     comment after the question it's refused. The answer is recorded (`questionsAnswered`) and every agent
+     working on the node or below it gets it as data.
+   - Every leaf's tests are posted when written: files, test names and the assumptions the work rests on.
+     Under `assume and report`, a leaf with assumptions waits (`needs input`). `harness:build` (or `go`)
+     approves its tests as they are; a comment plus `harness:retry` has them written again with your
+     feedback. Accepting a preview accepts its assumptions.
+   - The Copilot test author reports in `.agentos-report.json`, which the harness reads and removes before
+     the commit. Simulation hints `sim:ask` and `sim:assume`; a criterion ending in "?" makes the scripted
+     decomposer ask.
+   - Guesswork in Settings and in the repo config (`agents.guesswork`); a looser value is a blocker.
 7. **GitHub Issues adapter**, as the first real tracker.
+
+   *Done:*
+   - `"tracker": { "type": "github-issues" }` in the repo config; `repo` defaults to the `origin` remote.
+     The scan reports which tracker is used, and blocks when it can't be (unknown type, no GitHub repo, no
+     `gh`).
+   - Issues are tickets keyed `GH-<number>`; pull requests are left out. Acceptance criteria are the list
+     under an "Acceptance criteria" heading (bullets, numbers or task list); `Blocked by:` and `Parent: #n`
+     lines carry the links. Child issues are also linked as GitHub sub-issues where available.
+   - Signals are `harness:` labels, created in the repo on first use. Who set a label comes from the issue's
+     events, so only people's labels count, as before. The status is an `agentos: <status>` label.
+   - The harness talks to GitHub through `gh api` with your login, or the account set in Settings
+     (*GitHub account*; `--github-account` for `agentos work`). Agents never get the token. Since it acts as
+     you, everything it writes carries a hidden `<!-- agentos -->` marker, which is how its comments and
+     issues are told apart from yours.
+   - Polling, kept small: open issues at most every 10 seconds and after the harness's own changes;
+     comments and label events only when an issue changed. Failed requests show in the activity log.
+   - A tracker that refuses a child ticket escalates the breakdown; `harness:retry` creates the rest.
+   - **Projects board (opt-in).** With `tracker.project` (owner, number, optional `statusField` and
+     `statusMap`), the board's Status field follows the harness: Specifying and Breaking down → Backlog,
+     Ready, In progress, In review (checking and landing), Done. Issues not on the board are added.
+     Statuses needing attention (Needs input, Needs human, Blocked) have no option by default: they stay
+     `agentos:` labels and the card stays where it was. A `statusMap` entry overrides a default; `""`
+     leaves the board alone for that status. One way only: moving a card never asks the harness for
+     anything. Uses GraphQL and needs the `project` scope (`gh auth refresh -s project`); the scan warns
+     when the board can't be read or lacks options, and an unreadable board is tried again every 5 minutes,
+     with labels meanwhile.
+   - Not yet: webhooks, ETags and rate-limit back-off; closing issues (the status says *Done*).
 8. **Catching up with `main`.** Today `agentos/main` is created from `main` once and never follows it, so
    your later commits never reach the agents. When `main` moves and its baseline passes, the harness
    rebases `agentos/main` onto it (or merges, if rebasing would rewrite landed work you've already

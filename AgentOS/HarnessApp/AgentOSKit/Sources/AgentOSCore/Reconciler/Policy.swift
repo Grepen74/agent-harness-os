@@ -1,5 +1,30 @@
 import Foundation
 
+/// How much agents may guess before a person must answer (phase 6). Guesses about what users observe (what to
+/// check, which screen, which behaviour) always stop the node, at every level; this sets what happens to the
+/// rest, the assumptions. Ordered from strictest to loosest: a repo may only choose a stricter level.
+public enum Guesswork: String, Codable, Sendable, CaseIterable, Comparable {
+    /// Any open question or assumption stops the node.
+    case ask
+    /// Assumptions are posted on the ticket; a leaf whose work rests on assumptions waits for a person to approve
+    /// its build after seeing its acceptance tests, even under `harness:go`.
+    case assumeAndReport = "assume-and-report"
+    /// Assumptions are posted on the ticket; nothing waits for them.
+    case autonomous
+
+    public var title: String {
+        switch self {
+        case .ask: "ask"
+        case .assumeAndReport: "assume and report"
+        case .autonomous: "autonomous"
+        }
+    }
+
+    public static func < (lhs: Guesswork, rhs: Guesswork) -> Bool {
+        allCases.firstIndex(of: lhs)! < allCases.firstIndex(of: rhs)!
+    }
+}
+
 /// Central rules (doc 01: repos declare, central policy decides). One profile in the mock.
 /// Production: policy as code in its own reviewed repo, several profiles, stricter-only overrides.
 public struct Policy: Sendable, Equatable {
@@ -16,14 +41,22 @@ public struct Policy: Sendable, Equatable {
     /// Files no leaf may change, e.g. the agents' own instructions (doc 04 §8). Like .gitignore: a pattern
     /// without "/" matches a file name in any folder, a trailing "/" means a folder, `*` is a wildcard.
     public var protectedPaths: [String]
+    public var guesswork: Guesswork
 
     public init(maxAttempts: Int = 3, maxReworks: Int = 3, maxParallelAgents: Int = 1,
-                allowedSignals: Set<HarnessCommand> = Set(HarnessCommand.allCases), protectedPaths: [String] = []) {
+                allowedSignals: Set<HarnessCommand> = Set(HarnessCommand.allCases), protectedPaths: [String] = [],
+                guesswork: Guesswork = .assumeAndReport) {
         self.maxAttempts = maxAttempts
         self.maxReworks = maxReworks
         self.maxParallelAgents = maxParallelAgents
         self.allowedSignals = allowedSignals
         self.protectedPaths = protectedPaths
+        self.guesswork = guesswork
+    }
+
+    /// What stops a node: the agent's questions, plus its assumptions when it may not assume anything.
+    func questions(in report: AgentReport) -> [String] {
+        guesswork == .ask ? report.questions + report.assumptions : report.questions
     }
 
     /// The changed files that touch a protected path.
@@ -68,6 +101,7 @@ public struct Policy: Sendable, Equatable {
     /// Ticket status shown to humans: a projection of the ledger, never the source (doc 03 §5).
     func trackerStatus(for node: NodeState) -> String {
         if node.flags[.escalated] != nil { return "Needs human" }
+        if node.flags[.needsInput] != nil { return "Needs input" }
         if node.flags[.blocked] != nil { return "Blocked" }
         switch node.phase {
         case .specified: return node.spec.kind == .composite ? "Breaking down" : "Specifying"

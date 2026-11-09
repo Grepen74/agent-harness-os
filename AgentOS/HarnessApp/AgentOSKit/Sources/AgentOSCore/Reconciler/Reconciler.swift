@@ -138,13 +138,25 @@ public actor Reconciler {
             let problems = policy.readinessProblems(ticket)
             guard problems.isEmpty else { throw Rejection(reason: "Not ready yet. Missing: \(problems.joined(separator: ", ")).") }
             let spec = Planner.rootSpec(for: ticket)
-            let children = Planner.childSpecs(parent: spec, proposals: try await propose(spec, log: nil))
+            let breakdown = try await propose(spec, clarifications: [], log: nil)
+            let questions = policy.questions(in: breakdown.report)
+            guard questions.isEmpty else {
+                // Nothing is recorded: the ticket isn't adopted, so its description is where the answers go.
+                await tracker.comment(on: ticket.key, """
+                    ❓ The decomposer has questions before it can propose a breakdown:
+                    \(Self.numbered(questions))
+                    Edit the ticket to answer them, then preview again.
+                    """)
+                return "questions posted above; no preview recorded"
+            }
+            let children = Planner.childSpecs(parent: spec, proposals: breakdown.children)
             let number = (state.previews[ticket.key]?.number ?? 0) + 1
             try await write(nil, by: .reconciler, [
                 .previewRecorded(ticket: ticket.key, number: number, specHash: spec.specHash, proposal: children)])
+            // Accepting the preview accepts its assumptions too: they aren't asked about again.
             await tracker.comment(on: ticket.key, """
                 🔍 Preview #\(number). Nothing has been created.
-                \(Planner.describe(children, under: ticket.title))
+                \(Planner.describe(children, under: ticket.title))\(Self.assumptionsNote("Assumptions the decomposer made", breakdown.report.assumptions))
                 Accept with label harness:breakdown, or edit the ticket and preview again.
                 """)
             return "preview #\(number) posted above"
@@ -173,11 +185,15 @@ public actor Reconciler {
             guard node.phase != .specified || node.spec.kind != .composite else {
                 throw Rejection(reason: "The breakdown isn't finished yet. Try again when the child tickets exist.")
             }
-            guard !node.gates.contains(.build) else { throw Rejection(reason: "Build is already approved.") }
-            try await write(node.id, by: .human(person), [.gateOpened(.build)])
-            return "build approved for \(node.spec.id) and everything below it"
+            let reviews = waitingForReview(under: node.id, in: state)
+            guard !node.gates.contains(.build) || !reviews.isEmpty else { throw Rejection(reason: "Build is already approved.") }
+            if !node.gates.contains(.build) { try await write(node.id, by: .human(person), [.gateOpened(.build)]) }
+            return "build approved for \(node.spec.id) and everything below it" + (try await approve(reviews, by: person))
 
         case .retry:
+            if let node, node.flags[.needsInput] != nil {
+                return try await resume(node, answeredOn: ticket, by: person)
+            }
             guard let node, node.flags[.escalated] != nil else { throw Rejection(reason: "Nothing to retry: not escalated.") }
             try await write(node.id, by: .human(person), [.flagCleared(.escalated), .attemptsReset])
             return "escalation cleared; attempts reset"
@@ -187,9 +203,11 @@ public actor Reconciler {
             // of permission. Production: also checks the build budget is set (doc 05 §5).
             if let node {
                 let missing = [Gate.breakdown, .build].filter { !node.gates.contains($0) }
-                guard !missing.isEmpty else { throw Rejection(reason: "Breakdown and build are already approved.") }
-                try await write(node.id, by: .human(person), missing.map { .gateOpened($0) })
-                return "\(missing.map(\.rawValue).joined(separator: " and ")) approved for \(node.spec.id) and everything below it"
+                let reviews = waitingForReview(under: node.id, in: state)
+                guard !missing.isEmpty || !reviews.isEmpty else { throw Rejection(reason: "Breakdown and build are already approved.") }
+                if !missing.isEmpty { try await write(node.id, by: .human(person), missing.map { .gateOpened($0) }) }
+                let approved = missing.isEmpty ? "build" : missing.map(\.rawValue).joined(separator: " and ")
+                return "\(approved) approved for \(node.spec.id) and everything below it" + (try await approve(reviews, by: person))
             }
             let problems = policy.readinessProblems(ticket)
             guard problems.isEmpty else { throw Rejection(reason: "Not ready yet. Missing: \(problems.joined(separator: ", ")).") }
@@ -199,6 +217,48 @@ public actor Reconciler {
             return "adopted; breakdown and build approved: it will be broken down, built and checked without stopping\n"
                 + spec.trackerSummary
         }
+    }
+
+    /// `harness:retry` on a node waiting for input: the human comments since the harness asked are the answer.
+    /// Without open questions it was waiting for a review of its tests, so the answer is feedback on them and
+    /// the tests are written again with it.
+    private func resume(_ node: NodeState, answeredOn ticket: Ticket, by person: String) async throws -> String {
+        guard let answer = Self.answer(on: ticket) else {
+            throw Rejection(reason: "Answer \(node.openQuestions.isEmpty ? "the review request" : "the questions") above in a comment " +
+                "first, then add harness:retry again. To build the tests as they are, add harness:build instead.")
+        }
+        let isReview = node.openQuestions.isEmpty
+        var kinds: [EventKind] = [
+            .questionsAnswered(Clarification(questions: isReview ? ["Feedback on the acceptance tests"] : node.openQuestions, answer: answer)),
+            .flagCleared(.needsInput)]
+        if isReview && node.spec.kind == .leaf && node.phase == .ready {
+            try? await workspace.removeWorktree(for: node.id)
+            kinds.append(.phaseChanged(to: .specified))
+        }
+        if node.flags[.escalated] != nil { kinds += [.flagCleared(.escalated), .attemptsReset] }
+        try await write(node.id, by: .human(person), kinds)
+        return isReview ? "feedback recorded; the acceptance tests will be written again with it" : "answer recorded; work continues with it"
+    }
+
+    /// Human comments after the harness's latest "Needs input" comment, or nil when nobody answered yet.
+    static func answer(on ticket: Ticket) -> String? {
+        guard let asked = ticket.comments.lastIndex(where: { !$0.author.isHuman && $0.text.contains(needsInputMarker) }) else { return nil }
+        let replies = ticket.comments[(asked + 1)...].filter(\.author.isHuman).map(\.text)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        return replies.isEmpty ? nil : replies.joined(separator: "\n\n")
+    }
+
+    static let needsInputMarker = "❓ Needs input"
+
+    /// Leaves below `id` (or `id` itself) whose acceptance tests wait for a person's review before build.
+    private func waitingForReview(under id: NodeID, in state: WorkingState) -> [NodeState] {
+        state.subtree(of: id).filter { $0.flags[.needsInput] != nil && $0.openQuestions.isEmpty && $0.phase == .ready }
+    }
+
+    /// `harness:build` or `harness:go` approves the tests of the leaves waiting for review.
+    private func approve(_ reviews: [NodeState], by person: String) async throws -> String {
+        for node in reviews { try await write(node.id, by: .human(person), [.flagCleared(.needsInput)]) }
+        return reviews.isEmpty ? "" : "; acceptance tests approved for \(reviews.map(\.ticket).joined(separator: ", "))"
     }
 
     private func intakeExternal(_ report: inout RoundReport) async {
@@ -257,7 +317,7 @@ public actor Reconciler {
     }
 
     private func advance(_ node: NodeState, in state: WorkingState) async throws -> String? {
-        guard node.flags[.escalated] == nil, node.activeRun == nil else { return nil }
+        guard node.flags[.escalated] == nil, node.flags[.needsInput] == nil, node.activeRun == nil else { return nil }
 
         switch (node.spec.kind, node.phase) {
         case (.composite, .specified):
@@ -299,6 +359,7 @@ public actor Reconciler {
     private func breakDown(_ node: NodeState, in state: WorkingState) async throws -> String {
         let children: [NodeSpec]
         let author: Participant
+        var assumptions: [String] = []
         if let preview = state.previews[node.ticket], preview.specHash == node.spec.specHash {
             // What you saw is what you get: no regeneration (doc 05 §3).
             children = preview.proposal
@@ -307,8 +368,9 @@ public actor Reconciler {
             let run = Self.newRunID()
             author = .agent(run: run, role: .decomposer)
             try await write(node.id, by: .reconciler, [.runStarted(run: run, role: .decomposer)], expecting: node.version)
+            let breakdown: Breakdown
             do {
-                children = Planner.childSpecs(parent: node.spec, proposals: try await propose(node.spec, log: agentLog(node, run)))
+                breakdown = try await propose(node.spec, clarifications: state.clarifications(for: node.id), log: agentLog(node, run))
             } catch {
                 try await write(node.id, by: author, [
                     .runFinished(run: run, outcome: "failed: \(error)"),
@@ -316,8 +378,16 @@ public actor Reconciler {
                 await tracker.comment(on: node.ticket, "⚠️ Needs a human: breakdown failed (\(error)). Fix the ticket, then add harness:retry.")
                 return "\(node.ticket) breakdown failed → escalated"
             }
-            try await write(node.id, by: author, [.runFinished(run: run, outcome: "proposed \(children.count) children")])
+            let questions = policy.questions(in: breakdown.report)
+            guard questions.isEmpty else {
+                return try await raise(questions, on: node, by: author, run: run, role: .decomposer)
+            }
+            children = Planner.childSpecs(parent: node.spec, proposals: breakdown.children)
+            assumptions = breakdown.report.assumptions
+            try await write(node.id, by: author, [.runFinished(run: run, outcome: "proposed \(children.count) children")]
+                + (assumptions.isEmpty ? [] : [.assumptionsReported(role: .decomposer, assumptions: assumptions)]))
         }
+        let note = Self.assumptionsNote("Assumptions the decomposer made", assumptions)
 
         // Leaf check (doc 02 §4): a "breakdown" into one piece is the node itself, so it becomes the leaf.
         // Production: the decomposer runs the full leaf check before proposing children at all.
@@ -328,21 +398,29 @@ public actor Reconciler {
                 + needs.map { .linkAdded(TypedLink(from: node.id, type: .dependsOn, to: $0)) })
             await tracker.comment(on: node.ticket, """
                 🍃 No breakdown needed: small enough to build as it is (leaf check passed).
-                \(Planner.describe(children, under: node.spec.title))
+                \(Planner.describe(children, under: node.spec.title))\(note)
                 This ticket gets its own branch and acceptance tests next; then add harness:build.
                 """)
             return "\(node.ticket) passed the leaf check: built as one leaf"
         }
 
         for spec in children {
-            let key = await tracker.createChildTicket(parent: node.ticket, spec: spec, by: author)
+            // Child ids are deterministic: after a failed attempt, the ones already created are kept.
+            if await ledger.workingState().nodes[spec.id] != nil { continue }
+            let key: String
+            do {
+                key = try await tracker.createChildTicket(parent: node.ticket, spec: spec, by: author)
+            } catch {
+                try await write(node.id, by: .reconciler, [.flagSet(.escalated, reason: "Couldn't create a child ticket: \(error)")])
+                return "\(node.ticket) breakdown stopped: couldn't create \"\(spec.title)\" → escalated"
+            }
             let links = spec.dependsOn.map { TypedLink(from: spec.id, type: .dependsOn, to: $0) }
             try await write(spec.id, by: author, [.nodeCreated(spec: spec, ticket: key)] + links.map { .linkAdded($0) })
         }
         try await write(node.id, by: .reconciler, [.phaseChanged(to: .split)])
         await tracker.comment(on: node.ticket, """
             🌳 Broken down. Each leaf gets its own branch and acceptance tests next; then add harness:build.
-            \(Planner.describe(children, under: node.spec.title))
+            \(Planner.describe(children, under: node.spec.title))\(note)
             """)
         return "\(node.ticket) broken down into \(children.count) leaves"
     }
@@ -354,25 +432,110 @@ public actor Reconciler {
         try await write(node.id, by: .reconciler, [.runStarted(run: run, role: .testAuthor)], expecting: node.version)
         let directory = try await workspace.createWorktree(for: node.id)
         let task = await makeTask(node, run: run, in: directory, log: agentLog(node, run))
+        let own = workspace.testFolder(for: node.spec) + "/"
+        let report: AgentReport
         do {
-            try await watchingUserGitState(node, run: run) { try await team.testAuthor.writeAcceptanceTests(task) }
-            let own = workspace.testFolder(for: node.spec) + "/"
-            let changed = try await workspace.commitAll(in: directory, message: "\(node.spec.id): acceptance tests", author: run)
-            // After the commit, so the check sees everything the author wrote (changes are compared commit to commit).
-            let outside = try await workspace.changedFiles(in: directory).filter { !$0.hasPrefix(own) }
-            guard outside.isEmpty, changed != nil else {
-                throw AgentFailure(changed == nil ? "no tests written" : "wrote outside its own test folder \(own): \(outside.joined(separator: ", "))")
-            }
+            report = try await watchingUserGitState(node, run: run) { try await team.testAuthor.writeAcceptanceTests(task) }
         } catch {
             try await write(node.id, by: author, [
                 .runFinished(run: run, outcome: "failed: \(error)"),
                 .flagSet(.escalated, reason: "Couldn't write acceptance tests: \(error)")])
             return "\(node.ticket) test authoring failed → escalated"
         }
+        let questions = policy.questions(in: report)
+        guard questions.isEmpty else {
+            // Tests written on a guess aren't kept: the branch starts over once the questions are answered.
+            try? await workspace.removeWorktree(for: node.id)
+            return try await raise(questions, on: node, by: author, run: run, role: .testAuthor)
+        }
+        let testFiles: [String]
+        do {
+            let changed = try await workspace.commitAll(in: directory, message: "\(node.spec.id): acceptance tests", author: run)
+            // After the commit, so the check sees everything the author wrote (changes are compared commit to commit).
+            let outside = try await workspace.changedFiles(in: directory).filter { !$0.hasPrefix(own) }
+            guard outside.isEmpty, changed != nil else {
+                throw AgentFailure(changed == nil ? "no tests written" : "wrote outside its own test folder \(own): \(outside.joined(separator: ", "))")
+            }
+            testFiles = try await workspace.changedFiles(in: directory).filter { $0.hasPrefix(own) }
+        } catch {
+            try await write(node.id, by: author, [
+                .runFinished(run: run, outcome: "failed: \(error)"),
+                .flagSet(.escalated, reason: "Couldn't write acceptance tests: \(error)")])
+            return "\(node.ticket) test authoring failed → escalated"
+        }
+
+        // Under "assume and report", a leaf whose work rests on assumptions waits for a person to see its tests,
+        // unless they already answered something on it. Questions about what users observe stopped it above.
+        let state = await ledger.workingState()
+        let review = policy.guesswork == .assumeAndReport && (!report.assumptions.isEmpty
+            || (!state.assumptions(for: node.id).isEmpty && state.clarifications(for: node.id).isEmpty))
+        let reviewReason = "Review the acceptance tests and assumptions, then add harness:build"
         try await write(node.id, by: author, [
             .runFinished(run: run, outcome: "acceptance tests committed"), .testsFixed(digest: testsDigest(node, in: directory)),
-            .phaseChanged(to: .ready)])
-        return "\(node.ticket) acceptance tests written on branch \(workspace.branch(for: node.id)) → Ready"
+            .assumptionsReported(role: .testAuthor, assumptions: report.assumptions), .phaseChanged(to: .ready)]
+            + (review ? [.flagSet(.needsInput, reason: reviewReason)] : []))
+        let reviewNote = review ? """
+
+            \(Self.needsInputMarker): \(reviewReason.prefix(1).lowercased() + reviewReason.dropFirst()) to approve them as they are, \
+            or comment what to change and add harness:retry.
+            """ : ""
+        await tracker.comment(on: node.ticket, """
+            🧪 Acceptance tests written on branch \(workspace.branch(for: node.id)):
+            \(Self.testListing(testFiles, in: directory))\(Self.assumptionsNote("Assumptions this work rests on", await ledger.workingState().assumptions(for: node.id)))\(reviewNote)
+            """)
+        return "\(node.ticket) acceptance tests written on branch \(workspace.branch(for: node.id)) → " + (review ? "waiting for review" : "Ready")
+    }
+
+    /// The agent can't go on without a person: record its questions and ask on the ticket.
+    private func raise(_ questions: [String], on node: NodeState, by author: Participant, run: RunID, role: AgentRole) async throws -> String {
+        let plural = questions.count == 1 ? "question" : "questions"
+        try await write(node.id, by: author, [
+            .runFinished(run: run, outcome: "asked \(questions.count) \(plural)"), .questionsRaised(role: role, questions: questions),
+            .flagSet(.needsInput, reason: "\(questions.count) open \(plural) from the \(role.title)")])
+        await tracker.comment(on: node.ticket, """
+            \(Self.needsInputMarker): the \(role.title) can't go on without answers.
+            \(Self.numbered(questions))
+            Answer in a comment, then add harness:retry.
+            """)
+        return "\(node.ticket) needs input: \(questions.count) \(plural) from the \(role.title)"
+    }
+
+    static func numbered(_ items: [String]) -> String {
+        items.enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n")
+    }
+
+    /// An empty string without assumptions; otherwise a section to append to a comment.
+    static func assumptionsNote(_ heading: String, _ assumptions: [String]) -> String {
+        assumptions.isEmpty ? "" : "\n📝 \(heading):\n" + assumptions.map { "- \($0)" }.joined(separator: "\n")
+    }
+
+    /// Each test file with the tests in it, so a person can review them before build.
+    static func testListing(_ files: [String], in directory: URL) -> String {
+        files.sorted().map { file in
+            let text = (try? String(contentsOf: directory.appending(path: file), encoding: .utf8)) ?? ""
+            return (["- \(file)"] + testNames(in: text).map { "  - \($0)" }).joined(separator: "\n")
+        }.joined(separator: "\n")
+    }
+
+    /// `@Test("…")` display names (Swift Testing), else the function names: `@Test func x()` and XCTest's `func testX()`.
+    static func testNames(in source: String) -> [String] {
+        let patterns = [#"@Test\s*\(\s*"((?:[^"\\]|\\.)*)""#, #"@Test(?:\s*\([^)]*\))?\s+(?:@\w+\s+)*func\s+(\w+)"#,
+                        #"func\s+(test\w*)\s*\("#]
+        var names: [String] = []
+        var displayed = Set<Int>()
+        for (index, pattern) in patterns.enumerated() {
+            guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
+            let range = NSRange(source.startIndex..., in: source)
+            for match in regex.matches(in: source, range: range) {
+                guard let found = Range(match.range(at: 1), in: source) else { continue }
+                let line = source[..<found.lowerBound].filter { $0 == "\n" }.count
+                // A named @Test and its function are one test: keep the name.
+                if index == 0 { displayed.insert(line) } else if displayed.contains(line) || displayed.contains(line - 1) { continue }
+                let name = String(source[found])
+                if !names.contains(name) { names.append(name) }
+            }
+        }
+        return names
     }
 
     private func build(_ node: NodeState) async throws -> String {
@@ -505,8 +668,10 @@ public actor Reconciler {
         node.links.filter { $0.type == .dependsOn && !state.resolvedExternal.contains($0.to) }.map(\.to)
     }
 
-    private func propose(_ spec: NodeSpec, log: URL?) async throws -> [ChildProposal] {
-        try await team.decomposer.proposeChildren(of: spec, existingComponents: workspace.existingComponents(), log: log)
+    private func propose(_ spec: NodeSpec, clarifications: [Clarification], log: URL?) async throws -> Breakdown {
+        try await team.decomposer.proposeChildren(BreakdownRequest(
+            spec: spec, existingComponents: workspace.existingComponents(), clarifications: clarifications,
+            guesswork: policy.guesswork, log: log))
     }
 
     /// A fresh file for the run's own output (see `AgentLog`). Not having one never stops the work.
@@ -518,7 +683,7 @@ public actor Reconciler {
     /// stashes, config, hooks) means an agent got around its denied tools. With agents running side by side,
     /// the change can't be pinned on one: every agent that ran at the same time is named, and each of them
     /// notices the change itself too.
-    private func watchingUserGitState(_ node: NodeState, run: RunID, _ agent: () async throws -> Void) async throws {
+    private func watchingUserGitState<T>(_ node: NodeState, run: RunID, _ agent: () async throws -> T) async throws -> T {
         // The span covers both snapshots: whatever changed between them happened during it.
         clock += 1
         agentRuns[run] = AgentRunSpan(ticket: node.ticket, start: clock)
@@ -527,9 +692,9 @@ public actor Reconciler {
             agentRuns[run]?.end = clock
         }
         let before = try await workspace.userGitState()
-        try await agent()
+        let result = try await agent()
         let after = try await workspace.userGitState()
-        guard after != before, let mine = agentRuns[run] else { return }
+        guard after != before, let mine = agentRuns[run] else { return result }
         let changed = Set(before).symmetricDifference(after).compactMap { $0.split(separator: " ").last.map(String.init) }
         let alongside = agentRuns.filter { $0.key != run && $0.value.start <= clock && ($0.value.end ?? .max) > mine.start }
             .map(\.value.ticket)
@@ -544,10 +709,12 @@ public actor Reconciler {
 
     private func makeTask(_ node: NodeState, run: RunID, in directory: URL, log: URL?) async -> AgentTask {
         let labels = await tracker.ticket(node.ticket)?.labels.map(\.name) ?? []
+        let state = await ledger.workingState()
         return AgentTask(
             spec: node.spec, run: run, directory: directory, testFolder: workspace.testFolder(for: node.spec),
             context: workspace.agentContext, attempt: node.failedAttempts + 1,
-            previousFailure: node.recentFailures.last, simulationHints: Set(labels.filter { $0.hasPrefix("sim:") }), log: log)
+            previousFailure: node.recentFailures.last, simulationHints: Set(labels.filter { $0.hasPrefix("sim:") }), log: log,
+            clarifications: state.clarifications(for: node.id), guesswork: policy.guesswork)
     }
 
     private func testsDigest(_ node: NodeState, in directory: URL) -> String {
