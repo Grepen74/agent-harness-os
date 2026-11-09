@@ -115,7 +115,9 @@ public actor Reconciler {
             } catch let rejection as Rejection {
                 try? await write(node?.id, by: .reconciler, [
                     .signalRejected(ticket: signal.ticket, command: signal.command, reason: rejection.reason)])
-                await tracker.consume(signal, reply: "❌ \(signal.command.label): \(rejection.reason)")
+                let state = await ledger.workingState()
+                let steps = Self.nextSteps(for: signal.ticket, in: state, allowed: policy.allowedSignals)
+                await tracker.consume(signal, reply: "❌ \(signal.command.label): \(rejection.reason)" + Self.whatYouCanDo(steps))
                 report.actions.append("\(signal.ticket): \(signal.command.label) rejected")
             } catch {
                 report.actions.append("⚠️ \(signal.ticket): \(error)")
@@ -131,6 +133,9 @@ public actor Reconciler {
         guard let ticket = await tracker.ticket(signal.ticket) else { throw Rejection(reason: "Ticket not found.") }
         let state = await ledger.workingState()
         let node = state.node(forTicket: ticket.key)
+        if let replanned = state.superseded[ticket.key], node == nil {
+            throw Rejection(reason: "Superseded: \(replanned) was replanned and this ticket is no longer part of it.")
+        }
 
         switch signal.command {
         case .preview:
@@ -194,9 +199,15 @@ public actor Reconciler {
             if let node, node.flags[.needsInput] != nil {
                 return try await resume(node, answeredOn: ticket, by: person)
             }
-            guard let node, node.flags[.escalated] != nil else { throw Rejection(reason: "Nothing to retry: not escalated.") }
+            guard let node, node.flags[.escalated] != nil else {
+                throw Rejection(reason: "Nothing to retry. \(HarnessCommand.retry.label) only continues work that stopped: " +
+                    "an escalation, or questions or a review waiting for you.")
+            }
             try await write(node.id, by: .human(person), [.flagCleared(.escalated), .attemptsReset])
             return "escalation cleared; attempts reset"
+
+        case .replan:
+            return try await replan(node, ticket: ticket, by: person)
 
         case .go:
             // Both gates at once: the readiness checks for both run now, so nothing stops halfway for lack
@@ -217,6 +228,45 @@ public actor Reconciler {
             return "adopted; breakdown and build approved: it will be broken down, built and checked without stopping\n"
                 + spec.trackerSummary
         }
+    }
+
+    /// `harness:replan`: the ticket changed (criteria, a forgotten "Blocked by", a breakdown that missed the point).
+    /// Only before anything below it is built: replanning then costs no work that can't simply be redone. The node
+    /// takes the ticket as it is now and starts over as just adopted, without gates, so people choose again how
+    /// far it goes (preview, breakdown or go). The children wait for that breakdown, which keeps the unchanged ones.
+    private func replan(_ node: NodeState?, ticket: Ticket, by person: String) async throws -> String {
+        let state = await ledger.workingState()
+        guard let node else {
+            throw Rejection(reason: "Not adopted yet, so there's no plan to redo. Edit the ticket and preview it again.")
+        }
+        if let parent = node.spec.parent.flatMap({ state.nodes[$0] }) {
+            throw Rejection(reason: "\(ticket.key) is part of \(parent.ticket)'s breakdown. Replan \(parent.ticket) instead, " +
+                "or comment here and add \(HarnessCommand.retry.label) when it's waiting for you.")
+        }
+        let subtree = state.subtree(of: node.id)
+        if let started = subtree.first(where: Self.hasStartedBuilding) {
+            throw Rejection(reason: "Building has started on \(started.ticket) (\(started.phase.rawValue)), so replanning " +
+                "would throw away built work. Changing a spec once building has started isn't supported yet.")
+        }
+        let problems = policy.readinessProblems(ticket)
+        guard problems.isEmpty else { throw Rejection(reason: "Not ready yet. Missing: \(problems.joined(separator: ", ")).") }
+
+        let spec = Planner.rootSpec(for: ticket)
+        if node.spec.kind == .leaf { try? await workspace.removeWorktree(for: node.id) }
+        try await write(node.id, by: .human(person), [.replanned(spec: spec)])
+        let children = node.children.compactMap { state.nodes[$0]?.ticket }
+        let closed = children.isEmpty ? "" : "\nIts child tickets (\(children.joined(separator: ", "))) are paused. The next " +
+            "breakdown keeps those it still contains unchanged, with their tests and approvals, and closes the others."
+        let waits = spec.dependsOn.isEmpty ? "" : "\nWaits for: \(spec.dependsOn.joined(separator: ", "))."
+        return "replanned from the ticket as it is now; nothing is approved yet.\(closed)\(waits)\n" +
+            "Next: \(HarnessCommand.preview.label) to see the new breakdown first, \(HarnessCommand.breakdown.label) " +
+            "to break it down, or \(HarnessCommand.go.label) to break it down and build it."
+    }
+
+    /// Past the point where replanning is free: an agent working on it, or code written, checked or landed.
+    static func hasStartedBuilding(_ node: NodeState) -> Bool {
+        node.activeRun != nil || node.lastSubmission != nil || node.landedCommit != nil
+            || [.building, .checking, .landing, .proven].contains(node.phase)
     }
 
     /// `harness:retry` on a node waiting for input: the human comments since the harness asked are the answer.
@@ -271,7 +321,7 @@ public actor Reconciler {
         for node in updated.nodes.values where node.flags[.blocked] != nil {
             if unresolvedDependencies(of: node, in: updated).isEmpty {
                 try? await write(node.id, by: .reconciler, [.flagCleared(.blocked)])
-                await tracker.comment(on: node.ticket, "🔓 Unblocked: everything this needs from other systems is delivered.")
+                await tracker.comment(on: node.ticket, "🔓 Unblocked: everything this waits for is done or delivered.")
                 report.actions.append("\(node.ticket) unblocked")
             }
         }
@@ -318,6 +368,8 @@ public actor Reconciler {
 
     private func advance(_ node: NodeState, in state: WorkingState) async throws -> String? {
         guard node.flags[.escalated] == nil, node.flags[.needsInput] == nil, node.activeRun == nil else { return nil }
+        // The parent was replanned: its children wait for its new breakdown.
+        if let parent = node.spec.parent.flatMap({ state.nodes[$0] }), parent.phase != .split { return nil }
 
         switch (node.spec.kind, node.phase) {
         case (.composite, .specified):
@@ -341,7 +393,7 @@ public actor Reconciler {
             let missing = unresolvedDependencies(of: node, in: state)
             guard missing.isEmpty else {
                 guard node.flags[.blocked] == nil else { return nil }
-                let reason = "Waiting for \(missing.joined(separator: ", ")) from another system"
+                let reason = "Waiting for \(missing.joined(separator: ", "))"
                 try await write(node.id, by: .reconciler, [.flagSet(.blocked, reason: reason)], expecting: node.version)
                 await tracker.comment(on: node.ticket, "⏸ Blocked: \(reason).")
                 return "\(node.ticket) blocked"
@@ -357,12 +409,12 @@ public actor Reconciler {
     }
 
     private func breakDown(_ node: NodeState, in state: WorkingState) async throws -> String {
-        let children: [NodeSpec]
+        let proposed: [NodeSpec]
         let author: Participant
         var assumptions: [String] = []
         if let preview = state.previews[node.ticket], preview.specHash == node.spec.specHash {
             // What you saw is what you get: no regeneration (doc 05 §3).
-            children = preview.proposal
+            proposed = preview.proposal
             author = .reconciler
         } else {
             let run = Self.newRunID()
@@ -382,12 +434,13 @@ public actor Reconciler {
             guard questions.isEmpty else {
                 return try await raise(questions, on: node, by: author, run: run, role: .decomposer)
             }
-            children = Planner.childSpecs(parent: node.spec, proposals: breakdown.children)
+            proposed = Planner.childSpecs(parent: node.spec, proposals: breakdown.children)
             assumptions = breakdown.report.assumptions
-            try await write(node.id, by: author, [.runFinished(run: run, outcome: "proposed \(children.count) children")]
+            try await write(node.id, by: author, [.runFinished(run: run, outcome: "proposed \(proposed.count) children")]
                 + (assumptions.isEmpty ? [] : [.assumptionsReported(role: .decomposer, assumptions: assumptions)]))
         }
         let note = Self.assumptionsNote("Assumptions the decomposer made", assumptions)
+        let (children, revision) = try await revise(node, proposed: proposed, in: state)
 
         // Leaf check (doc 02 §4): a "breakdown" into one piece is the node itself, so it becomes the leaf.
         // Production: the decomposer runs the full leaf check before proposing children at all.
@@ -398,7 +451,7 @@ public actor Reconciler {
                 + needs.map { .linkAdded(TypedLink(from: node.id, type: .dependsOn, to: $0)) })
             await tracker.comment(on: node.ticket, """
                 🍃 No breakdown needed: small enough to build as it is (leaf check passed).
-                \(Planner.describe(children, under: node.spec.title))\(note)
+                \(Planner.describe(children, under: node.spec.title))\(note)\(revision)
                 This ticket gets its own branch and acceptance tests next; then add harness:build.
                 """)
             return "\(node.ticket) passed the leaf check: built as one leaf"
@@ -420,9 +473,51 @@ public actor Reconciler {
         try await write(node.id, by: .reconciler, [.phaseChanged(to: .split)])
         await tracker.comment(on: node.ticket, """
             🌳 Broken down. Each leaf gets its own branch and acceptance tests next; then add harness:build.
-            \(Planner.describe(children, under: node.spec.title))\(note)
+            \(Planner.describe(children, under: node.spec.title))\(note)\(revision)
             """)
         return "\(node.ticket) broken down into \(children.count) leaves"
+    }
+
+    /// After a replan the node still has its old children. Those the new breakdown contains unchanged (same spec
+    /// fingerprint) are kept, with their tickets, tests and approvals, under their own ids; the others are dropped
+    /// and their tickets closed as superseded. New children get ids no kept child uses.
+    /// Returns the children to create (kept ones are skipped as already present) and a note for the ticket.
+    private func revise(_ node: NodeState, proposed: [NodeSpec], in state: WorkingState) async throws -> ([NodeSpec], String) {
+        let old = node.children.compactMap { state.nodes[$0] }
+        guard !old.isEmpty else { return (proposed, "") }
+        var unmatched = old
+        var specs: [NodeSpec] = []
+        var kept: [NodeSpec] = []
+        for spec in proposed {
+            if proposed.count > 1, let match = unmatched.firstIndex(where: { $0.spec.specHash == spec.specHash }) {
+                var revised = spec
+                revised.id = unmatched[match].id
+                kept.append(revised)
+                specs.append(revised)
+                unmatched.remove(at: match)
+            } else {
+                specs.append(spec)
+            }
+        }
+        var used = Set(kept.map(\.id))
+        var next = proposed.count + old.count
+        for index in specs.indices where !kept.contains(where: { $0.id == specs[index].id }) {
+            while used.contains(specs[index].id) {
+                next += 1
+                specs[index].id = "\(node.id).\(next)"
+            }
+            used.insert(specs[index].id)
+        }
+        for gone in unmatched { try? await workspace.removeWorktree(for: gone.id) }
+        try await write(node.id, by: .reconciler, [.breakdownRevised(kept: kept, dropped: unmatched.map(\.id))])
+        for gone in unmatched {
+            await tracker.close(gone.ticket, saying: "🗑 Superseded: \(node.ticket) was replanned and its new breakdown doesn't contain this.")
+        }
+        let keptTickets = kept.compactMap { state.nodes[$0.id]?.ticket }
+        var lines: [String] = []
+        if !keptTickets.isEmpty { lines.append("Kept from the old breakdown, with their tests: \(keptTickets.joined(separator: ", ")).") }
+        if !unmatched.isEmpty { lines.append("Closed as superseded: \(unmatched.map(\.ticket).joined(separator: ", ")).") }
+        return (specs, "\n" + lines.joined(separator: "\n"))
     }
 
     /// Left side of the V: a fresh branch for the leaf, and its acceptance tests as the branch's first commit.
@@ -664,8 +759,24 @@ public actor Reconciler {
         return "\(node.ticket) escalated: \(reason)"
     }
 
+    /// What the node still waits for: its own links and specs, plus a parent's "Blocked by" that its breakdown didn't
+    /// give to particular children (then it applies to all of them, e.g. a forgotten dependency added by replan).
+    /// A dependency is met when the other system delivered it, or when it's another ticket (or node) here and that
+    /// is proven.
     private func unresolvedDependencies(of node: NodeState, in state: WorkingState) -> [String] {
-        node.links.filter { $0.type == .dependsOn && !state.resolvedExternal.contains($0.to) }.map(\.to)
+        let ancestors = state.lineage(of: node.id).dropFirst()
+        let inherited = ancestors.flatMap { ancestor in
+            ancestor.spec.dependsOn.filter { ref in
+                !state.subtree(of: ancestor.id).dropFirst().contains { $0.spec.dependsOn.contains(ref) }
+            }
+        }
+        let wanted = node.links.filter { $0.type == .dependsOn }.map(\.to) + node.spec.dependsOn + inherited
+        var seen = Set<String>()
+        return wanted.filter { seen.insert($0).inserted }.filter { ref in
+            if state.resolvedExternal.contains(ref) { return false }
+            let here = state.nodes[ref] ?? state.node(forTicket: ref)
+            return here?.phase != .proven
+        }
     }
 
     private func propose(_ spec: NodeSpec, clarifications: [Clarification], log: URL?) async throws -> Breakdown {

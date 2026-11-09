@@ -85,7 +85,8 @@ terminal: `swift run agentos work <path> --ticket "<title>" --criterion "<criter
 
 1. **⚙︎ → Load demo tickets.** Press **Step** or **Run**: nothing happens. Tickets need a deliberate signal (doc 05).
 2. On **APP-2 Dark mode**, add `harness:preview`. It is rejected with an explanation because it has no
-   acceptance criteria (the Definition of Ready). Edit the ticket and try again.
+   acceptance criteria (the Definition of Ready). Every rejection ends with *What you can do now*: the
+   signals that do apply to the ticket at this point. Edit the ticket and try again.
 3. On **APP-1 Weather widget**, add `harness:preview`. The proposed tree is posted as a comment.
    Nothing is created.
 4. Add `harness:breakdown`. Child tickets appear, built from exactly the tree you previewed. Each leaf
@@ -113,6 +114,10 @@ More things to try:
   and `sim:ask` makes the test author ask. The node shows *Needs input*; answer in a comment, then add
   `harness:retry`. With `sim:assume` the test author reports an assumption, so the leaf waits for you to
   look at its tests: `harness:build` approves them, a comment plus `harness:retry` has them rewritten.
+- Changed your mind after a breakdown? Edit the ticket and add `harness:replan` (before `harness:build`).
+  The ticket waits for preview, breakdown or go again. That breakdown keeps the child tickets it still
+  contains unchanged (with their tests) and marks the others *Superseded*.
+- `Blocked by` another ticket's key (e.g. `APP-1`) makes a ticket wait until that one is proven.
 - Choose **⚙︎ → Restart harness** while it is running. State reloads from the ledger and unfinished runs
   are reclaimed.
 - Switch **Agents** to *Copilot CLI* to have real agents decompose the work, write tests and implement.

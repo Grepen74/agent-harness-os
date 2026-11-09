@@ -114,9 +114,13 @@ struct PolicyTests {
         let old = #"{"landingBranch":"mine","maxAttempts":2,"maxReworks":3,"maxParallelAgents":2,"offeredSignals":["go"]}"#
         let settings = try JSONDecoder().decode(HarnessSettings.self, from: Data(old.utf8))
         #expect(settings.landingBranch == "mine")
-        #expect(settings.offeredSignals == [.go])
+        #expect(settings.offeredSignals == [.go, .replan]) // a signal newer than the settings is offered
         #expect(settings.offeredModels.isEmpty)
         #expect(settings.models == AgentModels())
+
+        var current = HarnessSettings()
+        current.offeredSignals = [.preview]
+        #expect(try JSONDecoder().decode(HarnessSettings.self, from: JSONEncoder().encode(current)).offeredSignals == [.preview])
     }
 
     @Test func parsingReportsUnknownKeysAndMissingFields() throws {

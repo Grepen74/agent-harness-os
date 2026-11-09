@@ -104,7 +104,7 @@ public struct Policy: Sendable, Equatable {
         if node.flags[.needsInput] != nil { return "Needs input" }
         if node.flags[.blocked] != nil { return "Blocked" }
         switch node.phase {
-        case .specified: return node.spec.kind == .composite ? "Breaking down" : "Specifying"
+        case .specified: return node.spec.kind == .composite && node.gates.contains(.breakdown) ? "Breaking down" : "Specifying"
         case .split: return "In progress"
         case .ready: return "Ready"
         case .building: return "In progress"

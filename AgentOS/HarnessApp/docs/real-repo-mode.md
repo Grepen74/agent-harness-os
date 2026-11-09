@@ -342,6 +342,17 @@ Each phase is usable on its own.
    - Polling, kept small: open issues at most every 10 seconds and after the harness's own changes;
      comments and label events only when an issue changed. Failed requests show in the activity log.
    - A tracker that refuses a child ticket escalates the breakdown; `harness:retry` creates the rest.
+   - **`harness:replan`** redoes an adopted ticket's plan from the ticket as it is now, e.g. after you
+     changed its criteria or added a forgotten `Blocked by`. It works on the top ticket (not on its children)
+     until building starts below it. The ticket keeps the answers given to questions; nothing is approved
+     afterwards: preview, breakdown or go again. Its child tickets wait, paused, for that breakdown, which
+     compares itself with the old one: children it contains unchanged (same title, intent and criteria) are
+     kept, with their tickets, acceptance tests and approvals, and take any new dependencies. The others are
+     closed as *not planned* with a comment (with the local tracker, status *Superseded*), and signals on them
+     are refused.
+   - **Dependencies between tickets.** `Blocked by: #12` on a ticket waits until `GH-12` is proven here. On
+     a ticket that's broken down, it holds every leaf unless the breakdown gave that dependency to particular
+     leaves.
    - **Projects board (opt-in).** With `tracker.project` (owner, number, optional `statusField` and
      `statusMap`), the board's Status field follows the harness: Specifying and Breaking down → Backlog,
      Ready, In progress, In review (checking and landing), Done. Issues not on the board are added.

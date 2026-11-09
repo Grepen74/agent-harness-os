@@ -10,6 +10,9 @@ public struct HarnessSettings: Codable, Sendable, Equatable {
     public var maxParallelAgents = 2
     /// The signals people may use at all (doc 05 §3).
     public var offeredSignals: Set<HarnessCommand> = Set(HarnessCommand.allCases)
+    /// The signals there were when these settings were saved, so a newer signal is offered rather than looking
+    /// as if it had been switched off.
+    public var knownSignals: Set<HarnessCommand> = Set(HarnessCommand.allCases)
     /// Models a repo may choose for its agents. Empty: only the agent CLI's default model.
     public var offeredModels: [String] = []
     /// The model per role when the repo doesn't choose one (nil: the agent CLI's default).
@@ -37,7 +40,10 @@ public struct HarnessSettings: Codable, Sendable, Equatable {
         maxAttempts = try container.decodeIfPresent(Int.self, forKey: .maxAttempts) ?? defaults.maxAttempts
         maxReworks = try container.decodeIfPresent(Int.self, forKey: .maxReworks) ?? defaults.maxReworks
         maxParallelAgents = try container.decodeIfPresent(Int.self, forKey: .maxParallelAgents) ?? defaults.maxParallelAgents
-        offeredSignals = try container.decodeIfPresent(Set<HarnessCommand>.self, forKey: .offeredSignals) ?? defaults.offeredSignals
+        let known = try container.decodeIfPresent(Set<HarnessCommand>.self, forKey: .knownSignals)
+            ?? [.preview, .breakdown, .build, .go, .retry]
+        let offered = try container.decodeIfPresent(Set<HarnessCommand>.self, forKey: .offeredSignals) ?? defaults.offeredSignals
+        offeredSignals = offered.union(Set(HarnessCommand.allCases).subtracting(known))
         offeredModels = try container.decodeIfPresent([String].self, forKey: .offeredModels) ?? defaults.offeredModels
         models = try container.decodeIfPresent(AgentModels.self, forKey: .models) ?? defaults.models
         guesswork = try container.decodeIfPresent(Guesswork.self, forKey: .guesswork) ?? defaults.guesswork

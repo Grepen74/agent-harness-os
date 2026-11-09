@@ -33,6 +33,27 @@ struct ClarifyingQuestionsTests {
         #expect(answered.phase == .proven)
     }
 
+    @Test func aRejectedSignalSaysWhatCanBeDoneInstead() async throws {
+        let sim = try makeSimulation()
+        await sim.tracker.createTicket(title: "Spacing", description: "More room",
+                                       acceptanceCriteria: ["Buttons are spaced", "Which buttons?"], by: alice)
+        await sim.signal(.retry, "APP-1")
+        var reply = await sim.lastComment("APP-1")
+        #expect(reply.contains("Nothing to retry"))
+        #expect(reply.contains("What you can do now:\n- harness:preview"))
+
+        await sim.signal(.go, "APP-1")
+        await sim.signal(.breakdown, "APP-1")
+        reply = await sim.lastComment("APP-1")
+        #expect(reply.contains("Breakdown is already approved"))
+        #expect(reply.contains("- Answer the questions in a comment, then harness:retry"))
+
+        await sim.tracker.addComment("The play and pause buttons", to: "APP-1", by: alice)
+        await sim.signal(.retry, "APP-1")
+        await sim.signal(.retry, "APP-1")
+        #expect(await sim.lastComment("APP-1").contains("- Nothing: it's done"))
+    }
+
     @Test func aPreviewWithQuestionsRecordsNothing() async throws {
         let sim = try makeSimulation()
         await sim.tracker.createTicket(title: "Spacing", description: "More room", acceptanceCriteria: ["Which buttons?"], by: alice)

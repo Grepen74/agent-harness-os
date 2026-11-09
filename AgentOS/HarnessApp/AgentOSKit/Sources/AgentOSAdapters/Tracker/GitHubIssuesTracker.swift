@@ -168,6 +168,18 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
         await post(comment: text, on: number, byHarness: true)
     }
 
+    /// Closed as "not planned", so it drops out of the open issues the harness reads.
+    public func close(_ key: String, saying text: String) async {
+        guard let number = Self.number(key) else { return }
+        await post(comment: text, on: number, byHarness: true)
+        _ = await attempt("Closing \(key)") {
+            try await self.send(Issue.self, "PATCH", "repos/\(self.repo)/issues/\(number)",
+                                ["state": "closed", "state_reason": "not_planned"])
+        }
+        statuses[number] = nil
+        listedAt = nil
+    }
+
     /// On the board when the config names one and it has an option for the status; otherwise an `agentos:`
     /// label. Written only when it changes (the reconciler sets every status each round).
     public func setStatus(of key: String, to status: String) async {

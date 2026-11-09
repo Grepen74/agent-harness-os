@@ -23,6 +23,16 @@ public protocol TrackerAdapter: Sendable {
     func createChildTicket(parent: String, spec: NodeSpec, by: Participant) async throws -> String
     func comment(on key: String, _ text: String) async
     func setStatus(of key: String, to status: String) async
+    /// A ticket the harness made that's no longer wanted (its parent was replanned): say why, and close it.
+    func close(_ key: String, saying text: String) async
+}
+
+extension TrackerAdapter {
+    /// Trackers without closing show it as a status.
+    public func close(_ key: String, saying text: String) async {
+        await comment(on: key, text)
+        await setStatus(of: key, to: "Superseded")
+    }
 }
 
 extension NodeSpec {

@@ -68,6 +68,9 @@ public struct WorkingState: Sendable {
     /// The latest baseline run on the default branch.
     public private(set) var baseline: Baseline?
 
+    /// Tickets of nodes discarded by a replan, with the ticket that was replanned.
+    public private(set) var superseded: [String: String] = [:]
+
     public init() {}
 
     public var roots: [NodeState] {
@@ -141,6 +144,34 @@ public struct WorkingState: Sendable {
             nodes[spec.id] = NodeState(spec: spec, ticket: ticket, version: record.position)
             creationOrder.append(spec.id)
             if let parent = spec.parent { nodes[parent]?.children.append(spec.id) }
+            return
+        }
+
+        if case .replanned(let spec) = event.kind, let id = event.node, let old = nodes[id] {
+            previews[old.ticket] = nil
+            // Kept: the answers people gave on the ticket, and the children until the next breakdown decides.
+            var node = NodeState(spec: spec, ticket: old.ticket, version: record.position)
+            node.clarifications = old.clarifications
+            node.children = old.children
+            nodes[id] = node
+            return
+        }
+
+        if case .breakdownRevised(let kept, let dropped) = event.kind, let id = event.node, let parent = nodes[id] {
+            for gone in dropped {
+                if let ticket = nodes[gone]?.ticket { superseded[ticket] = parent.ticket }
+                nodes[gone] = nil
+            }
+            creationOrder.removeAll { dropped.contains($0) }
+            nodes[id]?.children.removeAll { dropped.contains($0) }
+            nodes[id]?.version = record.position
+            for spec in kept {
+                guard var child = nodes[spec.id] else { continue }
+                child.spec = spec
+                child.links = spec.dependsOn.map { TypedLink(from: spec.id, type: .dependsOn, to: $0) }
+                child.version = record.position
+                nodes[spec.id] = child
+            }
             return
         }
 

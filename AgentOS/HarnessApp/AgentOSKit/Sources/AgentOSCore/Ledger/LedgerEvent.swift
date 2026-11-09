@@ -30,6 +30,13 @@ public enum EventKind: Codable, Sendable {
     case linkAdded(TypedLink)
     /// The leaf check (doc 02 §4) found the node small enough to build as it is: no children.
     case becameLeaf(touches: [String])
+    /// `harness:replan`: the node takes `spec` (re-read from its ticket) and starts over as just adopted, without
+    /// gates. Its children wait, paused, for its next breakdown (`breakdownRevised`).
+    case replanned(spec: NodeSpec)
+    /// A replanned node's new breakdown, compared with its old children: those it still contains unchanged (same
+    /// spec fingerprint) are `kept` with their tests and approvals, taking the new spec's touches and dependencies;
+    /// the others are `dropped`: gone from the working state, their tickets closed as superseded.
+    case breakdownRevised(kept: [NodeSpec], dropped: [NodeID])
 
     // Lifecycle (doc 02 §6)
     case gateOpened(Gate)
@@ -121,6 +128,10 @@ extension EventKind {
         case .nodeCreated(let spec, let ticket): "created \(spec.kind.rawValue) \(spec.id) (\(ticket)): \(spec.title)"
         case .linkAdded(let link): "link \(link.from) \(link.type.rawValue) \(link.to)"
         case .becameLeaf(let touches): "leaf check passed: built as one leaf (touches \(touches.joined(separator: ", ")))"
+        case .replanned: "replanned from the ticket; its children wait for the next breakdown"
+        case .breakdownRevised(let kept, let dropped):
+            "new breakdown compared with the old one: kept \(kept.isEmpty ? "none" : kept.map(\.id).joined(separator: ", ")), "
+                + "dropped \(dropped.isEmpty ? "none" : dropped.joined(separator: ", "))"
         case .gateOpened(let gate): "\(gate.rawValue) gate opened"
         case .phaseChanged(let phase): "→ \(phase.rawValue)"
         case .flagSet(let flag, let reason): "⚑ \(flag.rawValue): \(reason)"

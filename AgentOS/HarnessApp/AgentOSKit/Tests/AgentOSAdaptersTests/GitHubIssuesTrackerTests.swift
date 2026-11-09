@@ -97,7 +97,7 @@ private actor FakeGitHub: GitHubTransport {
             return try json(graphql(sent["query"] as! String, sent["variables"] as! [String: Any]))
         }
         switch (method, parts.count, parts.last) {
-        case ("GET", 4, "issues"): return try json(page ? issues : [])
+        case ("GET", 4, "issues"): return try json(page ? issues.filter { $0["state"] as? String == "open" } : [])
         case ("GET", 6, "comments"): return try json(page ? comments[Int(parts[4])!] ?? [] : [])
         case ("GET", 6, "events"): return try json(page ? events[Int(parts[4])!] ?? [] : [])
         case ("GET", 5, _): return try json(issues.first { $0["number"] as? Int == Int(parts[4]) } ?? [:])
@@ -106,6 +106,9 @@ private actor FakeGitHub: GitHubTransport {
             let number = (issues.compactMap { $0["number"] as? Int }.max() ?? 0) + 1
             add(issue: number, title: sent["title"] as! String, body: sent["body"] as! String, by: "harness-user")
             return try json(issues.last!)
+        case ("PATCH", 5, _):
+            update(Int(parts[4])!) { issue in issue.merge(sent) { $1 } }
+            return try json(issues.first { $0["number"] as? Int == Int(parts[4]) }!)
         case ("POST", 6, "comments"):
             comment(Int(parts[4])!, sent["body"] as! String, by: "harness-user")
             return try json([:])
@@ -230,6 +233,19 @@ private actor FakeGitHub: GitHubTransport {
         let ticket = await tracker.ticket("GH-1")
         #expect(ticket?.status == "Done")
         #expect(ticket?.labels.isEmpty == true)
+    }
+
+    @Test func closingCommentsAndClosesAsNotPlanned() async {
+        let github = FakeGitHub()
+        await github.add(issue: 1, body: "x")
+        let tracker = tracker(github)
+        await tracker.setStatus(of: "GH-1", to: "Ready")
+
+        await tracker.close("GH-1", saying: "Superseded")
+        #expect(await github.bodies("PATCH", "repos/o/r/issues/1") == [#"{"state":"closed","state_reason":"not_planned"}"#])
+        #expect(await github.paths("POST").contains("repos/o/r/issues/1/comments"))
+        #expect(await tracker.tickets().isEmpty)
+        #expect(await tracker.takeProblems().isEmpty)
     }
 
     @Test func childIssuesLinkToTheirParentAndFailuresThrow() async throws {
