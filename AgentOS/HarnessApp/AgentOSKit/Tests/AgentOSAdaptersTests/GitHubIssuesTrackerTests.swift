@@ -327,6 +327,6 @@ private actor FakeGitHub: GitHubTransport {
         await github.setBoard(error: "The 'id' field requires one of the following scopes: ['read:project']")
         findings = await GitHubProjectBoard.findings(config: project, repo: "o/r", transport: github, account: "Grepen74")
         #expect(findings.map(\.severity) == [.warning])
-        #expect(findings.first?.suggestion?.contains("gh auth refresh -s project --user Grepen74") == true)
+        #expect(findings.first?.suggestion?.hasPrefix("`gh auth switch --user Grepen74`, `gh auth refresh -s project`") == true)
     }
 }

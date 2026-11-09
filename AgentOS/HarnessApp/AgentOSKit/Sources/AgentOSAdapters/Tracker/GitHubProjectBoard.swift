@@ -98,7 +98,9 @@ actor GitHubProjectBoard {
             return [Finding(
                 check: "tracker.project", severity: .warning, title: "Can't use the board \(board.name)",
                 detail: "Issues still work; the status shows as an agentos: label instead. \(text)",
-                suggestion: scope ? "`gh auth refresh -s project\(account.map { " --user \($0)" } ?? "")`, then rescan."
+                // `gh auth refresh` only works on the active account.
+                suggestion: scope ? (account.map { "`gh auth switch --user \($0)`, `gh auth refresh -s project`, then switch back; rescan." }
+                    ?? "`gh auth refresh -s project`, then rescan.")
                     : "Check `tracker.project` in .agentos/config.json.")]
         }
         var findings = [Finding(
