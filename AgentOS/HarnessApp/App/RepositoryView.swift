@@ -50,29 +50,35 @@ struct RepositoryView: View {
         .onDisappear { model.close() }
         .toolbar {
             ToolbarItemGroup(placement: .navigation) {
-                Toggle(isOn: Binding(get: { model.isRunning }, set: { model.setRunning($0) })) {
-                    Label(model.isRunning ? "Running" : "Stopped", systemImage: model.isRunning ? "pause.fill" : "play.fill")
+                HStack(spacing: 0) {
+                    Toggle(isOn: Binding(get: { model.isRunning }, set: { model.setRunning($0) })) {
+                        Label(model.isRunning ? "Running" : "Stopped", systemImage: model.isRunning ? "pause.fill" : "play.fill")
+                    }
+                    .help("Run the reconciler continuously: agents pick up approved tickets")
+                    .disabled(!model.canWork)
+                    Button { Task { await model.step() } } label: { Label("Step", systemImage: "forward.frame") }
+                        .help("Run exactly one reconciler round")
+                        .disabled(!model.canWork || model.isRunning || model.isBusy)
+                    ProgressView().controlSize(.small).opacity(model.showsActivity ? 1 : 0)
+                    if !model.startBlockers.isEmpty {
+                        Label("Agents blocked", systemImage: "hand.raised.fill")
+                            .foregroundStyle(.orange)
+                            .help("Agents can't start yet:\n" + model.startBlockers.map { "• \($0)" }.joined(separator: "\n"))
+                    }
                 }
-                .help("Run the reconciler continuously: agents pick up approved tickets")
-                .disabled(!model.canWork)
-                Button { Task { await model.step() } } label: { Label("Step", systemImage: "forward.frame") }
-                    .help("Run exactly one reconciler round")
-                    .disabled(!model.canWork || model.isRunning || model.isBusy)
-                ProgressView().controlSize(.small).opacity(model.showsActivity ? 1 : 0)
-                if !model.startBlockers.isEmpty {
-                    Label("Agents blocked", systemImage: "hand.raised.fill")
-                        .foregroundStyle(.orange)
-                        .help("Agents can't start yet:\n" + model.startBlockers.map { "• \($0)" }.joined(separator: "\n"))
-                }
+                .padding(.horizontal, 12)
             }
             ToolbarItemGroup {
-                TextField("You", text: Binding(get: { model.view.you }, set: { model.view.you = $0 }))
-                    .frame(width: 90).help("Your name as a human in the tracker")
-                Button { model.revealRepository() } label: { Label("Show repo in Finder", systemImage: "folder") }
-                    .help("Show the repo in Finder")
-                Button { model.revealStorage() } label: { Label("Show harness data", systemImage: "externaldrive") }
-                    .help("Show the harness's own data for this repo (outside the repo)")
-                    .disabled(model.storage == nil)
+                HStack(spacing: 0) {
+                    TextField("You", text: Binding(get: { model.view.you }, set: { model.view.you = $0 }))
+                        .frame(width: 90).help("Your name as a human in the tracker")
+                    Button { model.revealRepository() } label: { Label("Show repo in Finder", systemImage: "folder") }
+                        .help("Show the repo in Finder")
+                    Button { model.revealStorage() } label: { Label("Show harness data", systemImage: "externaldrive") }
+                        .help("Show the harness's own data for this repo (outside the repo)")
+                        .disabled(model.storage == nil)
+                }
+                .padding(.horizontal, 12)
             }
         }
     }
