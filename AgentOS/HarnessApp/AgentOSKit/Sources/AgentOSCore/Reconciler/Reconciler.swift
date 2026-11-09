@@ -143,14 +143,16 @@ public actor Reconciler {
             let problems = policy.readinessProblems(ticket)
             guard problems.isEmpty else { throw Rejection(reason: "Not ready yet. Missing: \(problems.joined(separator: ", ")).") }
             let spec = Planner.rootSpec(for: ticket)
-            let breakdown = try await propose(spec, clarifications: [], log: nil)
+            let answers = (node?.clarifications ?? []) + Self.newPreviewAnswers(on: ticket, for: node)
+            let breakdown = try await propose(spec, clarifications: answers, log: nil)
             let questions = policy.questions(in: breakdown.report)
             guard questions.isEmpty else {
-                // Nothing is recorded: the ticket isn't adopted, so its description is where the answers go.
+                // Nothing is recorded: answers in comments below this are read by the next preview, and kept
+                // once the ticket is adopted (breakdown or go).
                 await tracker.comment(on: ticket.key, """
-                    ❓ The decomposer has questions before it can propose a breakdown:
+                    \(Self.previewQuestionsMarker):
                     \(Self.numbered(questions))
-                    Edit the ticket to answer them, then preview again.
+                    Answer them in a comment (or edit the ticket), then preview again.
                     """)
                 return "questions posted above; no preview recorded"
             }
@@ -173,14 +175,15 @@ public actor Reconciler {
                         "to break down. If it turns out too big, that's a spec change and its parent re-plans (doc 02 §8–9; not in this mock).")
                 }
                 guard !node.gates.contains(.breakdown) else { throw Rejection(reason: "Breakdown is already approved.") }
-                try await write(node.id, by: .human(person), [.gateOpened(.breakdown)])
+                try await write(node.id, by: .human(person), [.gateOpened(.breakdown)] + Self.answerEvents(on: ticket, for: node))
                 return "breakdown approved"
             }
             let problems = policy.readinessProblems(ticket)
             guard problems.isEmpty else { throw Rejection(reason: "Not ready yet. Missing: \(problems.joined(separator: ", ")).") }
             let spec = Planner.rootSpec(for: ticket)
             // Adoption: from now on the harness owns the node; the ticket shows a projection of it.
-            try await write(spec.id, by: .human(person), [.nodeCreated(spec: spec, ticket: ticket.key), .gateOpened(.breakdown)])
+            try await write(spec.id, by: .human(person), [.nodeCreated(spec: spec, ticket: ticket.key), .gateOpened(.breakdown)]
+                + Self.answerEvents(on: ticket, for: nil))
             let preview = state.previews[ticket.key].flatMap { $0.specHash == spec.specHash ? $0 : nil }
             return "adopted; breakdown approved" +
                 (preview.map { " (will create exactly preview #\($0.number))" } ?? "") + "\n" + spec.trackerSummary
@@ -216,7 +219,9 @@ public actor Reconciler {
                 let missing = [Gate.breakdown, .build].filter { !node.gates.contains($0) }
                 let reviews = waitingForReview(under: node.id, in: state)
                 guard !missing.isEmpty || !reviews.isEmpty else { throw Rejection(reason: "Breakdown and build are already approved.") }
-                if !missing.isEmpty { try await write(node.id, by: .human(person), missing.map { .gateOpened($0) }) }
+                if !missing.isEmpty {
+                    try await write(node.id, by: .human(person), missing.map { .gateOpened($0) } + Self.answerEvents(on: ticket, for: node))
+                }
                 let approved = missing.isEmpty ? "build" : missing.map(\.rawValue).joined(separator: " and ")
                 return "\(approved) approved for \(node.spec.id) and everything below it" + (try await approve(reviews, by: person))
             }
@@ -224,7 +229,8 @@ public actor Reconciler {
             guard problems.isEmpty else { throw Rejection(reason: "Not ready yet. Missing: \(problems.joined(separator: ", ")).") }
             let spec = Planner.rootSpec(for: ticket)
             try await write(spec.id, by: .human(person), [
-                .nodeCreated(spec: spec, ticket: ticket.key), .gateOpened(.breakdown), .gateOpened(.build)])
+                .nodeCreated(spec: spec, ticket: ticket.key), .gateOpened(.breakdown), .gateOpened(.build)]
+                + Self.answerEvents(on: ticket, for: nil))
             return "adopted; breakdown and build approved: it will be broken down, built and checked without stopping\n"
                 + spec.trackerSummary
         }
@@ -299,6 +305,37 @@ public actor Reconciler {
     }
 
     static let needsInputMarker = "❓ Needs input"
+    static let previewQuestionsMarker = "❓ The decomposer has questions before it can propose a breakdown"
+
+    /// Answers to a preview's questions: the human comments after each such question comment (up to the next
+    /// one), with the questions it asked. Those the node doesn't have yet.
+    static func newPreviewAnswers(on ticket: Ticket, for node: NodeState?) -> [Clarification] {
+        var answers: [Clarification] = []
+        var asked: [String]?
+        var replies: [String] = []
+        func flush() {
+            if let asked, !replies.isEmpty { answers.append(Clarification(questions: asked, answer: replies.joined(separator: "\n\n"))) }
+            replies = []
+        }
+        for comment in ticket.comments {
+            if !comment.author.isHuman && comment.text.contains(previewQuestionsMarker) {
+                flush()
+                asked = comment.text.split(separator: "\n").compactMap { line in
+                    line.firstMatch(of: /^\d+\.\s+(.+)$/).map { String($0.output.1) }
+                }
+            } else if asked != nil, comment.author.isHuman {
+                let text = comment.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !text.isEmpty { replies.append(text) }
+            }
+        }
+        flush()
+        return answers.filter { !(node?.clarifications.contains($0) ?? false) }
+    }
+
+    /// Adopting or approving keeps the answers given to previews, for every agent that works on it later.
+    private static func answerEvents(on ticket: Ticket, for node: NodeState?) -> [EventKind] {
+        newPreviewAnswers(on: ticket, for: node).map { .questionsAnswered($0) }
+    }
 
     /// Leaves below `id` (or `id` itself) whose acceptance tests wait for a person's review before build.
     private func waitingForReview(under id: NodeID, in state: WorkingState) -> [NodeState] {

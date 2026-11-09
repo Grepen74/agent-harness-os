@@ -54,6 +54,23 @@ struct ClarifyingQuestionsTests {
         #expect(await sim.lastComment("APP-1").contains("- Nothing: it's done"))
     }
 
+    @Test func aPreviewsQuestionsCanBeAnsweredInAComment() async throws {
+        let sim = try makeSimulation()
+        await sim.tracker.createTicket(title: "Spacing", description: "More room", acceptanceCriteria: ["Buttons are spaced", "Which buttons?"], by: alice)
+        await sim.signal(.preview, "APP-1")
+        #expect(await sim.tracker.ticket("APP-1")?.comments.contains { $0.text.contains("Answer them in a comment") } == true)
+
+        await sim.tracker.addComment("The play and pause buttons", to: "APP-1", by: alice)
+        await sim.signal(.preview, "APP-1")
+        #expect(await sim.ledger.workingState().previews["APP-1"] != nil)
+
+        // Adopting keeps the answer for the agents that come later.
+        await sim.signal(.go, "APP-1")
+        let node = try #require(await sim.node("APP-1"))
+        #expect(node.clarifications == [Clarification(questions: ["Which buttons?"], answer: "The play and pause buttons")])
+        #expect(node.phase == .proven)
+    }
+
     @Test func aPreviewWithQuestionsRecordsNothing() async throws {
         let sim = try makeSimulation()
         await sim.tracker.createTicket(title: "Spacing", description: "More room", acceptanceCriteria: ["Which buttons?"], by: alice)

@@ -307,7 +307,8 @@ Each phase is usable on its own.
    *Done:*
    - The decomposer first checks the ticket is ready ("could someone test each criterion without guessing
      what users observe?") and answers with questions instead of children when it isn't. A preview with
-     questions records nothing; you edit the ticket and preview again.
+     questions records nothing; you answer in a comment (or edit the ticket) and preview again. The next
+     preview reads those answers, and adopting the ticket (breakdown or go) keeps them for later agents.
    - The decomposer and test author return questions and assumptions with their result. Questions write
      `questionsRaised` and the `needs input` flag, and post a "❓ Needs input" comment with them. Tests
      written on a guess are thrown away. You answer in comments, then add `harness:retry`; without a
