@@ -6,7 +6,10 @@ public enum OutputWindowPresentation {
     case changes
 
     public var resizeAxes: Axis.Set {
-        [.horizontal, .vertical]
+        switch self {
+        case .log, .changes:
+            [.horizontal, .vertical]
+        }
     }
 }
 
