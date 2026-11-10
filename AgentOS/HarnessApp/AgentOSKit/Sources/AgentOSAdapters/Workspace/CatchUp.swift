@@ -344,11 +344,13 @@ public actor CatchUpCoordinator {
             notifications.append((node.ticket, reason))
         }
         try await ledger.append(events)
-        for notification in notifications {
-            await tracker.adapter.comment(
-                on: notification.ticket,
-                "♻️ Rework: \(notification.reason). The implementation is redone on the latest code; the tests are kept."
-            )
+        if let tracker {
+            for notification in notifications {
+                await tracker.adapter.comment(
+                    on: notification.ticket,
+                    "♻️ Rework: \(notification.reason). The implementation is redone on the latest code; the tests are kept."
+                )
+            }
         }
     }
 
