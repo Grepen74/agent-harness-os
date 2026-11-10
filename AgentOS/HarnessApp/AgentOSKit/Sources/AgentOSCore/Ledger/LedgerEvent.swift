@@ -54,6 +54,10 @@ public enum EventKind: Codable, Sendable {
     case changeSubmitted(run: RunID, commit: String)
     case attemptFailed(summary: String)
     case evidenceRecorded(Evidence)
+    /// A failed landing check whose implementation gets one rework before the failure is attributed.
+    case landingReworkNeeded(Evidence)
+    /// A landing-failure rework submitted no changes, so the existing candidate must be checked again.
+    case landingRerunRequested(run: RunID)
     /// A textual conflict at landing: the implementation is thrown away and redone on the latest code.
     /// Counted apart from failed attempts; it isn't the agent's fault (doc 08 §5).
     case reworkNeeded(reason: String)
@@ -163,6 +167,8 @@ extension EventKind {
         case .changeSubmitted(let run, let commit): "change submitted by \(run) (\(commit.prefix(8)))"
         case .attemptFailed(let summary): "attempt failed: \(summary)"
         case .evidenceRecorded(let evidence): "evidence: \(evidence.check) \(evidence.passed ? "passed" : "FAILED") – \(evidence.summary)"
+        case .landingReworkNeeded(let evidence): "landing rework: \(evidence.summary)"
+        case .landingRerunRequested(let run): "landing rerun requested after \(run) submitted no changes"
         case .externalDependencyResolved(let ref): "\(ref) delivered"
         case .reworkNeeded(let reason): "rework: \(reason)"
         case .landed(let commit): "landed on main at \(commit.prefix(8))"

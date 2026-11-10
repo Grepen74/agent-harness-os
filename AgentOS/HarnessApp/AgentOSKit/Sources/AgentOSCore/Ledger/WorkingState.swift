@@ -60,6 +60,8 @@ public struct NodeState: Sendable, Identifiable {
     public var evidence: [Evidence] = []
     public var failedAttempts = 0
     public var recentFailures: [String] = []
+    public var landingReworkPending = false
+    public var landingRerunPending = false
     public var reworks = 0
     /// Position in the landing queue (when it entered `landing`).
     public var queuedAt: Int?
@@ -239,11 +241,24 @@ public struct WorkingState: Sendable {
         case .testsFixed(let digest): node.testsDigest = digest
         case .runStarted(let run, let role): node.activeRun = ActiveRun(run: run, role: role, since: event.at)
         case .runFinished: node.activeRun = nil
-        case .changeSubmitted(let run, let commit): node.lastSubmission = Submission(run: run, commit: commit)
+        case .changeSubmitted(let run, let commit):
+            node.lastSubmission = Submission(run: run, commit: commit)
+            node.landingReworkPending = false
+            node.landingRerunPending = false
+        case .landingReworkNeeded(let evidence):
+            node.evidence.append(evidence)
+            node.landingReworkPending = true
+            node.landingRerunPending = false
+        case .landingRerunRequested:
+            node.landingReworkPending = false
+            node.landingRerunPending = true
         case .reworkNeeded:
             node.reworks += 1
             node.lastSubmission = nil
-        case .landed(let commit): node.landedCommit = commit
+        case .landed(let commit):
+            node.landedCommit = commit
+            node.landingReworkPending = false
+            node.landingRerunPending = false
         case .questionsRaised(_, let questions): node.openQuestions = questions
         case .assumptionsReported(let role, let assumptions): node.assumptions[role] = assumptions.isEmpty ? nil : assumptions
         case .questionsAnswered(let clarification):
@@ -252,6 +267,8 @@ public struct WorkingState: Sendable {
         case .attemptFailed(let summary):
             node.failedAttempts += 1
             node.recentFailures.append(summary)
+            node.landingReworkPending = false
+            node.landingRerunPending = false
         case .evidenceRecorded(let evidence):
             node.evidence.append(evidence)
             if !evidence.passed {

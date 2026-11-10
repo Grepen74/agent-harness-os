@@ -681,8 +681,19 @@ public actor Reconciler {
             try await workspace.prepareBuild(in: directory)
             let task = await makeTask(node, run: run, in: directory, log: agentLog(node, run))
             try await watchingUserGitState(node, run: run) { try await team.implementer.implement(task) }
-            guard let commit = try await workspace.commitAll(in: directory, message: "\(node.spec.id): \(node.spec.title)", author: run)
-            else { throw AgentFailure("submitted no changes") }
+            guard let commit = try await workspace.commitAll(
+                in: directory,
+                message: "\(node.spec.id): \(node.spec.title)",
+                author: run
+            ) else {
+                guard node.landingReworkPending else { throw AgentFailure("submitted no changes") }
+                try await write(node.id, by: author, [
+                    .runFinished(run: run, outcome: "submitted no changes; rerunning landing check"),
+                    .landingRerunRequested(run: run),
+                    .phaseChanged(to: .landing),
+                ])
+                return "\(node.ticket) submitted no changes after landing rework → Landing queue"
+            }
             try await write(node.id, by: author, [
                 .runFinished(run: run, outcome: "submitted"), .changeSubmitted(run: run, commit: commit), .phaseChanged(to: .checking)])
             return "\(node.ticket) implemented by \(run) → Checking"
@@ -782,8 +793,19 @@ public actor Reconciler {
             }
             return "\(node.ticket) breaks \(broken.map(\.ticket).joined(separator: ", ")) → requirements conflict, escalated"
         }
+        let reranSameCandidate = node.evidence.last?.commit == candidate
+        if node.landingRerunPending && reranSameCandidate {
+            let reason = "Landing rerun failed; this is the agent's own mistake: \(output.summary)"
+            kinds[0] = .landingReworkNeeded(evidence)
+            kinds.append(.attemptFailed(summary: reason))
+            try await write(node.id, by: checker, kinds)
+            await tracker.comment(on: node.ticket, "🔁 \(reason)")
+            return try await escalateIfNeeded(node.id) ?? "\(node.ticket) failed landing rerun; will retry"
+        }
+        kinds[0] = .landingReworkNeeded(evidence)
         try await write(node.id, by: checker, kinds)
-        await tracker.comment(on: node.ticket, "🔁 Landing check failed on the latest main: \(output.summary)")
+        let cause = node.landingRerunPending ? " after main moved" : ""
+        await tracker.comment(on: node.ticket, "♻️ Landing check failed\(cause): \(output.summary). The implementer will rework the candidate.")
         return try await escalateIfNeeded(node.id) ?? "\(node.ticket) failed at landing; will retry"
     }
 
