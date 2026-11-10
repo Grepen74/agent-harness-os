@@ -910,10 +910,22 @@ public actor Reconciler {
         }
     }
 
+    /// One node's status and its children's (theirs depends on the parent's phase), as soon as it changes:
+    /// a round can take as long as its slowest agent or landing check, so waiting for its end left tickets
+    /// showing a status from half an hour ago.
+    private func projectStatus(of id: NodeID) async {
+        let state = await ledger.workingState()
+        guard let node = state.nodes[id] else { return }
+        for affected in [node] + node.children.compactMap({ state.nodes[$0] }) {
+            await tracker.setStatus(of: affected.ticket, to: state.status(of: affected))
+        }
+    }
+
     private func write(_ node: NodeID?, by who: Participant, _ kinds: [EventKind], expecting version: Int? = nil) async throws {
         let events = kinds.map { LedgerEvent(node: node, by: who, kind: $0) }
         let expecting = node.flatMap { id in version.map { [id: $0] } } ?? [:]
         try await ledger.append(events, expecting: expecting)
+        if let node { await projectStatus(of: node) }
     }
 
     static func newRunID() -> RunID { "run-" + UUID().uuidString.prefix(6).lowercased() }

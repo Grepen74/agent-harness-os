@@ -32,6 +32,39 @@ func temporaryDirectory() -> URL {
     FileManager.default.temporaryDirectory.appending(path: "agentos-tests-\(UUID().uuidString)")
 }
 
+/// `FakeCheckRunner`, except that the first landing check (all tests) waits until released, so a test can look
+/// at the harness while the round is still under way.
+actor HeldLandingChecks: CheckRunner {
+    private var held = false
+    private var started: CheckedContinuation<Void, Never>?
+    private var hasStarted = false
+    private var releaser: CheckedContinuation<Void, Never>?
+    private var released = false
+
+    nonisolated func runChecks(in directory: URL, only testTarget: String?) async -> CheckOutput {
+        if testTarget == nil { await hold() }
+        return await FakeCheckRunner().runChecks(in: directory, only: testTarget)
+    }
+
+    private func hold() async {
+        guard !held else { return }
+        held = true
+        hasStarted = true
+        started?.resume()
+        if !released { await withCheckedContinuation { releaser = $0 } }
+    }
+
+    func landingStarted() async {
+        if !hasStarted { await withCheckedContinuation { started = $0 } }
+    }
+
+    func release() {
+        released = true
+        releaser?.resume()
+        releaser = nil
+    }
+}
+
 func makeSimulation(_ directory: URL = temporaryDirectory()) throws -> Simulation {
     try Simulation(directory: directory, team: .scripted, checks: FakeCheckRunner())
 }

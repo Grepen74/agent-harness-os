@@ -101,6 +101,21 @@ struct FlowTests {
         }
     }
 
+    // A round lasts as long as its slowest agent or landing check; tickets showed the status from before it.
+    @Test func theTicketShowsLandingWhileTheLandingCheckRuns() async throws {
+        let checks = HeldLandingChecks()
+        let sim = try Simulation(directory: temporaryDirectory(), team: .scripted, checks: checks)
+        await sim.tracker.createTicket(title: "Greeting", description: "Say hi", acceptanceCriteria: ["Says hello"], by: alice)
+        await sim.tracker.addLabel(HarnessCommand.go.label, to: "APP-1", by: alice)
+        let running = Task { await sim.runUntilIdle() }
+
+        await checks.landingStarted()
+        #expect(await sim.tracker.ticket("APP-1")?.status == "Landing")
+        await checks.release()
+        _ = await running.value
+        #expect(await sim.tracker.ticket("APP-1")?.status == "Done")
+    }
+
     @Test func breakdownOnALeafIsRejected() async throws {
         let sim = try makeSimulation()
         await sim.loadDemo()

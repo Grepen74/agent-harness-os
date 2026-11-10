@@ -110,7 +110,8 @@ struct LiveLog: View {
         }
         .task(id: url) {
             while !Task.isCancelled {
-                text = Self.tail(of: url)
+                let latest = Self.tail(of: url)
+                if latest != text { text = latest }
                 try? await Task.sleep(for: .seconds(1))
             }
         }
@@ -167,19 +168,48 @@ struct TextSheet<Extra: View>: View {
                 extra()
                 Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
             }
-            ScrollViewReader { proxy in
-                ScrollView {
-                    Text(text).font(.caption.monospaced()).textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    Color.clear.frame(height: 1).id("end")
-                }
-                .background(.background.secondary)
-                .onChange(of: text) { if follows { proxy.scrollTo("end", anchor: .bottom) } }
-                .onAppear { if follows { proxy.scrollTo("end", anchor: .bottom) } }
-            }
+            LargeText(text: text, follows: follows)
         }
         .padding(12)
         .frame(minWidth: 640, idealWidth: 820, minHeight: 420, idealHeight: 600)
+    }
+}
+
+/// Read-only, selectable text that stays fast when large. A SwiftUI `Text` lays out all of a 200 KB log on the
+/// main thread at every update, which froze the app while a log was open; `NSTextView` lays out lazily.
+struct LargeText: NSViewRepresentable {
+    let text: String
+    let follows: Bool
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSTextView.scrollableTextView()
+        let textView = scrollView.documentView as! NSTextView
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.isRichText = false
+        textView.drawsBackground = false
+        textView.font = .monospacedSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
+        textView.textContainerInset = NSSize(width: 4, height: 4)
+        scrollView.drawsBackground = true
+        scrollView.backgroundColor = .controlBackgroundColor
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        guard let textView = scrollView.documentView as? NSTextView else { return }
+        if textView.string != text {
+            textView.string = text
+            if follows { textView.scrollToEndOfDocument(nil) }
+        } else if follows, context.coordinator.followed != follows {
+            textView.scrollToEndOfDocument(nil)
+        }
+        context.coordinator.followed = follows
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    final class Coordinator {
+        var followed = false
     }
 }
 
