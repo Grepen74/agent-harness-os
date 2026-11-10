@@ -26,7 +26,7 @@ let package = Package(
         .testTarget(name: "AgentOSCoreTests", dependencies: ["AgentOSCore"]),
         .testTarget(
             name: "AgentOSAdaptersTests",
-            dependencies: ["AgentOSAdapters"],
+            dependencies: ["AgentOSAdapters", "AgentOSUI"],
             swiftSettings: [.unsafeFlags(["-Xfrontend", "-disable-access-control"])]
         ),
         .testTarget(name: "AgentOSSimulationTests", dependencies: ["AgentOSSimulation"]),

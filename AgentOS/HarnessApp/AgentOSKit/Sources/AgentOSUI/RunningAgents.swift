@@ -1,6 +1,15 @@
 import AgentOSCore
 import SwiftUI
 
+public enum OutputWindowPresentation {
+    case log
+    case changes
+
+    public var resizeAxes: Axis.Set {
+        [.horizontal, .vertical]
+    }
+}
+
 /// What's running right now: one row per node with an agent or check at work, with its live log, its changes
 /// so far, and its working copy in Finder or Xcode.
 struct RunningAgents: View {
@@ -115,6 +124,7 @@ struct LiveLog: View {
                 try? await Task.sleep(for: .seconds(1))
             }
         }
+        .outputWindowPresentation(.log)
     }
 
     /// The end of the file: logs can grow large, and the latest output is what matters while it runs.
@@ -146,6 +156,16 @@ struct Changes: View {
                 try? await Task.sleep(for: .seconds(3))
             }
         }
+        .outputWindowPresentation(.changes)
+    }
+}
+
+private extension View {
+    func outputWindowPresentation(_ presentation: OutputWindowPresentation) -> some View {
+        frame(
+            maxWidth: presentation.resizeAxes.contains(.horizontal) ? .infinity : nil,
+            maxHeight: presentation.resizeAxes.contains(.vertical) ? .infinity : nil
+        )
     }
 }
 
