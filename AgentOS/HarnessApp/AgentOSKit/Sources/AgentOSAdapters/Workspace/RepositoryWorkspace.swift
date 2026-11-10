@@ -11,7 +11,7 @@ import Foundation
 /// Work is based on, and lands on, the landing branch (`agentos/main`), created from the default branch the
 /// first time. Landing moves only that branch ref (fast-forward, compare-and-swap); you merge it yourself.
 /// A leaf's acceptance tests are a folder (and suite) of its own in the configured existing test target.
-public struct RepositoryWorkspace: Workspace {
+public struct RepositoryWorkspace: Workspace, MainTipRepository {
     public static let branchPrefix = "agentos/leaf/"
 
     public let root: URL
@@ -195,6 +195,10 @@ public struct RepositoryWorkspace: Workspace {
     // MARK: Repo
 
     public func existingComponents() -> [String] { config.components ?? [] }
+
+    public func localMainTip() async throws -> String {
+        try await revision(defaultBranch)
+    }
 
     /// Nothing to do: the check runner runs the config's `build.prepare` before building.
     public func prepareBuild(in directory: URL) async throws {}

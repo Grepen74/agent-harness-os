@@ -10,6 +10,8 @@ public protocol TicketBoard: Sendable {
     var adapter: any TrackerAdapter { get }
 
     func tickets() async -> [Ticket]
+    func ticket(_ key: String) async -> Ticket?
+    func boardColumn(for key: String) async -> String?
     func addLabel(_ name: String, to key: String, by who: Participant) async
     func removeLabel(_ name: String, from key: String) async
     func addComment(_ text: String, to key: String, by who: Participant) async
@@ -19,6 +21,17 @@ public protocol TicketBoard: Sendable {
     func edit(_ key: String, title: String, description: String, acceptanceCriteria: [String], blockedBy: [String]) async
     /// What went wrong talking to the tracker since the last call, for the activity log.
     func takeProblems() async -> [String]
+}
+
+extension TicketBoard {
+    public func ticket(_ key: String) async -> Ticket? {
+        await tickets().first { $0.key == key }
+    }
+
+    public func boardColumn(for key: String) async -> String? {
+        guard let status = await ticket(key)?.status else { return nil }
+        return status == "Catch-up conflict" ? "Needs human" : status
+    }
 }
 
 extension LocalTracker: TicketBoard {
