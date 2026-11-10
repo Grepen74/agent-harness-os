@@ -31,5 +31,8 @@
       "project": {
           "owner": "Grepen74", "number": 1
       }
+  },
+  "agents": {
+      "guesswork": "ask"
   }
 }
