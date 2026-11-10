@@ -85,7 +85,7 @@ extension Workspace {
                 result.rebased.append(id)
             case .conflict(let files):
                 try await resetForRework(directory)
-                result.rework[id] = files
+                result.rework[id] = Array(Set(files)).sorted()
             }
         }
         return result
