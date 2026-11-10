@@ -15,10 +15,7 @@ struct RunningAgents: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Running now (\(running.count))").font(.caption.bold())
                     ForEach(running) { node in
-                        if let run = node.activeRun {
-                            // Re-checked every second: a run's worktree and log may appear after it started.
-                            TimelineView(.periodic(from: .now, by: 1)) { _ in row(node, run) }
-                        }
+                        if let run = node.activeRun { RunRow(node: node, run: run, shown: $shown) }
                     }
                 }
                 .padding(8).frame(maxWidth: .infinity, alignment: .leading)
@@ -33,34 +30,6 @@ struct RunningAgents: View {
         }
     }
 
-    private func row(_ node: NodeState, _ run: ActiveRun) -> some View {
-        let worktree = model.worktree(of: node.id)
-        let log = model.agentLog(of: node.id, run: run.run)
-        let title = "\(node.ticket) · \(run.role.rawValue) · \(run.run)"
-        return HStack(spacing: 6) {
-            Image(systemName: "cpu").foregroundStyle(.orange)
-            Text(node.ticket).monospaced()
-            Text(run.role.rawValue).foregroundStyle(.secondary)
-            Text(run.since, style: .timer).monospacedDigit().foregroundStyle(.secondary)
-            Text(node.spec.title).lineLimit(1).foregroundStyle(.secondary)
-            Spacer()
-            Button("Log") { if let log { shown = .log(title, log) } }
-                .disabled(log == nil)
-                .help(log == nil ? "This run writes no log (checks record theirs as evidence when done)" : "Follow the agent's output live")
-            Button("Changes") { shown = .changes(title, node.id) }
-                .disabled(worktree == nil)
-                .help("What the working copy changed so far, committed or not")
-            Button { if let worktree { model.reveal(worktree) } } label: { Image(systemName: "folder") }
-                .disabled(worktree == nil)
-                .help("Show the working copy in Finder")
-            Button { if let worktree { model.openInXcode(worktree) } } label: { Image(systemName: "hammer") }
-                .disabled(worktree == nil)
-                .help("Open the working copy in Xcode. Look, don't change: anything changed there is committed as the agent's work.")
-        }
-        .font(.caption)
-        .controlSize(.small)
-    }
-
     enum Shown: Identifiable {
         case log(String, URL)
         case changes(String, NodeID)
@@ -68,6 +37,61 @@ struct RunningAgents: View {
             switch self {
             case .log(_, let url): "log " + url.path
             case .changes(let title, _): "changes " + title
+            }
+        }
+    }
+}
+
+/// One running node. Its width never changes while it runs and its texts truncate, so it can't push the split
+/// view's dividers around: re-laying out the window every second made AppKit's window updates time out
+/// ("fence tx observer timed out") and the app stop taking input.
+struct RunRow: View {
+    @Environment(HarnessViewModel.self) private var model
+    let node: NodeState
+    let run: ActiveRun
+    @Binding var shown: RunningAgents.Shown?
+    @State private var worktree: URL?
+    @State private var log: URL?
+
+    var body: some View {
+        let title = "\(node.ticket) · \(run.role.rawValue) · \(run.run)"
+        HStack(spacing: 6) {
+            Image(systemName: "cpu").foregroundStyle(.orange)
+            Text(node.ticket).monospaced().lineLimit(1)
+            Text(run.role.rawValue).foregroundStyle(.secondary).lineLimit(1)
+            // Updates itself; the hidden widest value keeps its width fixed.
+            Text("00:00:00").hidden()
+                .overlay(alignment: .leading) { Text(run.since, style: .timer).foregroundStyle(.secondary) }
+                .monospacedDigit().lineLimit(1)
+            Text(node.spec.title).lineLimit(1).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading).layoutPriority(-1)
+            Group {
+                Button("Log") { if let log { shown = .log(title, log) } }
+                    .disabled(log == nil)
+                    .help(log == nil ? "This run writes no log (checks record theirs as evidence when done)" : "Follow the agent's output live")
+                Button("Changes") { shown = .changes(title, node.id) }
+                    .disabled(worktree == nil)
+                    .help("What the working copy changed so far, committed or not")
+                Button { if let worktree { model.reveal(worktree) } } label: { Image(systemName: "folder") }
+                    .disabled(worktree == nil)
+                    .help("Show the working copy in Finder")
+                Button { if let worktree { model.openInXcode(worktree) } } label: { Image(systemName: "hammer") }
+                    .disabled(worktree == nil)
+                    .help("Open the working copy in Xcode. Look, don't change: anything changed there is committed as the agent's work.")
+            }
+            .fixedSize()
+        }
+        .font(.caption)
+        .controlSize(.small)
+        // A run's worktree and log may appear after it started. Only a change redraws the row.
+        .task(id: run.run) {
+            while !Task.isCancelled {
+                let foundWorktree = model.worktree(of: node.id)
+                let foundLog = model.agentLog(of: node.id, run: run.run)
+                if foundWorktree != worktree { worktree = foundWorktree }
+                if foundLog != log { log = foundLog }
+                if worktree != nil, log != nil { return }
+                try? await Task.sleep(for: .seconds(2))
             }
         }
     }
