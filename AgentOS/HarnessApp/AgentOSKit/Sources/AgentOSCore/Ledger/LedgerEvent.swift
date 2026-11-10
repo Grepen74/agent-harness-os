@@ -74,6 +74,13 @@ public enum EventKind: Codable, Sendable {
     // The repo (doc 01): what the harness knew about it when it started, and whenever that changed.
     case readinessScanned(ReadinessScan)
     case baselineChecked(Baseline)
+    case catchUpConflicted(main: String, files: [String], tickets: [String])
+    case catchUpSucceeded(main: String, newAgentOSMainTip: String, method: CatchUpMethod)
+}
+
+public enum CatchUpMethod: String, Codable, Sendable {
+    case automatic
+    case manual
 }
 
 /// What the ledger stores: the event plus its place in the hash chain.
@@ -154,6 +161,10 @@ extension EventKind {
             "readiness scan of \(scan.branch ?? "?") at \((scan.commit ?? "?").prefix(8)): \(scan.summary)"
         case .baselineChecked(let baseline):
             "baseline at \(baseline.commit.prefix(8)) \(baseline.passed ? "passed" : "FAILED") in \(baseline.seconds)s – \(baseline.summary)"
+        case .catchUpConflicted(let main, let files, let tickets):
+            "catch-up to \(main.prefix(8)) conflicted in \(files.joined(separator: ", ")) (tickets: \(tickets.joined(separator: ", ")))"
+        case .catchUpSucceeded(let main, let tip, let method):
+            "\(method.rawValue) catch-up to \(main.prefix(8)) succeeded at \(tip.prefix(8))"
         }
     }
 }

@@ -14,6 +14,7 @@ public final class RepositorySession: Sendable {
     public let tracker: any TicketBoard
     public let workspace: RepositoryWorkspace
     public let reconciler: Reconciler
+    private let catchUp: CatchUpCoordinator
 
     public init(location: RepositoryLocation, storage: URL, ledger: Ledger, config: RepoConfig, policy: EffectivePolicy,
                 team: AgentTeam, checks: (any CheckRunner)? = nil, tracker: (any TicketBoard)? = nil) throws {
@@ -23,6 +24,7 @@ public final class RepositorySession: Sendable {
         workspace = try RepositoryWorkspace(
             root: location.root, storage: storage, config: config, landingBranch: policy.landingBranch,
             defaultBranch: location.branch, protectedPaths: policy.protectedPaths)
+        catchUp = CatchUpCoordinator(workspace: workspace, ledger: ledger, tracker: self.tracker)
         reconciler = Reconciler(
             ledger: ledger, tracker: self.tracker.adapter, external: NoExternalSystem(), workspace: workspace,
             artifacts: FileArtifactStore(directory: workspace.artifactsDirectory),
@@ -60,7 +62,29 @@ public final class RepositorySession: Sendable {
 
     /// One reconciler round.
     @discardableResult
-    public func step() async -> RoundReport { await reconciler.runRound() }
+    public func step() async -> RoundReport {
+        var report = await reconciler.runRound()
+        if let action = await catchUp.reconcile() {
+            report.actions.append(action)
+        }
+        return report
+    }
+
+    public func catchUpStatus() async -> CatchUpStatus {
+        await catchUp.status()
+    }
+
+    public func catchUpConflictDiff() async throws -> String {
+        try await catchUp.conflictDiff()
+    }
+
+    public func openCatchUpInTerminal() async throws -> URL {
+        try await catchUp.openInTerminal()
+    }
+
+    public func retryCatchUp() async {
+        _ = await catchUp.reconcile(force: true)
+    }
 
     /// Rounds until nothing more happens without a human (or `maxRounds` is reached).
     @discardableResult

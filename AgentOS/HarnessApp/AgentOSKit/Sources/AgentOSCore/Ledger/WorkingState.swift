@@ -17,6 +17,30 @@ public struct Preview: Sendable, Hashable {
     public let proposal: [NodeSpec]
 }
 
+public struct CatchUpConflict: Sendable, Hashable {
+    public let mainSHA: String
+    public let files: [String]
+    public let tickets: [String]
+
+    public init(mainSHA: String, files: [String], tickets: [String]) {
+        self.mainSHA = mainSHA
+        self.files = files
+        self.tickets = tickets
+    }
+}
+
+public struct CatchUpSuccess: Sendable, Hashable {
+    public let mainSHA: String
+    public let newAgentOSMainTip: String
+    public let method: CatchUpMethod
+
+    public init(mainSHA: String, newAgentOSMainTip: String, method: CatchUpMethod) {
+        self.mainSHA = mainSHA
+        self.newAgentOSMainTip = newAgentOSMainTip
+        self.method = method
+    }
+}
+
 /// The current state of one Work Node, derived from its events.
 public struct NodeState: Sendable, Identifiable {
     public var id: NodeID { spec.id }
@@ -67,6 +91,8 @@ public struct WorkingState: Sendable {
     public private(set) var readiness: ReadinessScan?
     /// The latest baseline run on the default branch.
     public private(set) var baseline: Baseline?
+    public private(set) var catchUpConflict: CatchUpConflict?
+    public private(set) var lastCatchUpSuccess: CatchUpSuccess?
 
     /// Tickets of nodes discarded by a replan, with the ticket that was replanned.
     public private(set) var superseded: [String: String] = [:]
@@ -184,6 +210,11 @@ public struct WorkingState: Sendable {
             readiness = scan
         case .baselineChecked(let result):
             baseline = result
+        case .catchUpConflicted(let main, let files, let tickets):
+            catchUpConflict = CatchUpConflict(mainSHA: main, files: files, tickets: tickets)
+        case .catchUpSucceeded(let main, let tip, let method):
+            catchUpConflict = nil
+            lastCatchUpSuccess = CatchUpSuccess(mainSHA: main, newAgentOSMainTip: tip, method: method)
         default:
             break
         }
