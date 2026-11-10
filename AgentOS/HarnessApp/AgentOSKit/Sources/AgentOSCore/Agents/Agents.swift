@@ -78,14 +78,17 @@ public struct BreakdownRequest: Sendable {
     public let guesswork: Guesswork
     /// Where to write its output as it works (see `AgentLog`); nil when not kept.
     public let log: URL?
+    /// A read-only snapshot of the latest code to look at (see `Workspace.createSnapshot`); nil when there's none.
+    public let codebase: URL?
 
     public init(spec: NodeSpec, existingComponents: [String] = [], clarifications: [Clarification] = [],
-                guesswork: Guesswork = .assumeAndReport, log: URL? = nil) {
+                guesswork: Guesswork = .assumeAndReport, log: URL? = nil, codebase: URL? = nil) {
         self.spec = spec
         self.existingComponents = existingComponents
         self.clarifications = clarifications
         self.guesswork = guesswork
         self.log = log
+        self.codebase = codebase
     }
 }
 

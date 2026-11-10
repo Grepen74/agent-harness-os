@@ -816,10 +816,21 @@ public actor Reconciler {
         }
     }
 
+    /// The decomposer looks at a snapshot of the latest code when the workspace can make one. Without it the
+    /// breakdown still runs, from the ticket alone.
     private func propose(_ spec: NodeSpec, clarifications: [Clarification], log: URL?) async throws -> Breakdown {
-        try await team.decomposer.proposeChildren(BreakdownRequest(
+        let codebase = try? await workspace.createSnapshot()
+        let request = BreakdownRequest(
             spec: spec, existingComponents: workspace.existingComponents(), clarifications: clarifications,
-            guesswork: policy.guesswork, log: log))
+            guesswork: policy.guesswork, log: log, codebase: codebase)
+        do {
+            let breakdown = try await team.decomposer.proposeChildren(request)
+            if let codebase { await workspace.removeSnapshot(codebase) }
+            return breakdown
+        } catch {
+            if let codebase { await workspace.removeSnapshot(codebase) }
+            throw error
+        }
     }
 
     /// A fresh file for the run's own output (see `AgentLog`). Not having one never stops the work.

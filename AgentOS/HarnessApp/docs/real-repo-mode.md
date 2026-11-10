@@ -149,6 +149,7 @@ The harness's state for a repo is private and lives outside the repo:
                    <node>-<run>-agent.log, written as it runs
   baseline/src/    the export of main the baseline last ran on
   worktrees/       one working copy per leaf, on branch agentos/leaf/<node>
+  snapshots/       a detached checkout of agentos/main for each preview or breakdown, removed when it ends
   exclude          files git ignores in worktrees (.build/, DerivedData/, xcuserdata/, .DS_Store…)
 ```
 
@@ -309,6 +310,9 @@ Each phase is usable on its own.
      what users observe?") and answers with questions instead of children when it isn't. A preview with
      questions records nothing; you answer in a comment (or edit the ticket) and preview again. The next
      preview reads those answers, and adopting the ticket (breakdown or go) keeps them for later agents.
+   - The decomposer runs in a read-only snapshot of `agentos/main` (a detached worktree, removed afterwards),
+     so it reads the code and the repo's `AGENTS.md` when it splits the work. Anything it writes there is
+     thrown away. If the snapshot can't be made, it splits from the ticket alone.
    - The decomposer and test author return questions and assumptions with their result. Questions write
      `questionsRaised` and the `needs input` flag, and post a "❓ Needs input" comment with them. Tests
      written on a guess are thrown away. You answer in comments, then add `harness:retry`; without a

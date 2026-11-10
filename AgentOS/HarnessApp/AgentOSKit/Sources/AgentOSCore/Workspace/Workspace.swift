@@ -52,8 +52,16 @@ public protocol Workspace: Sendable {
     /// A fingerprint of the repo state that belongs to you, not the harness: refs outside its own branches, git
     /// config, hooks. An agent run must leave it unchanged. Empty when the harness owns the whole repo.
     func userGitState() async throws -> [String]
+
+    /// A throwaway checkout of the latest `main` for agents that only read the code (the decomposer), so they
+    /// see the repo and its instruction files (AGENTS.md). Nil when the workspace has none. Anything written
+    /// to it is lost when it's removed.
+    func createSnapshot() async throws -> URL?
+    func removeSnapshot(_ directory: URL) async
 }
 
 extension Workspace {
     public func userGitState() async throws -> [String] { [] }
+    public func createSnapshot() async throws -> URL? { nil }
+    public func removeSnapshot(_ directory: URL) async {}
 }

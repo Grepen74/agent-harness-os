@@ -85,6 +85,28 @@ public struct RepositoryWorkspace: Workspace {
         try await git(["worktree", "prune"], in: root)
     }
 
+    // MARK: Read-only snapshot
+
+    public var snapshotsDirectory: URL { storage.appending(path: "snapshots", directoryHint: .isDirectory) }
+
+    /// A detached worktree of the landing branch: no branch of its own, so nothing in it can land.
+    public func createSnapshot() async throws -> URL? {
+        let directory = snapshotsDirectory.appending(path: UUID().uuidString)
+        try await worktreeLock.withPermit {
+            try FileManager.default.createDirectory(at: snapshotsDirectory, withIntermediateDirectories: true)
+            try await git(["worktree", "add", "-q", "--detach", directory.path, landingBranch], in: root)
+        }
+        return directory
+    }
+
+    public func removeSnapshot(_ directory: URL) async {
+        try? await worktreeLock.withPermit {
+            _ = try? await git(["worktree", "remove", "--force", directory.path], in: root)
+            _ = try? await git(["worktree", "prune"], in: root)
+        }
+        try? FileManager.default.removeItem(at: directory)
+    }
+
     @discardableResult
     public func commitAll(in directory: URL, message: String, author: String) async throws -> String? {
         try await git(["add", "-A"], in: directory)

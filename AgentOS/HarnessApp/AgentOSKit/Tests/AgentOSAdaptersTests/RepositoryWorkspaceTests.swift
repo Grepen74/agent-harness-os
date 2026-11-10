@@ -96,6 +96,41 @@ struct RepositoryWorkspaceTests {
         #expect(!FileManager.default.fileExists(atPath: session.workspace.worktree(for: node.id).path))
     }
 
+    @Test("The decomposer reads a snapshot of agentos/main that is thrown away afterwards")
+    func decomposerReadsASnapshot() async throws {
+        let repo = try await makeRepo()
+        let seen = Seen()
+        let session = try await session(repo, team: AgentTeam(
+            name: "Fake", decomposer: SnapshotReader(seen: seen), testAuthor: ShellTestAuthor(), implementer: Implementer()))
+        let key = await ticket(session)
+
+        await session.runUntilIdle()
+
+        let snapshot = try #require(await seen.codebase)
+        #expect(await seen.instructions?.isEmpty == false)
+        #expect(!FileManager.default.fileExists(atPath: snapshot.path))
+        #expect(try await !git(["worktree", "list"], in: repo).contains(snapshot.lastPathComponent))
+        #expect(try await session.ledger.workingState().node(forTicket: key)?.phase == .proven)
+        #expect(try await !git(["ls-tree", "-r", "--name-only", "agentos/main"], in: repo).contains("stray.txt"))
+        #expect(try await git(["status", "--porcelain"], in: repo).isEmpty)
+    }
+
+    actor Seen {
+        var codebase: URL?
+        var instructions: String?
+        func record(_ codebase: URL?, _ instructions: String?) { self.codebase = codebase; self.instructions = instructions }
+    }
+
+    struct SnapshotReader: Decomposer {
+        let seen: Seen
+        func proposeChildren(_ request: BreakdownRequest) async throws -> Breakdown {
+            let codebase = request.codebase
+            await seen.record(codebase, codebase.flatMap { try? String(contentsOf: $0.appending(path: "AGENTS.md"), encoding: .utf8) })
+            if let codebase { try "written by the decomposer".write(to: codebase.appending(path: "stray.txt"), atomically: true, encoding: .utf8) }
+            return try await Leaf().proposeChildren(request)
+        }
+    }
+
     @Test("Changing a protected file fails the check, so nothing lands")
     func protectedPathsAreEnforced() async throws {
         let repo = try await makeRepo()

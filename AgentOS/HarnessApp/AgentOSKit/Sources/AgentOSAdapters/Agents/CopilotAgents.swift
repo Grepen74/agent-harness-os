@@ -135,11 +135,14 @@ public struct CopilotDecomposer: Decomposer {
     public func proposeChildren(_ request: BreakdownRequest) async throws -> Breakdown {
         let existingComponents = request.existingComponents
         let scratch = FileManager.default.temporaryDirectory.appending(path: "agentos-decompose-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: scratch) }
+        if request.codebase == nil {
+            try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        }
+        defer { if request.codebase == nil { try? FileManager.default.removeItem(at: scratch) } }
 
         let prompt = """
-        You are the decomposer agent in an agent harness. First check the work item below is ready: could someone \
+        You are the decomposer agent in an agent harness. \(Self.codebaseNote(request.codebase != nil))\
+        First check the work item below is ready: could someone \
         write a test for each acceptance criterion without guessing what users will observe? \
         \(CopilotCLI.guessingRules(request.guesswork)) If you have questions, return them and no children.
 
@@ -148,7 +151,8 @@ public struct CopilotDecomposer: Decomposer {
         behaviour with testable acceptance criteria that say exactly what to observe, and may touch several \
         components. Reuse existing components where they fit: \
         \(existingComponents.isEmpty ? "(none known)" : existingComponents.joined(separator: ", ")). \
-        Read the code if you need to. Do not create or modify any files.
+        \(request.codebase == nil ? "" : "Read the code where it helps you split the work or reuse what exists. ")\
+        Do not create or modify any files.
 
         Respond with ONLY a JSON object (no prose, no code fences):
         {"questions": [string], "assumptions": [string], "children": [{"title": string, "acceptanceCriteria": [string], \
@@ -156,11 +160,19 @@ public struct CopilotDecomposer: Decomposer {
 
         \(CopilotCLI.dataBlock(request.spec))\(CopilotCLI.answersBlock(request.clarifications))
         """
-        let output = try await cli.run(prompt, in: scratch, log: request.log)
+        let output = try await cli.run(prompt, in: request.codebase ?? scratch, log: request.log)
         guard let breakdown = Self.parse(output) else {
             throw AgentFailure("Decomposer didn't return a usable JSON proposal: \(output.prefix(300))")
         }
         return breakdown
+    }
+
+    static func codebaseNote(_ hasCodebase: Bool) -> String {
+        hasCodebase
+            ? "The current directory is a read-only snapshot of the repo's latest code. Follow its agent instructions " +
+              "(AGENTS.md or .github/copilot-instructions.md, if there are any) on architecture, layering and testing " +
+              "when you split the work. "
+            : ""
     }
 
     private struct Answer: Decodable {
