@@ -47,13 +47,17 @@ public struct TrackerPane: View {
         .sheet(item: $editor) { TicketEditor(mode: $0) }
     }
 
-    /// Depth-first: each ticket directly followed by its children, so a breakdown stays under its parent.
     private var treeOrdered: [(ticket: Ticket, depth: Int)] {
-        let tickets = model.tickets.filter {
+        Self.treeOrdered(model.tickets.filter {
             guard showDoneTickets != true else { return true }
             return $0.status != "Done"
-        }
+        })
+    }
 
+    /// Depth-first: each ticket directly followed by its children, so a breakdown stays under its parent.
+    /// Siblings are in key order, numbers compared as numbers (GH-9 before GH-10).
+    static func treeOrdered(_ tickets: [Ticket]) -> [(ticket: Ticket, depth: Int)] {
+        let tickets = tickets.sorted { $0.key.localizedStandardCompare($1.key) == .orderedAscending }
         let keys = Set(tickets.map(\.key))
         let children = Dictionary(grouping: tickets) { $0.parentKey }
         func walk(_ parent: String?, _ depth: Int) -> [(ticket: Ticket, depth: Int)] {

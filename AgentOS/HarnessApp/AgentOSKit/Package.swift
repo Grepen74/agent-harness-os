@@ -26,5 +26,6 @@ let package = Package(
         .testTarget(name: "AgentOSCoreTests", dependencies: ["AgentOSCore"]),
         .testTarget(name: "AgentOSAdaptersTests", dependencies: ["AgentOSAdapters"]),
         .testTarget(name: "AgentOSSimulationTests", dependencies: ["AgentOSSimulation"]),
+        .testTarget(name: "AgentOSUITests", dependencies: ["AgentOSUI"]),
     ]
 )
