@@ -45,6 +45,8 @@ targets:
         PRODUCT_NAME: AgentOS Harness
         PRODUCT_BUNDLE_IDENTIFIER: com.grepen74.AgentOSHarness
         GENERATE_INFOPLIST_FILE: NO
+        # Rendered from icons/2-layer-stack.svg.
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # Signed to run locally only. No App Sandbox on purpose: the harness runs git, swift test
         # and the Copilot CLI as child processes, which a sandboxed app can't do.
         CODE_SIGN_IDENTITY: "-"

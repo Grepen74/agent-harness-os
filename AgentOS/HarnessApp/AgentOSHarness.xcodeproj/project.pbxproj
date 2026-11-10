@@ -14,6 +14,7 @@
 		56AF553AEE2C2BFB764E5AAB /* RepositoryModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F381171DA2FE4E2FC283F1E /* RepositoryModel.swift */; };
 		6442A8ECDC9DE1AE1944721B /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56FB234A7EE189B8E1D578A3 /* SettingsView.swift */; };
 		70F37A567A3A348697D888D8 /* App.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B4FA498FE96FF5FB2A74D78 /* App.swift */; };
+		8ABAD8989FB5E445E4C61C68 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 10D7D42085200B9D5A861A54 /* Assets.xcassets */; };
 		9FB012077CE75816A7F0E565 /* AgentOSSimulation in Frameworks */ = {isa = PBXBuildFile; productRef = 066D14AA802BB8E6C881F775 /* AgentOSSimulation */; };
 		A3D6B956599A722B842BBEE7 /* AgentOSCore in Frameworks */ = {isa = PBXBuildFile; productRef = 9B1E7A3F56A6A608CEFC0110 /* AgentOSCore */; };
 		AE7742C7230AA8DA43547C06 /* AgentOSUI in Frameworks */ = {isa = PBXBuildFile; productRef = 2DF16EF0B38E44188D54C793 /* AgentOSUI */; };
@@ -24,6 +25,7 @@
 
 /* Begin PBXFileReference section */
 		0F381171DA2FE4E2FC283F1E /* RepositoryModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepositoryModel.swift; sourceTree = "<group>"; };
+		10D7D42085200B9D5A861A54 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		1B1CFA16C7B2BFC73F303A0C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		25669D2A3883E58C5E8779F4 /* AgentOSHarness.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AgentOSHarness.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		26E7E7D1CAF1A8D3FED6EA07 /* ExternalSystemView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalSystemView.swift; sourceTree = "<group>"; };
@@ -59,6 +61,7 @@
 			isa = PBXGroup;
 			children = (
 				3B4FA498FE96FF5FB2A74D78 /* App.swift */,
+				10D7D42085200B9D5A861A54 /* Assets.xcassets */,
 				26E7E7D1CAF1A8D3FED6EA07 /* ExternalSystemView.swift */,
 				1B1CFA16C7B2BFC73F303A0C /* Info.plist */,
 				0F381171DA2FE4E2FC283F1E /* RepositoryModel.swift */,
@@ -116,6 +119,7 @@
 			buildConfigurationList = 2EF8254BCDA0077859543DE5 /* Build configuration list for PBXNativeTarget "AgentOSHarness" */;
 			buildPhases = (
 				E275B0E2381881D9F629A864 /* Sources */,
+				2F25DB951B92C5844CE6264C /* Resources */,
 				FB2AD7CCDA233C3A75CFE722 /* Frameworks */,
 			);
 			buildRules = (
@@ -168,6 +172,17 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		2F25DB951B92C5844CE6264C /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8ABAD8989FB5E445E4C61C68 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		E275B0E2381881D9F629A864 /* Sources */ = {
