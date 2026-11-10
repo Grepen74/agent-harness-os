@@ -179,34 +179,34 @@ private extension View {
 private struct TimestampedChangesOutput {
     private struct Line {
         let text: String
-        let producedAt: Date
+        let timestamp: String
     }
 
     private var lines: [Line] = []
 
     var text: String {
-        let formatter = timestampFormatter()
-        return lines.map { "[\(formatter.string(from: $0.producedAt))] \($0.text)" }.joined(separator: "\n")
+        lines.map { "[\($0.timestamp)] \($0.text)" }.joined(separator: "\n")
     }
 
     mutating func refresh(with text: String, producedAt: Date = Date()) {
         var existing: [String: [Line]] = Dictionary(grouping: lines, by: \.text)
+        let timestamp = timestamp(for: producedAt)
         lines = Self.outputLines(in: text).map { text in
             if var matches = existing[text], !matches.isEmpty {
                 let line = matches.removeFirst()
                 existing[text] = matches.isEmpty ? nil : matches
                 return line
             }
-            return Line(text: text, producedAt: producedAt)
+            return Line(text: text, timestamp: timestamp)
         }
     }
 
-    private func timestampFormatter() -> DateFormatter {
+    private func timestamp(for date: Date) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = .current
         formatter.dateFormat = "HH:mm:ss"
-        return formatter
+        return formatter.string(from: date)
     }
 
     private static func outputLines(in text: String) -> [String] {
