@@ -15,7 +15,7 @@ import Foundation
 /// conflict (doc 08 §8: generate the conflict magnets).
 ///
 /// Production: real repos in GitHub/GitLab/Gerrit, agents in sandboxes, a real merge queue.
-public struct SimulationWorkspace: Workspace {
+public struct SimulationWorkspace: Workspace, MainTipRepository {
     public let root: URL
 
     public init(root: URL) { self.root = root }
@@ -73,6 +73,10 @@ public struct SimulationWorkspace: Workspace {
 
     public func head(of directory: URL) async throws -> String {
         try await git(["rev-parse", "HEAD"], in: directory).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    public func localMainTip() async throws -> String {
+        try await git(["rev-parse", "main"], in: repoDirectory).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Every file this branch changed since it left `main`.
