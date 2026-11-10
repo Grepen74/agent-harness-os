@@ -316,13 +316,40 @@ public actor CatchUpCoordinator {
     }
 
     private func recordSuccess(main: String, tip: String, method: CatchUpMethod) async throws {
-        try await ledger.append([
+        let state = await ledger.workingState()
+        let activeLeaves = state.creationOrder.compactMap { id -> NodeID? in
+            guard let node = state.nodes[id],
+                  node.spec.kind == .leaf,
+                  node.testsDigest != nil,
+                  node.phase != .proven else { return nil }
+            return id
+        }
+        let leaves = try await workspace.catchUpActiveLeaves(activeLeaves)
+        var events = [
             LedgerEvent(
                 node: nil,
                 by: .adapter("Catch-up"),
                 kind: .catchUpSucceeded(main: main, newAgentOSMainTip: tip, method: method)
             ),
-        ])
+        ]
+        var notifications: [(ticket: String, reason: String)] = []
+        for id in activeLeaves {
+            guard let files = leaves.rework[id], let node = state.nodes[id] else { continue }
+            let detail = files.isEmpty ? "some files" : files.joined(separator: ", ")
+            let reason = "merge conflict in \(detail) after catching up with main"
+            events += [
+                LedgerEvent(node: id, by: .adapter("Catch-up"), kind: .reworkNeeded(reason: reason)),
+                LedgerEvent(node: id, by: .adapter("Catch-up"), kind: .phaseChanged(to: .ready)),
+            ]
+            notifications.append((node.ticket, reason))
+        }
+        try await ledger.append(events)
+        for notification in notifications {
+            await tracker.adapter.comment(
+                on: notification.ticket,
+                "♻️ Rework: \(notification.reason). The implementation is redone on the latest code; the tests are kept."
+            )
+        }
     }
 
     private func setManualMergeAid(files: [String], enabled: Bool) async throws {
