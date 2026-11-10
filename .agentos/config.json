@@ -33,6 +33,6 @@
       }
   },
   "agents": {
-      "guesswork": "assume-and-report"
+      "guesswork": "autonomous"
   }
 }
