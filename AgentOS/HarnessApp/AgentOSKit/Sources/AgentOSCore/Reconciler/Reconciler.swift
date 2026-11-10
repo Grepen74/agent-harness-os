@@ -726,12 +726,13 @@ public actor Reconciler {
             output = await checks.runChecks(in: directory, only: node.spec.testTarget)
         }
         let evidence = try makeEvidence(node, check: "own acceptance tests on branch", output: output,
-                                        builtBy: submission.run, checkedBy: run, commit: submission.commit)
+                                        builtBy: submission.run, checkedBy: run, commit: submission.commit,
+                                        failureClassification: output.passed ? nil : .ownMistake)
         try await write(node.id, by: .agent(run: run, role: .verifier), [
             .evidenceRecorded(evidence), .runFinished(run: run, outcome: output.passed ? "passed" : "failed"),
             .phaseChanged(to: output.passed ? .landing : .ready)])
         if output.passed { return "\(node.ticket) pre-checked by \(run) → Landing queue" }
-        await tracker.comment(on: node.ticket, "🔁 Pre-check failed: \(output.summary)")
+        await tracker.comment(on: node.ticket, "🔁 Pre-check failed; this is the agent's own mistake: \(output.summary)")
         return try await escalateIfNeeded(node.id) ?? "\(node.ticket) failed pre-check; will retry"
     }
 
@@ -763,7 +764,7 @@ public actor Reconciler {
             output = await checks.runChecks(in: directory, only: nil)
         }
         let candidate = try await workspace.head(of: directory)
-        let evidence = try makeEvidence(node, check: "all tests on latest main (landing)", output: output,
+        var evidence = try makeEvidence(node, check: "all tests on latest main (landing)", output: output,
                                         builtBy: submission.run, checkedBy: run, commit: candidate)
 
         // 3. Merge.
@@ -793,6 +794,7 @@ public actor Reconciler {
             }
             return "\(node.ticket) breaks \(broken.map(\.ticket).joined(separator: ", ")) → requirements conflict, escalated"
         }
+        evidence.failureClassification = .ownMistake
         let reranSameCandidate = node.evidence.last?.commit == candidate
         if node.landingRerunPending && reranSameCandidate {
             let reason = "Landing rerun failed; this is the agent's own mistake: \(output.summary)"
@@ -802,10 +804,25 @@ public actor Reconciler {
             await tracker.comment(on: node.ticket, "🔁 \(reason)")
             return try await escalateIfNeeded(node.id) ?? "\(node.ticket) failed landing rerun; will retry"
         }
+        let alreadyPassedOwnCheck = node.evidence.contains {
+            $0.passed && $0.check == "own acceptance tests on branch" && $0.commit == submission.commit
+        }
+        if !alreadyPassedOwnCheck {
+            let reason = "Landing check failed; this is the agent's own mistake: \(output.summary)"
+            try await write(node.id, by: checker, [
+                .evidenceRecorded(evidence), .runFinished(run: run, outcome: "failed"), .phaseChanged(to: .ready),
+            ])
+            await tracker.comment(on: node.ticket, "🔁 \(reason)")
+            return try await escalateIfNeeded(node.id) ?? "\(node.ticket) failed at landing; will retry"
+        }
         kinds[0] = .landingReworkNeeded(evidence)
         try await write(node.id, by: checker, kinds)
         let cause = node.landingRerunPending ? " after main moved" : ""
-        await tracker.comment(on: node.ticket, "♻️ Landing check failed\(cause): \(output.summary). The implementer will rework the candidate.")
+        await tracker.comment(
+            on: node.ticket,
+            "♻️ Landing check failed\(cause); this is the agent's own mistake: \(output.summary). "
+                + "The implementer will rework the candidate."
+        )
         return try await escalateIfNeeded(node.id) ?? "\(node.ticket) failed at landing; will retry"
     }
 
@@ -918,11 +935,11 @@ public actor Reconciler {
     }
 
     private func makeEvidence(_ node: NodeState, check: String, output: CheckOutput, builtBy: RunID, checkedBy: RunID,
-                              commit: String) throws -> Evidence {
+                              commit: String, failureClassification: FailureClassification? = nil) throws -> Evidence {
         let artifact = try artifacts.put(named: "\(node.id)-\(checkedBy).log", contents: Data(output.log.utf8))
         return Evidence(check: check, passed: output.passed, summary: output.summary, specHash: node.spec.specHash,
                         builtBy: builtBy, checkedBy: checkedBy, artifactPath: artifact.path, artifactSHA256: artifact.sha256,
-                        commit: commit)
+                        commit: commit, failureClassification: failureClassification)
     }
 
     private func projectStatuses() async {

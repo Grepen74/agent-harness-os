@@ -106,6 +106,10 @@ public struct NodeSpec: Codable, Sendable, Hashable, Identifiable {
 }
 
 /// Proof that something was checked.
+public enum FailureClassification: String, Codable, Sendable, Hashable {
+    case ownMistake
+}
+
 public struct Evidence: Codable, Sendable, Hashable {
     public var check: String
     public var passed: Bool
@@ -121,6 +125,8 @@ public struct Evidence: Codable, Sendable, Hashable {
     /// The git commit that was checked. One commit pins every component at once, so which versions were
     /// tested together is never ambiguous (doc 08 §2).
     public var commit: String
+    /// Why a failed check is attributed to the agent. Older and passing evidence has no classification.
+    public var failureClassification: FailureClassification? = nil
 }
 
 /// Requests a human can make through a label (doc 05). Labels are one-time requests.
