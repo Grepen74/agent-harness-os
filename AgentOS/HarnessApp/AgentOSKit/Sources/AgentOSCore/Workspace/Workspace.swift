@@ -5,6 +5,16 @@ public enum RebaseResult: Sendable {
     case conflict(files: [String])
 }
 
+public struct ActiveLeavesCatchUpResult: Sendable, Equatable {
+    public var rebased: [NodeID]
+    public var rework: [NodeID: [String]]
+
+    public init(rebased: [NodeID] = [], rework: [NodeID: [String]] = [:]) {
+        self.rebased = rebased
+        self.rework = rework
+    }
+}
+
 /// The product's code as the reconciler sees it (doc 08): `main`, one branch and working copy per leaf,
 /// and a landing step that moves `main` forward. The reconciler never runs git itself.
 ///
@@ -64,4 +74,20 @@ extension Workspace {
     public func userGitState() async throws -> [String] { [] }
     public func createSnapshot() async throws -> URL? { nil }
     public func removeSnapshot(_ directory: URL) async {}
+
+    /// Moves active leaves onto the latest `main`, independently putting conflicting leaves into rework.
+    public func catchUpActiveLeaves(_ ids: [NodeID]) async throws -> ActiveLeavesCatchUpResult {
+        var result = ActiveLeavesCatchUpResult()
+        for id in ids {
+            let directory = worktree(for: id)
+            switch try await rebaseOntoMain(directory) {
+            case .clean:
+                result.rebased.append(id)
+            case .conflict(let files):
+                try await resetForRework(directory)
+                result.rework[id] = files
+            }
+        }
+        return result
+    }
 }
