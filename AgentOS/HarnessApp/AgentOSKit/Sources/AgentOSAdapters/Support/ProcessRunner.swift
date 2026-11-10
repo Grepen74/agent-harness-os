@@ -7,11 +7,6 @@ public enum ProcessRunner {
         public let output: String
     }
 
-    /// Small wrapper so the process can be terminated from the timeout task.
-    private final class Box: @unchecked Sendable {
-        let process = Process()
-    }
-
     /// - `log`: a file to write the output to as it comes, e.g. to follow it live, which is kept afterwards.
     ///   Without one, the output goes to a temporary file.
     /// - `environment`: added to the cleaned environment, e.g. a token for this one command.
@@ -26,8 +21,7 @@ public enum ProcessRunner {
             if keptLog == nil { try? FileManager.default.removeItem(at: logURL) }
         }
 
-        let box = Box()
-        let process = box.process
+        let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = normalizedArguments(arguments, executable: executable)
         process.currentDirectoryURL = directory
@@ -44,13 +38,18 @@ public enum ProcessRunner {
 
         let timeoutTask = Task {
             try await Task.sleep(for: timeout)
-            if box.process.isRunning { box.process.terminate() }
+            if process.isRunning { process.terminate() }
         }
         defer { timeoutTask.cancel() }
 
         let status: Int32 = try await withCheckedThrowingContinuation { continuation in
-            process.terminationHandler = { continuation.resume(returning: $0.terminationStatus) }
-            do { try process.run() } catch {
+            // Install this before launch: a short-lived child can otherwise exit during handler registration.
+            process.terminationHandler = { terminatedProcess in
+                continuation.resume(returning: terminatedProcess.terminationStatus)
+            }
+            do {
+                try process.run()
+            } catch {
                 process.terminationHandler = nil
                 continuation.resume(throwing: error)
             }
