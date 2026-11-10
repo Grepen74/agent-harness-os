@@ -24,7 +24,11 @@ let package = Package(
         // Headless demo runner.
         .executableTarget(name: "agentos", dependencies: ["AgentOSCore", "AgentOSAdapters", "AgentOSSimulation"]),
         .testTarget(name: "AgentOSCoreTests", dependencies: ["AgentOSCore"]),
-        .testTarget(name: "AgentOSAdaptersTests", dependencies: ["AgentOSAdapters"]),
+        .testTarget(
+            name: "AgentOSAdaptersTests",
+            dependencies: ["AgentOSAdapters"],
+            swiftSettings: [.unsafeFlags(["-Xfrontend", "-disable-access-control"])]
+        ),
         .testTarget(name: "AgentOSSimulationTests", dependencies: ["AgentOSSimulation"]),
         .testTarget(name: "AgentOSUITests", dependencies: ["AgentOSUI"]),
     ]

@@ -76,11 +76,24 @@ public enum EventKind: Codable, Sendable {
     case baselineChecked(Baseline)
     case catchUpConflicted(main: String, files: [String], tickets: [String])
     case catchUpSucceeded(main: String, newAgentOSMainTip: String, method: CatchUpMethod)
+    case caughtUp(
+        targetMain: String,
+        oldLandingTip: String,
+        newLandingTip: String,
+        method: CatchUpReconciliationMethod,
+        commitMappings: [String: String]
+    )
 }
 
 public enum CatchUpMethod: String, Codable, Sendable {
     case automatic
     case manual
+}
+
+public enum CatchUpReconciliationMethod: String, Codable, Sendable {
+    case rebase
+    case merge
+    case move
 }
 
 /// What the ledger stores: the event plus its place in the hash chain.
@@ -165,6 +178,9 @@ extension EventKind {
             "catch-up to \(main.prefix(8)) conflicted in \(files.joined(separator: ", ")) (tickets: \(tickets.joined(separator: ", ")))"
         case .catchUpSucceeded(let main, let tip, let method):
             "\(method.rawValue) catch-up to \(main.prefix(8)) succeeded at \(tip.prefix(8))"
+        case .caughtUp(let target, let oldTip, let newTip, let method, let mappings):
+            "\(method.rawValue) catch-up from \(oldTip.prefix(8)) to \(target.prefix(8)) succeeded at " +
+                "\(newTip.prefix(8)) (\(mappings.count) commit mappings)"
         }
     }
 }

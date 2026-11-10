@@ -40,15 +40,61 @@ public struct CatchUpStatus: Sendable {
     public let scanFinding: Finding?
 }
 
-actor CatchUpCoordinator {
+public actor LandingQueue {
+    private let permit = AsyncSemaphore(1)
+
+    public init() {}
+
+    @discardableResult
+    public nonisolated func runLanding<T: Sendable>(
+        _ operation: @Sendable () async throws -> T
+    ) async throws -> T {
+        try await permit.withPermit(operation)
+    }
+}
+
+public struct CatchUpOutcome: Sendable {
+    public let targetMain: String
+    public let oldLandingTip: String
+    public let newLandingTip: String
+    public let method: CatchUpReconciliationMethod
+    public let commitMappings: [String: String]
+    public let status: CatchUpOutcomeStatus
+}
+
+public struct CatchUpOutcomeStatus: Sendable {
+    public let banner: String
+    public let scanFinding: Finding
+}
+
+public actor CatchUpCoordinator {
     private let workspace: RepositoryWorkspace
     private let ledger: Ledger
-    private let tracker: any TicketBoard
+    private let tracker: (any TicketBoard)?
+    private let landingQueue: LandingQueue
 
     init(workspace: RepositoryWorkspace, ledger: Ledger, tracker: any TicketBoard) {
         self.workspace = workspace
         self.ledger = ledger
         self.tracker = tracker
+        landingQueue = LandingQueue()
+    }
+
+    public init(workspace: RepositoryWorkspace, ledger: Ledger, landingQueue: LandingQueue) {
+        self.workspace = workspace
+        self.ledger = ledger
+        tracker = nil
+        self.landingQueue = landingQueue
+    }
+
+    public func catchUp(
+        after baseline: Baseline,
+        acceptanceTests: @escaping @Sendable (URL) async throws -> Bool
+    ) async throws -> CatchUpOutcome? {
+        guard baseline.passed else { return nil }
+        return try await landingQueue.runLanding { [self] in
+            try await performCatchUp(to: baseline.commit, acceptanceTests: acceptanceTests)
+        }
     }
 
     func reconcile(force: Bool = false) async -> String? {
@@ -234,6 +280,7 @@ actor CatchUpCoordinator {
     private func notify(_ ticketFiles: [String: [String]], main: String) async {
         for (ticket, files) in ticketFiles {
             let marker = "Catch-up conflict with main \(main)"
+            guard let tracker else { continue }
             let existing = await tracker.ticket(ticket)
             if existing?.comments.contains(where: { $0.text.contains(marker) }) != true {
                 await tracker.adapter.comment(
@@ -247,7 +294,7 @@ actor CatchUpCoordinator {
     }
 
     private func projectConflict(_ conflict: CatchUpConflict?) async {
-        guard let conflict else { return }
+        guard let conflict, let tracker else { return }
         for ticket in conflict.tickets {
             await tracker.adapter.setStatus(of: ticket, to: "Catch-up conflict")
         }
@@ -349,5 +396,147 @@ actor CatchUpCoordinator {
             throw AgentFailure("git \(arguments.first ?? "") failed: \(result.output.suffix(300))")
         }
         return result.output.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func performCatchUp(
+        to target: String,
+        acceptanceTests: @escaping @Sendable (URL) async throws -> Bool
+    ) async throws -> CatchUpOutcome? {
+        try await workspace.prepare()
+        let oldTip = try await revision(workspace.landingBranch)
+        let base = try await git(["merge-base", oldTip, target], in: workspace.root)
+        let landedCommits = try await commits(from: base, to: oldTip)
+        let represented = try await representedCommits(
+            landedCommits,
+            base: base,
+            oldTip: oldTip,
+            target: target
+        )
+        let method: CatchUpReconciliationMethod
+        if represented.count == landedCommits.count {
+            method = .move
+        } else if represented.isEmpty {
+            method = .rebase
+        } else {
+            method = .merge
+        }
+
+        let directory = workspace.worktreesDirectory.appending(path: "catch-up-proposal-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: workspace.worktreesDirectory, withIntermediateDirectories: true)
+        let proposalStart = method == .move ? target : oldTip
+        try await git(["worktree", "add", "-q", "--detach", directory.path, proposalStart], in: workspace.root)
+        do {
+            let mappings: [String: String]
+            switch method {
+            case .move:
+                mappings = [:]
+            case .merge:
+                try await git([
+                    "-c", "user.name=AgentOS", "-c", "user.email=agentos@agents.agentos.local",
+                    "merge", "-q", "--no-ff", "--no-verify", "-m",
+                    "Catch up \(workspace.landingBranch) with \(workspace.defaultBranch)", target,
+                ], in: directory)
+                mappings = [:]
+            case .rebase:
+                try await git(["rebase", "-q", "--onto", target, base, oldTip], in: directory)
+                let rebased = try await commits(from: target, to: "HEAD", in: directory)
+                guard rebased.count == landedCommits.count else {
+                    throw AgentFailure("Catch-up rebase did not preserve every landed commit.")
+                }
+                mappings = Dictionary(uniqueKeysWithValues: zip(landedCommits, rebased))
+            }
+
+            let newTip = try await revision("HEAD", in: directory)
+            guard try await acceptanceTests(directory) else {
+                try await removeWorktree(directory)
+                return nil
+            }
+            try await git([
+                "update-ref", "-m", "agentos: catch up via \(method.rawValue)",
+                "refs/heads/\(workspace.landingBranch)", newTip, oldTip,
+            ], in: workspace.root)
+            try await removeWorktree(directory)
+            try await ledger.append([
+                LedgerEvent(
+                    node: nil,
+                    by: .adapter("Catch-up"),
+                    kind: .caughtUp(
+                        targetMain: target,
+                        oldLandingTip: oldTip,
+                        newLandingTip: newTip,
+                        method: method,
+                        commitMappings: mappings
+                    )
+                ),
+            ])
+            let title = "\(workspace.landingBranch) caught up to \(target) (\(method.rawValue))"
+            return CatchUpOutcome(
+                targetMain: target,
+                oldLandingTip: oldTip,
+                newLandingTip: newTip,
+                method: method,
+                commitMappings: mappings,
+                status: CatchUpOutcomeStatus(
+                    banner: title,
+                    scanFinding: Finding(check: "repository.catch-up", severity: .info, title: title)
+                )
+            )
+        } catch {
+            try? await removeWorktree(directory)
+            throw error
+        }
+    }
+
+    private func commits(from base: String, to tip: String, in directory: URL? = nil) async throws -> [String] {
+        let output = try await git(["rev-list", "--reverse", "\(base)..\(tip)"], in: directory ?? workspace.root)
+        return output.split(separator: "\n").map(String.init)
+    }
+
+    private func representedCommits(
+        _ landed: [String],
+        base: String,
+        oldTip: String,
+        target: String
+    ) async throws -> Set<String> {
+        if landed.isEmpty {
+            return Set(landed)
+        }
+        if try await isAncestor(oldTip, of: target) {
+            return Set(landed)
+        }
+        let oldTree = try await git(["rev-parse", "\(oldTip)^{tree}"], in: workspace.root)
+        let targetTree = try await git(["rev-parse", "\(target)^{tree}"], in: workspace.root)
+        if oldTree == targetTree {
+            return Set(landed)
+        }
+
+        let targetCommits = try await commits(from: base, to: target)
+        var targetPatchIDs = Set<String>()
+        for commit in targetCommits {
+            if let patchID = try await patchID(of: commit) {
+                targetPatchIDs.insert(patchID)
+            }
+        }
+        var represented = Set<String>()
+        for commit in landed {
+            if try await isAncestor(commit, of: target) {
+                represented.insert(commit)
+            } else if let patchID = try await patchID(of: commit), targetPatchIDs.contains(patchID) {
+                represented.insert(commit)
+            }
+        }
+        return represented
+    }
+
+    private func patchID(of commit: String) async throws -> String? {
+        let result = try await ProcessRunner.run(
+            "/bin/sh",
+            ["-c", "git show --pretty=format: --no-ext-diff \"$1\" | git patch-id --stable", "patch-id", commit],
+            in: workspace.root
+        )
+        guard result.status == 0 else {
+            throw AgentFailure("Could not calculate patch ID for \(commit): \(result.output)")
+        }
+        return result.output.split(separator: " ").first.map(String.init)
     }
 }

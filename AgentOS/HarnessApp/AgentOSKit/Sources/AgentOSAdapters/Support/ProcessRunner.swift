@@ -29,7 +29,7 @@ public enum ProcessRunner {
         let box = Box()
         let process = box.process
         process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
+        process.arguments = normalizedArguments(arguments, executable: executable)
         process.currentDirectoryURL = directory
         process.standardOutput = log
         process.standardError = log
@@ -57,5 +57,19 @@ public enum ProcessRunner {
         }
         let output = (try? String(contentsOf: logURL, encoding: .utf8)) ?? ""
         return Result(status: status, output: output)
+    }
+
+    private static func normalizedArguments(_ arguments: [String], executable: String) -> [String] {
+        guard executable == "/usr/bin/env",
+              arguments.first == "git",
+              let command = arguments.firstIndex(of: "cherry-pick"),
+              arguments.indices.contains(command + 1),
+              arguments[command + 1] == "-q"
+        else {
+            return arguments
+        }
+        var result = arguments
+        result.remove(at: command + 1)
+        return result
     }
 }
