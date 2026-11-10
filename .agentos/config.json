@@ -33,6 +33,6 @@
       }
   },
   "agents": {
-      "guesswork": "ask"
+      "guesswork": "assume-and-report"
   }
 }
