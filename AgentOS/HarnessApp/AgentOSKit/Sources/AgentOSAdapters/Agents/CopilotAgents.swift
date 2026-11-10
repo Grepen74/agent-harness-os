@@ -65,7 +65,7 @@ public struct CopilotCLI: Sendable {
 
     func run(_ prompt: String, in directory: URL, log: URL? = nil, silent: Bool = true) async throws -> String {
         let result = try await ProcessRunner.run(executable, arguments(prompt: prompt, in: directory, silent: silent), in: directory,
-                                                 timeout: timeout, log: log)
+                                                 timeout: timeout, log: log, timeZone: .current)
         guard result.status == 0 else {
             throw AgentFailure("copilot exited with \(result.status): \(result.output.suffix(300))")
         }

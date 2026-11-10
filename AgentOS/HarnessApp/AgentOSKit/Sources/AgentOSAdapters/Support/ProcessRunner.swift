@@ -13,8 +13,23 @@ public enum ProcessRunner {
     /// - `environment`: added to the cleaned environment, e.g. a token for this one command.
     public static func run(_ executable: String, _ arguments: [String], in directory: URL,
                     timeout: Duration = .seconds(1200), log keptLog: URL? = nil,
-                    timeZone: TimeZone = .current,
                     environment extra: [String: String] = [:]) async throws -> Result {
+        try await run(executable, arguments, in: directory, timeout: timeout, log: keptLog,
+                      timeZone: nil, environment: extra)
+    }
+
+    /// Runs a command and timestamps each persisted output line in the supplied time zone.
+    public static func run(_ executable: String, _ arguments: [String], in directory: URL,
+                    timeout: Duration = .seconds(1200), log keptLog: URL? = nil,
+                    timeZone: TimeZone,
+                    environment extra: [String: String] = [:]) async throws -> Result {
+        try await run(executable, arguments, in: directory, timeout: timeout, log: keptLog,
+                      timeZone: Optional(timeZone), environment: extra)
+    }
+
+    private static func run(_ executable: String, _ arguments: [String], in directory: URL,
+                    timeout: Duration, log keptLog: URL?, timeZone: TimeZone?,
+                    environment extra: [String: String]) async throws -> Result {
         let logURL = keptLog ?? FileManager.default.temporaryDirectory.appending(path: "agentos-\(UUID().uuidString).log")
         FileManager.default.createFile(atPath: logURL.path, contents: nil)
         let outputPipe = Pipe()
@@ -67,24 +82,30 @@ public enum ProcessRunner {
     }
 
     private static func collectOutput(from handle: FileHandle, in log: URL,
-                                      timeZone: TimeZone) async throws -> String {
+                                      timeZone: TimeZone?) async throws -> String {
         var output = Data()
         var line = Data()
         for try await byte in handle.bytes {
             output.append(byte)
             if byte == 0x0A {
-                AgentLog.append(String(decoding: line, as: UTF8.self), to: log,
-                                producedAt: .now, timeZone: timeZone)
+                append(String(decoding: line, as: UTF8.self), to: log, timeZone: timeZone)
                 line.removeAll(keepingCapacity: true)
             } else {
                 line.append(byte)
             }
         }
         if !line.isEmpty {
-            AgentLog.append(String(decoding: line, as: UTF8.self), to: log,
-                            producedAt: .now, timeZone: timeZone)
+            append(String(decoding: line, as: UTF8.self), to: log, timeZone: timeZone)
         }
         return String(decoding: output, as: UTF8.self)
+    }
+
+    private static func append(_ line: String, to log: URL, timeZone: TimeZone?) {
+        if let timeZone {
+            AgentLog.append(line, to: log, producedAt: .now, timeZone: timeZone)
+        } else {
+            AgentLog.append(line, to: log)
+        }
     }
 
     private static func normalizedArguments(_ arguments: [String], executable: String) -> [String] {
