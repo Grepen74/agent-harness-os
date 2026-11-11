@@ -643,7 +643,9 @@ public actor Reconciler {
                 try await write(node.id, by: .reconciler, [.flagSet(.escalated, reason: "Couldn't create a child ticket: \(error)")])
                 return "\(node.displayName) breakdown stopped: couldn't create \"\(spec.title)\" → escalated"
             }
-            spec.id = "wn-\(key)"
+            if tracker.createsChildTickets {
+                spec.id = "wn-\(key)"
+            }
             let links = spec.dependsOn.map { TypedLink(from: spec.id, type: .dependsOn, to: $0) }
             try await write(spec.id, by: author, [.nodeCreated(spec: spec, ticket: key)] + links.map { .linkAdded($0) })
         }

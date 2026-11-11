@@ -15,6 +15,8 @@ public struct Signal: Sendable {
 
 /// What the harness needs from any tracker (doc 03). Adapters only translate; they never decide.
 public protocol TrackerAdapter: Sendable {
+    /// Whether child ticket keys determine node IDs; false keeps positional child IDs.
+    var createsChildTickets: Bool { get }
     func pendingSignals() async -> [Signal]
     func ticket(_ key: String) async -> Ticket?
     /// Available ticket snapshots for one-level relationships and sibling titles.
@@ -31,6 +33,7 @@ public protocol TrackerAdapter: Sendable {
 }
 
 extension TrackerAdapter {
+    public var createsChildTickets: Bool { true }
     public func contextTickets() async -> [Ticket] { [] }
     public var contextRepository: String { "" }
 
