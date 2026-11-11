@@ -148,7 +148,7 @@ public actor Reconciler {
             let spec = Planner.rootSpec(for: ticket)
             let answers = (node?.clarifications ?? []) + Self.newPreviewAnswers(on: ticket, for: node)
             let breakdown = try await propose(spec, ticketKey: ticket.key, clarifications: answers, log: nil)
-            let questions = policy.questions(in: breakdown.report)
+            let questions = policy.questions(in: breakdown.report, role: .decomposer)
             guard questions.isEmpty else {
                 // Nothing is recorded: answers in comments below this are read by the next preview, and kept
                 // once the ticket is adopted (breakdown or go).
@@ -509,7 +509,7 @@ public actor Reconciler {
                 await tracker.comment(on: node.ticket, "⚠️ Needs a human: breakdown failed (\(error)). Fix the ticket, then add harness:retry.")
                 return "\(node.displayName) breakdown failed → escalated"
             }
-            let questions = policy.questions(in: breakdown.report)
+            let questions = policy.questions(in: breakdown.report, role: .decomposer)
             guard questions.isEmpty else {
                 return try await raise(questions, on: node, by: author, run: run, role: .decomposer)
             }
@@ -617,7 +617,7 @@ public actor Reconciler {
                 .flagSet(.escalated, reason: "Couldn't write acceptance tests: \(error)")])
             return "\(node.displayName) test authoring failed → escalated"
         }
-        let questions = policy.questions(in: report)
+        let questions = policy.questions(in: report, role: .testAuthor)
         guard questions.isEmpty else {
             // Tests written on a guess aren't kept: the branch starts over once the questions are answered.
             try? await workspace.removeWorktree(for: node.id)
