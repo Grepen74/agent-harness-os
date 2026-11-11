@@ -85,24 +85,61 @@ public enum ProcessRunner {
                                       timeZone: TimeZone?) async throws -> String {
         var output = Data()
         var line = Data()
-        for try await byte in handle.bytes {
-            output.append(byte)
-            if byte == 0x0A {
-                append(String(decoding: line, as: UTF8.self), to: log, timeZone: timeZone)
-                line.removeAll(keepingCapacity: true)
-            } else {
-                line.append(byte)
+        var lastProducedAt = Date.now
+        for await chunk in chunks(from: handle) {
+            output.append(chunk.data)
+            lastProducedAt = chunk.producedAt
+            for byte in chunk.data {
+                if byte == 0x0A {
+                    append(
+                        String(decoding: line, as: UTF8.self),
+                        to: log,
+                        producedAt: chunk.producedAt,
+                        timeZone: timeZone
+                    )
+                    line.removeAll(keepingCapacity: true)
+                } else {
+                    line.append(byte)
+                }
             }
         }
         if !line.isEmpty {
-            append(String(decoding: line, as: UTF8.self), to: log, timeZone: timeZone)
+            append(
+                String(decoding: line, as: UTF8.self),
+                to: log,
+                producedAt: lastProducedAt,
+                timeZone: timeZone
+            )
         }
         return String(decoding: output, as: UTF8.self)
     }
 
-    private static func append(_ line: String, to log: URL, timeZone: TimeZone?) {
+    private struct OutputChunk: Sendable {
+        let data: Data
+        let producedAt: Date
+    }
+
+    private static func chunks(from handle: FileHandle) -> AsyncStream<OutputChunk> {
+        AsyncStream { continuation in
+            handle.readabilityHandler = { readableHandle in
+                let data = readableHandle.availableData
+                guard !data.isEmpty else {
+                    readableHandle.readabilityHandler = nil
+                    continuation.finish()
+                    return
+                }
+                continuation.yield(OutputChunk(data: data, producedAt: .now))
+            }
+            continuation.onTermination = { @Sendable _ in
+                handle.readabilityHandler = nil
+            }
+        }
+    }
+
+    private static func append(_ line: String, to log: URL, producedAt: Date,
+                               timeZone: TimeZone?) {
         if let timeZone {
-            AgentLog.append(line, to: log, producedAt: .now, timeZone: timeZone)
+            AgentLog.append(line, to: log, producedAt: producedAt, timeZone: timeZone)
         } else {
             AgentLog.append(line, to: log)
         }
