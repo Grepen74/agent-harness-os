@@ -58,6 +58,8 @@ public struct NodeState: Sendable, Identifiable {
     public var testsDigest: String?
     public var expectedAPI: [String] = []
     public var brokenTestReports: [BrokenTestReport] = []
+    /// The newest problem with this node's acceptance tests (broken-test report or failed compile), for the test author.
+    public var latestTestFeedback: String?
     /// The claim: at most one agent run per node at a time.
     public var activeRun: ActiveRun?
     public var lastSubmission: Submission?
@@ -244,7 +246,9 @@ public struct WorkingState: Sendable {
             node.recentFailures = []
         case .testsFixed(let digest): node.testsDigest = digest
         case .expectedAPIReported(let api): node.expectedAPI = api
-        case .brokenTestReported(let report): node.brokenTestReports.append(report)
+        case .brokenTestReported(let report):
+            node.brokenTestReports.append(report)
+            node.latestTestFeedback = report.reason
         case .runStarted(let run, let role): node.activeRun = ActiveRun(run: run, role: role, since: event.at)
         case .runFinished: node.activeRun = nil
         case .changeSubmitted(let run, let commit):
@@ -277,6 +281,7 @@ public struct WorkingState: Sendable {
             node.landingRerunPending = false
         case .acceptanceTestPreflightFailed(let evidence):
             node.evidence.append(evidence)
+            node.latestTestFeedback = evidence.details ?? evidence.summary
         case .evidenceRecorded(let evidence):
             node.evidence.append(evidence)
             if !evidence.passed && evidence.failureClassification != .runnerCrash {

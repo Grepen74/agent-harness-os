@@ -143,6 +143,8 @@ public struct Evidence: Codable, Sendable, Hashable {
     public var commit: String
     /// Why a failed check is attributed to the agent. Older and passing evidence has no classification.
     public var failureClassification: FailureClassification? = nil
+    /// More than the one-line summary, for the agent that has to fix it. Older evidence has none.
+    public var details: String? = nil
 }
 
 /// Requests a human can make through a label (doc 05). Labels are one-time requests.

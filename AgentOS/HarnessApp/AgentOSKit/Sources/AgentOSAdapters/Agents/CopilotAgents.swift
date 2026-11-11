@@ -343,7 +343,8 @@ public struct CopilotImplementer: Implementer {
         If an acceptance test itself is impossible or contradicts the available public contract, report a broken \
         acceptance test instead of changing it or working around it. Write \(AgentReportFile.name) as \
         {"questions": [], "assumptions": [], "brokenTest": \
-        {"testName": string, "reason": string}}. Otherwise the report may be omitted.
+        {"testName": string, "reason": string}}. Name the test as Suite.testName (for example FlowTests.someTest), \
+        so the harness can tell this item's tests from other work's. Otherwise the report may be omitted.
 
         \(CopilotCLI.dataBlock(task.spec))
         \(CopilotCLI.contextBlock(task.agentContext, includeComments: false))
