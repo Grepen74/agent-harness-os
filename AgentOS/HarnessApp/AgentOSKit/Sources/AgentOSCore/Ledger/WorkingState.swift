@@ -11,6 +11,11 @@ public struct Submission: Sendable, Hashable {
     public let commit: String
 }
 
+public struct SuggestedAnswers: Sendable {
+    public let questions: [AgentQuestion]
+    public let reportedAt: Date
+}
+
 public struct Preview: Sendable, Hashable {
     public let number: Int
     public let specHash: String
@@ -76,6 +81,7 @@ public struct NodeState: Sendable, Identifiable {
     public var openQuestions: [AgentQuestion] = []
     /// Choices agents made themselves, per role (the decomposer's for a breakdown, the test author's for tests).
     public var assumptions: [AgentRole: [String]] = [:]
+    public var suggestedAnswers: [AgentRole: SuggestedAnswers] = [:]
     /// Answers people gave on this node's ticket.
     public var clarifications: [Clarification] = []
 
@@ -271,6 +277,8 @@ public struct WorkingState: Sendable {
             node.landingRerunPending = false
         case .questionsRaised(_, let questions): node.openQuestions = questions
         case .assumptionsReported(let role, let assumptions): node.assumptions[role] = assumptions.isEmpty ? nil : assumptions
+        case .suggestionsReported(let role, let questions):
+            node.suggestedAnswers[role] = questions.isEmpty ? nil : SuggestedAnswers(questions: questions, reportedAt: event.at)
         case .questionsAnswered(let clarification):
             node.clarifications.append(clarification)
             node.openQuestions = []

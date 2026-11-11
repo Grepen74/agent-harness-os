@@ -102,6 +102,8 @@ public enum EventKind: Codable, Sendable {
     case questionsRaised(role: AgentRole, questions: [AgentQuestion])
     /// Choices an agent made itself; replaces that role's earlier assumptions for the node.
     case assumptionsReported(role: AgentRole, assumptions: [String])
+    /// Numbered answers followed autonomously by this run; an empty list retires earlier suggestions.
+    case suggestionsReported(role: AgentRole, questions: [AgentQuestion])
     /// A person's answer, from the ticket. Agents working on the node or below it get it from now on.
     case questionsAnswered(Clarification)
 
@@ -221,6 +223,8 @@ extension EventKind {
             "\(role.rawValue) asks: \(questions.map(\.question).joined(separator: " · "))"
         case .assumptionsReported(let role, let assumptions):
             assumptions.isEmpty ? "\(role.rawValue) made no assumptions" : "\(role.rawValue) assumed: \(assumptions.joined(separator: " · "))"
+        case .suggestionsReported(let role, let questions):
+            "\(role.rawValue) proceeded on \(questions.count) suggested answers"
         case .questionsAnswered(let clarification): "answered: \(clarification.answer.prefix(120))"
         case .readinessScanned(let scan):
             "readiness scan of \(scan.branch ?? "?") at \((scan.commit ?? "?").prefix(8)): \(scan.summary)"

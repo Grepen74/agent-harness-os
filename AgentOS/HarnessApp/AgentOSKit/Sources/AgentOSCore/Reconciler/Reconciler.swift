@@ -203,8 +203,15 @@ public actor Reconciler {
             return "build approved for \(node.spec.id) and everything below it" + (try await approve(reviews, by: person))
 
         case .retry:
+            if let node, !node.suggestedAnswers.isEmpty {
+                return try await correctSuggestion(on: node, ticket: ticket, in: state)
+            }
             if let node, node.flags[.needsInput] != nil {
                 return try await resume(node, answeredOn: ticket, by: person)
+            }
+            if let node, let comment = ticket.comments.last, comment.author.isHuman,
+               comment.text.firstMatch(of: /^\s*\d+\s*:/) != nil {
+                return try await correctSuggestion(on: node, ticket: ticket, in: state)
             }
             guard let node, node.flags[.escalated] != nil else {
                 throw Rejection(reason: "Nothing to retry. \(HarnessCommand.retry.label) only continues work that stopped: " +
@@ -241,6 +248,55 @@ public actor Reconciler {
             return "adopted; breakdown and build approved: it will be broken down, built and checked without stopping\n"
                 + spec.trackerSummary
         }
+    }
+
+    private func correctSuggestion(on node: NodeState, ticket: Ticket, in state: WorkingState) async throws -> String {
+        let guidance = "Identify a current suggestion by number: comment '<number>: <correct answer>', " +
+            "then add harness:retry. Old suggestion numbers cannot correct a replacement run."
+        guard let (role, suggestions) = node.suggestedAnswers.max(by: { $0.value.reportedAt < $1.value.reportedAt }),
+              let comment = ticket.comments.last(where: { $0.author.isHuman && $0.at >= suggestions.reportedAt }) else {
+            throw Rejection(reason: guidance)
+        }
+        let parts = comment.text.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2,
+              let number = Int(parts[0].trimmingCharacters(in: .whitespacesAndNewlines)),
+              number > 0, number <= suggestions.questions.count else {
+            throw Rejection(reason: guidance)
+        }
+        let answer = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !answer.isEmpty else { throw Rejection(reason: guidance) }
+
+        if role == .decomposer, let started = state.subtree(of: node.id).first(where: Self.hasStartedBuilding) {
+            throw Rejection(reason: "Building has started on \(workLink(started)), so this breakdown cannot be corrected. " +
+                "Open a follow-up ticket for the corrected work.")
+        }
+        if role == .testAuthor, node.landedCommit != nil || node.phase == .proven {
+            throw Rejection(reason: "\(workLink(node)) has already landed and cannot be changed. " +
+                "Open a follow-up ticket for the corrected work.")
+        }
+        guard node.activeRun == nil else {
+            throw Rejection(reason: "An agent is still running on \(workLink(node)). Wait for it to finish, then add harness:retry.")
+        }
+        if role == .testAuthor { try await workspace.removeWorktree(for: node.id) }
+        var spec = node.spec
+        if role == .decomposer { spec.kind = .composite }
+        // Replanning preserves clarifications and children; restore only gates the person already approved.
+        let kinds: [EventKind] = [
+            .questionsAnswered(Clarification(questions: [suggestions.questions[number - 1].question], answer: answer)),
+            .replanned(spec: spec),
+        ] + Gate.allCases.filter(node.gates.contains).map { .gateOpened($0) }
+        try await write(node.id, by: comment.author, kinds, expecting: node.version)
+        return role == .decomposer
+            ? "correction recorded; decomposition will rerun, retaining unchanged children and their tests and approvals"
+            : "correction recorded; the old working copy was discarded and test authoring will restart from the latest landing branch"
+    }
+
+    private func workLink(_ node: NodeState) -> String {
+        if node.ticket.hasPrefix("GH-"), let number = Int(node.ticket.dropFirst(3)),
+           !tracker.contextRepository.isEmpty {
+            return "[\(node.displayName)](https://github.com/\(tracker.contextRepository)/issues/\(number))"
+        }
+        return "[\(node.displayName)](\(workspace.worktree(for: node.id).absoluteString))"
     }
 
     /// Discards an obsolete leaf worktree and starts test authoring again from the latest landing branch.
@@ -553,7 +609,7 @@ public actor Reconciler {
             guard questions.isEmpty else {
                 return try await raise(questions, on: node, by: author, run: run, role: .decomposer)
             }
-            await postProceedingOnSuggestions(breakdown.report.questions, on: node.ticket)
+            try await recordSuggestions(breakdown.report.questions, on: node, role: .decomposer, by: author)
             proposed = Planner.childSpecs(parent: node.spec, proposals: breakdown.children)
             assumptions = policy.assumptions(in: breakdown.report)
             try await write(node.id, by: author, [.runFinished(run: run, outcome: "proposed \(proposed.count) children")]
@@ -665,7 +721,7 @@ public actor Reconciler {
             try? await workspace.removeWorktree(for: node.id)
             return try await raise(questions, on: node, by: author, run: run, role: .testAuthor)
         }
-        await postProceedingOnSuggestions(report.questions, on: node.ticket)
+        try await recordSuggestions(report.questions, on: node, role: .testAuthor, by: author)
         let assumptions = policy.assumptions(in: report)
         let testFiles: [String]
         do {
@@ -848,6 +904,13 @@ public actor Reconciler {
             \(Self.numbered(questions))
             To correct one, comment with its number and the corrected answer, then add harness:retry.
             """)
+    }
+
+    private func recordSuggestions(_ questions: [AgentQuestion], on node: NodeState,
+                                   role: AgentRole, by author: Participant) async throws {
+        let suggestions = questions.allSatisfy { $0.suggestion != nil } ? questions : []
+        try await write(node.id, by: author, [.suggestionsReported(role: role, questions: suggestions)])
+        await postProceedingOnSuggestions(suggestions, on: node.ticket)
     }
 
     /// An empty string without assumptions; otherwise a section to append to a comment.
