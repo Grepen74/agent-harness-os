@@ -107,7 +107,8 @@ extension WorkingState {
         if node.flags[.escalated] != nil { return "Needs human" }
         if node.flags[.needsInput] != nil { return "Needs input" }
         if node.flags[.blocked] != nil { return "Blocked" }
-        if let parent = node.spec.parent.flatMap({ nodes[$0] }), parent.phase != .split { return "Paused" }
+        // A replanned parent holds its old children until its new breakdown; a proven parent holds nothing.
+        if let parent = node.spec.parent.flatMap({ nodes[$0] }), parent.phase != .split, parent.phase != .proven { return "Paused" }
         switch node.phase {
         case .specified:
             // Adopted without any gate only after `harness:replan`: it waits for preview, breakdown or go.

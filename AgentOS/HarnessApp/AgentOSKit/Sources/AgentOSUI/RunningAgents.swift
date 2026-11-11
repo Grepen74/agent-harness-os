@@ -166,10 +166,9 @@ struct Changes: View {
 
 private extension View {
     func outputWindowPresentation(_ presentation: OutputWindowPresentation) -> some View {
+        // No minimum here: TextSheet's own minimum keeps the header and Done button from being clipped.
         frame(
-            minWidth: presentation.resizeAxes.contains(.horizontal) ? 0 : nil,
             maxWidth: presentation.resizeAxes.contains(.horizontal) ? .infinity : nil,
-            minHeight: presentation.resizeAxes.contains(.vertical) ? 0 : nil,
             maxHeight: presentation.resizeAxes.contains(.vertical) ? .infinity : nil
         )
     }
@@ -241,6 +240,7 @@ struct TextSheet<Extra: View>: View {
         }
         .padding(12)
         .frame(minWidth: 640, idealWidth: 820, minHeight: 420, idealHeight: 600)
+        .onExitCommand { dismiss() }
     }
 }
 

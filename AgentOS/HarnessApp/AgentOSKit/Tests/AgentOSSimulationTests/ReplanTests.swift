@@ -100,6 +100,18 @@ struct ReplanTests {
         #expect(await childTickets(of: "APP-1", in: sim).count == 3)
     }
 
+    @Test func childrenOfAProvenParentShowDoneNotPaused() async throws {
+        let sim = try makeSimulation()
+        await sim.tracker.createTicket(title: "Greetings", description: "Say hi and bye",
+                                       acceptanceCriteria: ["Says hello", "Says goodbye"], by: alice)
+        await sim.signal(.go, "APP-1")
+        await sim.runUntilIdle()
+        #expect(await sim.node("APP-1")?.phase == .proven)
+        let children = await childTickets(of: "APP-1", in: sim)
+        #expect(!children.isEmpty)
+        for key in children { #expect(await sim.tracker.ticket(key)?.status == "Done") }
+    }
+
     @Test func aTicketBlockedByAnotherWaitsUntilThatOneIsProven() async throws {
         let sim = try makeSimulation()
         await sim.tracker.createTicket(title: "Greeting", description: "Say hi", acceptanceCriteria: ["Says hello"], by: alice)

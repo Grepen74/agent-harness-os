@@ -305,7 +305,8 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
                 return item
             }
         }
-        for line in body.replacingOccurrences(of: "\r\n", with: "\n").split(separator: "\n", omittingEmptySubsequences: false) {
+        let lines = body.replacingOccurrences(of: "\r\n", with: "\n").split(separator: "\n", omittingEmptySubsequences: false)
+        for (index, line) in lines.enumerated() {
             let text = line.trimmingCharacters(in: .whitespaces)
             let lower = text.lowercased()
             if text == marker { result.byHarness = true; continue }
@@ -345,6 +346,7 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
                     result.criteria.append(item)
                     continue
                 }
+                if isGroupLabel(text, before: lines[(index + 1)...]) { continue }
                 inCriteria = false
             }
             kept.append(String(line))
@@ -352,6 +354,14 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
         result.description = kept.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "\n\n\n+", with: "\n\n", options: .regularExpression)
         return result
+    }
+
+    /// A short line grouping the criteria that follow it, e.g. "Configuration" or "#### Reviewing tests", rather
+    /// than text after the list: the next non-empty line is another criterion.
+    private static func isGroupLabel(_ text: String, before rest: ArraySlice<Substring>) -> Bool {
+        guard text.count <= 80, !text.hasSuffix("."), !text.hasSuffix("!"), !text.hasSuffix("?") else { return false }
+        guard let next = rest.first(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) else { return false }
+        return listItem(next.trimmingCharacters(in: .whitespaces)) != nil
     }
 
     /// The text of a list item (`- x`, `* x`, `1. x`, `- [ ] x`), or nil.

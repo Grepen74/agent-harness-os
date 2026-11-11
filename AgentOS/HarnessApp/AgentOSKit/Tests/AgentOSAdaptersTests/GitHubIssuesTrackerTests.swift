@@ -177,6 +177,23 @@ private actor FakeGitHub: GitHubTransport {
         #expect(empty == .init(description: "Do it.", criteria: ["A"], blockedBy: [], parent: nil, summary: nil, byHarness: false))
     }
 
+    @Test func criteriaGroupedUnderLabelsAreAllRead() {
+        let parsed = GitHubIssuesTracker.parse(body: """
+            ### Acceptance criteria
+
+            Configuration
+            - [ ] A
+
+            #### Reviewing tests
+            - [ ] B
+            - [ ] C
+
+            Thanks.
+            """)
+        #expect(parsed.criteria == ["A", "B", "C"])
+        #expect(parsed.description == "Thanks.")
+    }
+
     @Test func theBodyItWritesReadsBack() {
         let body = GitHubIssuesTracker.body(description: "Do it.", criteria: ["A", "B"], blockedBy: ["X-1"], parent: 3,
                                             summary: "Work node: wn-1.1 · kind: leaf", byHarness: true)
