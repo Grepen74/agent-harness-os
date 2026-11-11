@@ -410,7 +410,11 @@ public actor Reconciler {
     /// compare-and-swap on the node's version. Actions are reported in node order, whatever finished first.
     private func advanceAll(_ report: inout RoundReport) async {
         agentRuns.removeAll()
-        let order = await ledger.workingState().creationOrder
+        let state = await ledger.workingState()
+        let order = state.creationOrder.filter { id in
+            guard let parent = state.nodes[id]?.spec.parent else { return true }
+            return state.nodes[parent]?.phase == .split
+        }
         let limit = max(1, policy.maxParallelAgents)
         var actions: [Int: String] = [:]
         await withTaskGroup(of: (Int, String?).self) { group in
@@ -490,7 +494,11 @@ public actor Reconciler {
         var assumptions: [String] = []
         if let preview = state.previews[node.ticket], preview.specHash == node.spec.specHash {
             // What you saw is what you get: no regeneration (doc 05 §3).
-            proposed = preview.proposal
+            proposed = preview.proposal.map { spec in
+                var child = spec
+                child.parent = node.id
+                return child
+            }
             author = .reconciler
         } else {
             let run = Self.newRunID()
@@ -537,8 +545,8 @@ public actor Reconciler {
             return "\(node.displayName) passed the leaf check: built as one leaf"
         }
 
-        for spec in children {
-            // Child ids are deterministic: after a failed attempt, the ones already created are kept.
+        for var spec in children {
+            // Revision matches existing children independently of their ticket-derived IDs.
             if await ledger.workingState().nodes[spec.id] != nil { continue }
             let key: String
             do {
@@ -547,6 +555,7 @@ public actor Reconciler {
                 try await write(node.id, by: .reconciler, [.flagSet(.escalated, reason: "Couldn't create a child ticket: \(error)")])
                 return "\(node.displayName) breakdown stopped: couldn't create \"\(spec.title)\" → escalated"
             }
+            spec.id = "wn-\(key)"
             let links = spec.dependsOn.map { TypedLink(from: spec.id, type: .dependsOn, to: $0) }
             try await write(spec.id, by: author, [.nodeCreated(spec: spec, ticket: key)] + links.map { .linkAdded($0) })
         }
