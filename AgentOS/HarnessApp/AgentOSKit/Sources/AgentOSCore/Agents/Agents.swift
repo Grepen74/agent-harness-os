@@ -21,10 +21,13 @@ public struct AgentTask: Sendable {
     /// Questions people already answered for this node or its parents.
     public let clarifications: [Clarification]
     public let guesswork: Guesswork
+    /// Public production symbols the acceptance-test author expects the implementation to provide.
+    public let expectedAPI: [String]
 
     public init(spec: NodeSpec, run: RunID, directory: URL, testFolder: String, context: String = "", attempt: Int = 1,
                 previousFailure: String? = nil, simulationHints: Set<String> = [], log: URL? = nil,
-                clarifications: [Clarification] = [], guesswork: Guesswork = .assumeAndReport) {
+                clarifications: [Clarification] = [], guesswork: Guesswork = .assumeAndReport,
+                expectedAPI: [String] = []) {
         self.spec = spec
         self.run = run
         self.directory = directory
@@ -36,6 +39,17 @@ public struct AgentTask: Sendable {
         self.log = log
         self.clarifications = clarifications
         self.guesswork = guesswork
+        self.expectedAPI = expectedAPI
+    }
+}
+
+public struct BrokenTestReport: Codable, Sendable, Hashable {
+    public var testName: String
+    public var reason: String
+
+    public init(testName: String, reason: String) {
+        self.testName = testName
+        self.reason = reason
     }
 }
 
@@ -45,16 +59,29 @@ public struct AgentReport: Codable, Sendable, Hashable {
     public var questions: [String]
     /// Choices the agent made itself, for a reviewer to see.
     public var assumptions: [String]
+    /// Public symbols the tests require from the implementation.
+    public var expectedAPI: [String]
+    /// An acceptance test the implementer cannot satisfy because its contract is broken.
+    public var brokenTest: BrokenTestReport?
 
-    public init(questions: [String] = [], assumptions: [String] = []) {
+    public init(
+        questions: [String] = [],
+        assumptions: [String] = [],
+        expectedAPI: [String] = [],
+        brokenTest: BrokenTestReport? = nil
+    ) {
         self.questions = questions
         self.assumptions = assumptions
+        self.expectedAPI = expectedAPI
+        self.brokenTest = brokenTest
     }
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         questions = try container.decodeIfPresent([String].self, forKey: .questions) ?? []
         assumptions = try container.decodeIfPresent([String].self, forKey: .assumptions) ?? []
+        expectedAPI = try container.decodeIfPresent([String].self, forKey: .expectedAPI) ?? []
+        brokenTest = try container.decodeIfPresent(BrokenTestReport.self, forKey: .brokenTest)
     }
 }
 
@@ -159,7 +186,8 @@ public protocol TestAuthor: Sendable {
 
 /// Changes the code in the components it touches. Can only submit; never decides it's done (builder ≠ checker).
 public protocol Implementer: Sendable {
-    func implement(_ task: AgentTask) async throws
+    associatedtype ImplementationReport: Sendable
+    func implement(_ task: AgentTask) async throws -> ImplementationReport
 }
 
 /// There is no verifier agent protocol: in the mock, verification is plain checks run by the harness

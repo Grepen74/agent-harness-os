@@ -35,6 +35,11 @@ public struct LandedWorkItem: Codable, Sendable, Equatable {
     }
 }
 
+public enum BrokenTestRoutingOutcome: String, Codable, Sendable {
+    case sentBackToTestAuthor
+    case waitingForPerson
+}
+
 public enum EventKind: Codable, Sendable {
     // Signals (doc 05): recorded whether accepted or not, for the audit trail.
     case signalAccepted(ticket: String, command: HarnessCommand, reply: String)
@@ -65,6 +70,9 @@ public enum EventKind: Codable, Sendable {
     // Work
     /// Fingerprint of the node's acceptance tests; nobody may change them afterwards.
     case testsFixed(digest: String)
+    case expectedAPIReported([String])
+    case brokenTestReported(BrokenTestReport)
+    case brokenTestRouted(testName: String, outcome: BrokenTestRoutingOutcome)
     /// Claim + intent: written BEFORE the agent starts, so a crash can't run it twice unnoticed (doc 07 §3).
     case runStarted(run: RunID, role: AgentRole)
     case runFinished(run: RunID, outcome: String)
@@ -183,6 +191,12 @@ extension EventKind {
         case .flagCleared(let flag): "⚑ \(flag.rawValue) cleared"
         case .attemptsReset: "attempts reset"
         case .testsFixed(let digest): "acceptance tests fixed (\(digest.prefix(8)))"
+        case .expectedAPIReported(let api): "acceptance-test API: \(api.joined(separator: ", "))"
+        case .brokenTestReported(let report): "reported a broken test: \(report.testName) – \(report.reason)"
+        case .brokenTestRouted(let testName, let outcome):
+            outcome == .sentBackToTestAuthor
+                ? "broken test \(testName) sent back to the test author"
+                : "broken test \(testName) waiting for a person"
         case .runStarted(let run, let role): "\(role.rawValue) run \(run) started"
         case .runFinished(let run, let outcome): "run \(run) finished: \(outcome)"
         case .changeSubmitted(let run, let commit): "change submitted by \(run) (\(commit.prefix(8)))"

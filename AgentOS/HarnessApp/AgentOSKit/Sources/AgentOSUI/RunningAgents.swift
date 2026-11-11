@@ -313,7 +313,7 @@ struct AgentRuns: View {
     }
 
     /// Agent runs only: checks are the verifier's, and their logs are already listed as evidence.
-    static func runs(of node: NodeID, in records: [RecordedEvent]) -> [Item] {
+    nonisolated static func runs(of node: NodeID, in records: [RecordedEvent]) -> [Item] {
         var items: [Item] = []
         for record in records where record.event.node == node {
             switch record.event.kind {

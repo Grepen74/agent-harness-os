@@ -112,7 +112,7 @@ public struct CopilotCLI: Sendable {
     }
 }
 
-/// What an agent reports besides its work: `{"questions": [...], "assumptions": [...]}`.
+/// What an agent reports besides its work.
 struct AgentReportFile {
     static let name = ".agentos-report.json"
 
@@ -124,7 +124,7 @@ struct AgentReportFile {
         do {
             return try JSONDecoder().decode(AgentReport.self, from: Data(contentsOf: url))
         } catch {
-            throw AgentFailure("\(name) isn't a JSON object with questions and assumptions: \(error)")
+            throw AgentFailure("\(name) isn't a valid agent report JSON object: \(error)")
         }
     }
 }
@@ -216,8 +216,9 @@ public struct CopilotTestAuthor: TestAuthor {
         Do not run the tests.
 
         \(CopilotCLI.guessingRules(task.guesswork)) Report them in \(AgentReportFile.name) at the top of your \
-        working directory, as {"questions": [string], "assumptions": [string]}. If you have questions, write \
-        only that report and no tests.
+        working directory, as {"questions": [string], "assumptions": [string], "expectedAPI": [string]}. \
+        List the public production symbols and signatures your tests expect in expectedAPI. If you have questions, \
+        write only that report and no tests.
 
         \(CopilotCLI.dataBlock(task.spec))\(CopilotCLI.answersBlock(task.clarifications))
         """
@@ -229,8 +230,11 @@ public struct CopilotTestAuthor: TestAuthor {
 public struct CopilotImplementer: Implementer {
     let cli: CopilotCLI
 
-    public func implement(_ task: AgentTask) async throws {
+    public func implement(_ task: AgentTask) async throws -> AgentReport {
         let failure = task.previousFailure.map { "\nThe previous attempt failed verification with: \($0)\n" } ?? ""
+        let expected = task.expectedAPI.isEmpty
+            ? ""
+            : "\nThe test author expects these public APIs:\n" + task.expectedAPI.map { "- \($0)" }.joined(separator: "\n") + "\n"
         let prompt = """
         You are the implementer agent in an agent harness. \(task.context)
 
@@ -238,10 +242,15 @@ public struct CopilotImplementer: Implementer {
         \(task.spec.touches.joined(separator: ", ")). The tests are READ-ONLY: changing any test makes your work \
         fail verification, and so does changing the agents' instruction files. Other work items' tests must keep \
         passing too. Run the tests before finishing. You only submit; an independent verifier decides if it's done.
-        \(failure)
+        \(failure)\(expected)
+        If an acceptance test itself is impossible or contradicts the available public contract, do not change it. \
+        Write \(AgentReportFile.name) as {"questions": [], "assumptions": [], "brokenTest": \
+        {"testName": string, "reason": string}}. Otherwise the report may be omitted.
+
         \(CopilotCLI.dataBlock(task.spec))
         """
         _ = try await cli.run(prompt, in: task.directory, log: task.log, silent: false)
+        return try AgentReportFile.take(from: task.directory)
     }
 }
 

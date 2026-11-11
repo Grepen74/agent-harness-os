@@ -422,7 +422,7 @@ public actor Reconciler {
             return "\(node.ticket) proven (all children proven)"
 
         case (.leaf, .specified):
-            guard state.hasGate(.breakdown, at: node.id) else { return nil }
+            guard state.hasGate(.breakdown, at: node.id) || state.hasGate(.build, at: node.id) else { return nil }
             return try await authorTests(node)
 
         case (.leaf, .ready):
@@ -604,6 +604,7 @@ public actor Reconciler {
         let reviewReason = "Review the acceptance tests and assumptions, then add harness:build"
         try await write(node.id, by: author, [
             .runFinished(run: run, outcome: "acceptance tests committed"), .testsFixed(digest: testsDigest(node, in: directory)),
+            .expectedAPIReported(report.expectedAPI),
             .assumptionsReported(role: .testAuthor, assumptions: report.assumptions), .phaseChanged(to: .ready)]
             + (review ? [.flagSet(.needsInput, reason: reviewReason)] : []))
         let reviewNote = review ? """
@@ -680,7 +681,13 @@ public actor Reconciler {
         do {
             try await workspace.prepareBuild(in: directory)
             let task = await makeTask(node, run: run, in: directory, log: agentLog(node, run))
-            try await watchingUserGitState(node, run: run) { try await team.implementer.implement(task) }
+            let implementationResult = try await watchingUserGitState(node, run: run) {
+                try await team.implementer.implement(task)
+            }
+            let report = implementationResult as? AgentReport ?? AgentReport()
+            if let brokenTest = report.brokenTest {
+                return try await routeBrokenTest(brokenTest, from: node, run: run, author: author, directory: directory)
+            }
             guard let commit = try await workspace.commitAll(
                 in: directory,
                 message: "\(node.spec.id): \(node.spec.title)",
@@ -708,6 +715,76 @@ public actor Reconciler {
             try await write(node.id, by: author, [
                 .runFinished(run: run, outcome: "failed"), .attemptFailed(summary: "\(error)"), .phaseChanged(to: .ready)])
             return try await escalateIfNeeded(node.id) ?? "\(node.ticket) implementer failed (\(error)); will retry"
+        }
+    }
+
+    private func routeBrokenTest(
+        _ report: BrokenTestReport,
+        from node: NodeState,
+        run: RunID,
+        author: Participant,
+        directory: URL
+    ) async throws -> String {
+        try await workspace.resetForRework(directory)
+        if await testsWereAlreadyReworkedAfterBrokenReport(node.id) {
+            let reports = node.brokenTestReports + [report]
+            let details = reports.map { "\($0.testName): \($0.reason)" }.joined(separator: "\n")
+            let reason = """
+            The test author already reworked these tests after a broken-test report:
+            \(details)
+            Next: a person should review both reports, comment with guidance, then add harness:retry.
+            """
+            try await write(node.id, by: author, [
+                .runFinished(run: run, outcome: "reported a broken test: \(report.testName)"),
+                .brokenTestReported(report),
+                .brokenTestRouted(testName: report.testName, outcome: .waitingForPerson),
+                .phaseChanged(to: .ready),
+                .flagSet(.needsInput, reason: reason),
+            ])
+            await tracker.comment(on: node.ticket, """
+                ⚠️ Broken acceptance test \(report.testName): \(report.reason)
+                waiting for a person: the test author already reworked these tests.
+                \(reason)
+                """)
+            return "\(node.ticket) broken test \(report.testName) → waiting for a person"
+        }
+
+        try await write(node.id, by: author, [
+            .runFinished(run: run, outcome: "reported a broken test: \(report.testName)"),
+            .brokenTestReported(report),
+            .brokenTestRouted(testName: report.testName, outcome: .sentBackToTestAuthor),
+            .phaseChanged(to: .specified),
+        ])
+        await tracker.comment(on: node.ticket, """
+            🔁 Broken acceptance test \(report.testName): \(report.reason)
+            sent back to the test author.
+            """)
+        return "\(node.ticket) broken test \(report.testName) → sent back to the test author"
+    }
+
+    private func testsWereAlreadyReworkedAfterBrokenReport(_ id: NodeID) async -> Bool {
+        let records = await ledger.allRecords().filter { $0.event.node == id }
+        guard let testsFixed = records.last(where: {
+            if case .testsFixed = $0.event.kind { return true }
+            return false
+        }), let previousReport = records.last(where: {
+            guard $0.position < testsFixed.position else { return false }
+            if case .brokenTestReported = $0.event.kind { return true }
+            return false
+        }) else {
+            return false
+        }
+        return !records.contains {
+            guard $0.position > previousReport.position else { return false }
+            guard case .human = $0.event.by else { return false }
+            switch $0.event.kind {
+            case .questionsAnswered:
+                return true
+            case .signalAccepted(_, let command, _):
+                return command == .retry
+            default:
+                return false
+            }
         }
     }
 
@@ -911,8 +988,10 @@ public actor Reconciler {
         return AgentTask(
             spec: node.spec, run: run, directory: directory, testFolder: workspace.testFolder(for: node.spec),
             context: workspace.agentContext, attempt: node.failedAttempts + 1,
-            previousFailure: node.recentFailures.last, simulationHints: Set(labels.filter { $0.hasPrefix("sim:") }), log: log,
-            clarifications: state.clarifications(for: node.id), guesswork: policy.guesswork)
+            previousFailure: node.brokenTestReports.last?.reason ?? node.recentFailures.last,
+            simulationHints: Set(labels.filter { $0.hasPrefix("sim:") }), log: log,
+            clarifications: state.clarifications(for: node.id), guesswork: policy.guesswork,
+            expectedAPI: node.expectedAPI)
     }
 
     private func testsDigest(_ node: NodeState, in directory: URL) -> String {
