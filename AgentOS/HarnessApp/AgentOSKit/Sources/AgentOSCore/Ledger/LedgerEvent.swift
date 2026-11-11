@@ -18,6 +18,23 @@ public struct LedgerEvent: Codable, Sendable {
     }
 }
 
+public enum PassingCheckKind: String, Codable, Sendable, Equatable {
+    case preCheck
+    case landingCheck
+}
+
+public struct LandedWorkItem: Codable, Sendable, Equatable {
+    public let ticket: String
+    public let title: String
+    public let commit: String
+
+    public init(ticket: String, title: String, commit: String) {
+        self.ticket = ticket
+        self.title = title
+        self.commit = commit
+    }
+}
+
 public enum EventKind: Codable, Sendable {
     // Signals (doc 05): recorded whether accepted or not, for the audit trail.
     case signalAccepted(ticket: String, command: HarnessCommand, reply: String)
@@ -53,6 +70,10 @@ public enum EventKind: Codable, Sendable {
     case runFinished(run: RunID, outcome: String)
     case changeSubmitted(run: RunID, commit: String)
     case attemptFailed(summary: String)
+    /// The main commit beneath a successful branch or landing check.
+    case passingCheckRecorded(kind: PassingCheckKind, mainCommit: String)
+    /// A landing failure attributed to work that landed after the last passing check.
+    case mainMovedRework(oldMainCommit: String, newMainCommit: String, landedWork: [LandedWorkItem])
     case evidenceRecorded(Evidence)
     /// A failed landing check whose implementation gets one rework before the failure is attributed.
     case landingReworkNeeded(Evidence)
@@ -166,6 +187,10 @@ extension EventKind {
         case .runFinished(let run, let outcome): "run \(run) finished: \(outcome)"
         case .changeSubmitted(let run, let commit): "change submitted by \(run) (\(commit.prefix(8)))"
         case .attemptFailed(let summary): "attempt failed: \(summary)"
+        case .passingCheckRecorded(let kind, let mainCommit):
+            "\(kind.rawValue) passed on main at \(mainCommit.prefix(8))"
+        case .mainMovedRework(let oldMain, let newMain, let landedWork):
+            "main moved from \(oldMain.prefix(8)) to \(newMain.prefix(8)); rework after \(landedWork.count) landed item(s)"
         case .evidenceRecorded(let evidence): "evidence: \(evidence.check) \(evidence.passed ? "passed" : "FAILED") – \(evidence.summary)"
         case .landingReworkNeeded(let evidence): "landing rework: \(evidence.summary)"
         case .landingRerunRequested(let run): "landing rerun requested after \(run) submitted no changes"
