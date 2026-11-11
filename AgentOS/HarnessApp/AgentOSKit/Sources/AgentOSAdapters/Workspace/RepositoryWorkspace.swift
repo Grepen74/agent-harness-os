@@ -150,7 +150,34 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
         if !protectedPaths.isEmpty {
             lines.append("Never change these protected paths: \(protectedPaths.joined(separator: ", ")).")
         }
+        let documents = designDocumentPaths
+        if !documents.isEmpty {
+            lines.append("Read these design documents where relevant: \(documents.joined(separator: ", ")).")
+        }
         return lines.joined(separator: " ")
+    }
+
+    public var designDocumentPaths: [String] {
+        (config.agents ?? RepoConfig.Agents()).contextFiles(in: trackedFiles())
+    }
+
+    private func trackedFiles() -> [String] {
+        let process = Process()
+        let output = Pipe()
+        process.executableURL = URL(filePath: "/usr/bin/env")
+        process.arguments = ["git", "ls-tree", "-r", "--name-only", "-z", defaultBranch]
+        process.currentDirectoryURL = root
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            let data = output.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else { return [] }
+            return String(decoding: data, as: UTF8.self).split(separator: "\0").map(String.init)
+        } catch {
+            return []
+        }
     }
 
     // MARK: Landing

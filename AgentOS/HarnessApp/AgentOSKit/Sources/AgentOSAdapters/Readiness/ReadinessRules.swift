@@ -42,6 +42,7 @@ enum ReadinessRules {
         findings += build.findings
         findings += config.findings(repo, build, draft: draft)
         findings += policy.problems
+        findings += agentContext(repo, config.config)
         findings += self.baseline(repo, config.config, baseline)
         findings += simulators(repo, config.config)
         findings += instructions(repo)
@@ -51,6 +52,18 @@ enum ReadinessRules {
         findings += codeowners(repo)
         findings += checkout(repo)
         return Assessment(findings: findings, config: config.config, policy: policy, draft: draft)
+    }
+
+    static func agentContext(_ repo: RepositorySnapshot, _ config: RepoConfig?) -> [Finding] {
+        guard let agents = config?.agents else { return [] }
+        return agents.unmatchedContextEntries(in: repo.files).map { entry in
+            Finding(
+                check: "agents.context", severity: .warning,
+                title: "Agent context does not match a tracked file: \(entry)",
+                detail: "`\(entry)` in agents.context matches no tracked file on \(repo.branch).",
+                suggestion: "Correct the path or glob, add the document, or remove this agents.context entry."
+            )
+        }
     }
 
     // MARK: Build and test

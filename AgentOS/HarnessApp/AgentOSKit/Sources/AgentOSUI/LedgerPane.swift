@@ -36,7 +36,8 @@ public struct LedgerPane: View {
                         Image(systemName: record.event.by.icon).frame(width: 14)
                         VStack(alignment: .leading, spacing: 1) {
                             Text(record.event.kind.summary).lineLimit(2)
-                            Text("\(record.event.by.label) · \(record.event.node ?? "–") · \(record.hash.prefix(10))")
+                            let nodeName = record.event.node.flatMap { model.state.nodes[$0]?.displayName } ?? "–"
+                            Text("\(record.event.by.label) · \(nodeName) · \(record.hash.prefix(10))")
                                 .font(.caption2).foregroundStyle(.secondary)
                         }
                     }

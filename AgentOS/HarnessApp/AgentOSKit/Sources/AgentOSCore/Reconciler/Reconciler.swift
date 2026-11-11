@@ -74,7 +74,7 @@ public actor Reconciler {
             } catch LedgerError.conflict {
                 continue
             } catch {
-                report.actions.append("⚠️ \(node.ticket): \(error)")
+                report.actions.append("⚠️ \(node.displayName): \(error)")
             }
         }
 
@@ -94,7 +94,7 @@ public actor Reconciler {
             default: break
             }
             try? await write(node.id, by: .reconciler, kinds)
-            notes.append("Reclaimed \(node.ticket) from \(active.run)")
+            notes.append("Reclaimed \(node.displayName) from \(active.run)")
         }
         return notes
     }
@@ -147,8 +147,8 @@ public actor Reconciler {
             guard problems.isEmpty else { throw Rejection(reason: "Not ready yet. Missing: \(problems.joined(separator: ", ")).") }
             let spec = Planner.rootSpec(for: ticket)
             let answers = (node?.clarifications ?? []) + Self.newPreviewAnswers(on: ticket, for: node)
-            let breakdown = try await propose(spec, clarifications: answers, log: nil)
-            let questions = policy.questions(in: breakdown.report)
+            let breakdown = try await propose(spec, ticketKey: ticket.key, clarifications: answers, log: nil)
+            let questions = policy.questions(in: breakdown.report, role: .decomposer)
             guard questions.isEmpty else {
                 // Nothing is recorded: answers in comments below this are read by the next preview, and kept
                 // once the ticket is adopted (breakdown or go).
@@ -159,6 +159,7 @@ public actor Reconciler {
                     """)
                 return "questions posted above; no preview recorded"
             }
+            await postProceedingOnSuggestions(breakdown.report.questions, on: ticket.key)
             let children = Planner.childSpecs(parent: spec, proposals: breakdown.children)
             let number = (state.previews[ticket.key]?.number ?? 0) + 1
             try await write(nil, by: .reconciler, [
@@ -166,7 +167,7 @@ public actor Reconciler {
             // Accepting the preview accepts its assumptions too: they aren't asked about again.
             await tracker.comment(on: ticket.key, """
                 🔍 Preview #\(number). Nothing has been created.
-                \(Planner.describe(children, under: ticket.title))\(Self.assumptionsNote("Assumptions the decomposer made", breakdown.report.assumptions))
+                \(Planner.describe(children, under: ticket.title))\(Self.assumptionsNote("Assumptions the decomposer made", policy.assumptions(in: breakdown.report)))
                 Accept with label harness:breakdown, or edit the ticket and preview again.
                 """)
             return "preview #\(number) posted above"
@@ -281,7 +282,7 @@ public actor Reconciler {
             throw Rejection(reason: "Not adopted yet, so there's no plan to redo. Edit the ticket and preview it again.")
         }
         if let parent = node.spec.parent.flatMap({ state.nodes[$0] }) {
-            throw Rejection(reason: "\(ticket.key) is part of \(parent.ticket)'s breakdown. Replan \(parent.ticket) instead, " +
+            throw Rejection(reason: "\(ticket.key) is part of \(parent.displayName)'s breakdown. Replan \(parent.displayName) instead, " +
                 "or comment here and add \(HarnessCommand.retry.label) when it's waiting for you.")
         }
         let subtree = state.subtree(of: node.id)
@@ -333,7 +334,10 @@ public actor Reconciler {
         }
         let isReview = node.openQuestions.isEmpty
         var kinds: [EventKind] = [
-            .questionsAnswered(Clarification(questions: isReview ? ["Feedback on the acceptance tests"] : node.openQuestions, answer: answer)),
+            .questionsAnswered(Clarification(
+                questions: isReview ? ["Feedback on the acceptance tests"] : node.openQuestions.map(\.question),
+                answer: answer
+            )),
             .flagCleared(.needsInput)]
         if isReview && node.spec.kind == .leaf && node.phase == .ready {
             try? await workspace.removeWorktree(for: node.id)
@@ -426,7 +430,7 @@ public actor Reconciler {
             if unresolvedDependencies(of: node, in: updated).isEmpty {
                 try? await write(node.id, by: .reconciler, [.flagCleared(.blocked)])
                 await tracker.comment(on: node.ticket, "🔓 Unblocked: everything this waits for is done or delivered.")
-                report.actions.append("\(node.ticket) unblocked")
+                report.actions.append("\(node.displayName) unblocked")
             }
         }
     }
@@ -466,7 +470,7 @@ public actor Reconciler {
         } catch LedgerError.conflict {
             return nil // The node changed meanwhile; the next round sees the new state.
         } catch {
-            return "⚠️ \(node.ticket): \(error)"
+            return "⚠️ \(node.displayName): \(error)"
         }
     }
 
@@ -486,7 +490,7 @@ public actor Reconciler {
             // Up the V: every child has landed with all tests passing on main, so the whole is proven.
             try await write(node.id, by: .reconciler, [.phaseChanged(to: .proven)], expecting: node.version)
             await tracker.comment(on: node.ticket, "✅ Proven: every child has landed with all tests passing on main.")
-            return "\(node.ticket) proven (all children proven)"
+            return "\(node.displayName) proven (all children proven)"
 
         case (.leaf, .specified):
             guard state.hasGate(.breakdown, at: node.id) || state.hasGate(.build, at: node.id) else { return nil }
@@ -500,7 +504,7 @@ public actor Reconciler {
                 let reason = "Waiting for \(missing.joined(separator: ", "))"
                 try await write(node.id, by: .reconciler, [.flagSet(.blocked, reason: reason)], expecting: node.version)
                 await tracker.comment(on: node.ticket, "⏸ Blocked: \(reason).")
-                return "\(node.ticket) blocked"
+                return "\(node.displayName) blocked"
             }
             return try await build(node)
 
@@ -526,20 +530,24 @@ public actor Reconciler {
             try await write(node.id, by: .reconciler, [.runStarted(run: run, role: .decomposer)], expecting: node.version)
             let breakdown: Breakdown
             do {
-                breakdown = try await propose(node.spec, clarifications: state.clarifications(for: node.id), log: agentLog(node, run))
+                breakdown = try await propose(
+                    node.spec, ticketKey: node.ticket,
+                    clarifications: state.clarifications(for: node.id), log: agentLog(node, run)
+                )
             } catch {
                 try await write(node.id, by: author, [
                     .runFinished(run: run, outcome: "failed: \(error)"),
                     .flagSet(.escalated, reason: "Breakdown failed: \(error)")])
                 await tracker.comment(on: node.ticket, "⚠️ Needs a human: breakdown failed (\(error)). Fix the ticket, then add harness:retry.")
-                return "\(node.ticket) breakdown failed → escalated"
+                return "\(node.displayName) breakdown failed → escalated"
             }
-            let questions = policy.questions(in: breakdown.report)
+            let questions = policy.questions(in: breakdown.report, role: .decomposer)
             guard questions.isEmpty else {
                 return try await raise(questions, on: node, by: author, run: run, role: .decomposer)
             }
+            await postProceedingOnSuggestions(breakdown.report.questions, on: node.ticket)
             proposed = Planner.childSpecs(parent: node.spec, proposals: breakdown.children)
-            assumptions = breakdown.report.assumptions
+            assumptions = policy.assumptions(in: breakdown.report)
             try await write(node.id, by: author, [.runFinished(run: run, outcome: "proposed \(proposed.count) children")]
                 + (assumptions.isEmpty ? [] : [.assumptionsReported(role: .decomposer, assumptions: assumptions)]))
         }
@@ -558,7 +566,7 @@ public actor Reconciler {
                 \(Planner.describe(children, under: node.spec.title))\(note)\(revision)
                 This ticket gets its own branch and acceptance tests next; then add harness:build.
                 """)
-            return "\(node.ticket) passed the leaf check: built as one leaf"
+            return "\(node.displayName) passed the leaf check: built as one leaf"
         }
 
         for spec in children {
@@ -569,7 +577,7 @@ public actor Reconciler {
                 key = try await tracker.createChildTicket(parent: node.ticket, spec: spec, by: author)
             } catch {
                 try await write(node.id, by: .reconciler, [.flagSet(.escalated, reason: "Couldn't create a child ticket: \(error)")])
-                return "\(node.ticket) breakdown stopped: couldn't create \"\(spec.title)\" → escalated"
+                return "\(node.displayName) breakdown stopped: couldn't create \"\(spec.title)\" → escalated"
             }
             let links = spec.dependsOn.map { TypedLink(from: spec.id, type: .dependsOn, to: $0) }
             try await write(spec.id, by: author, [.nodeCreated(spec: spec, ticket: key)] + links.map { .linkAdded($0) })
@@ -579,7 +587,7 @@ public actor Reconciler {
             🌳 Broken down. Each leaf gets its own branch and acceptance tests next; then add harness:build.
             \(Planner.describe(children, under: node.spec.title))\(note)\(revision)
             """)
-        return "\(node.ticket) broken down into \(children.count) leaves"
+        return "\(node.displayName) broken down into \(children.count) leaves"
     }
 
     /// After a replan the node still has its old children. Those the new breakdown contains unchanged (same spec
@@ -615,7 +623,7 @@ public actor Reconciler {
         for gone in unmatched { try? await workspace.removeWorktree(for: gone.id) }
         try await write(node.id, by: .reconciler, [.breakdownRevised(kept: kept, dropped: unmatched.map(\.id))])
         for gone in unmatched {
-            await tracker.close(gone.ticket, saying: "🗑 Superseded: \(node.ticket) was replanned and its new breakdown doesn't contain this.")
+            await tracker.close(gone.ticket, saying: "🗑 Superseded: \(node.displayName) was replanned and its new breakdown doesn't contain this.")
         }
         let keptTickets = kept.compactMap { state.nodes[$0.id]?.ticket }
         var lines: [String] = []
@@ -631,6 +639,7 @@ public actor Reconciler {
         try await write(node.id, by: .reconciler, [.runStarted(run: run, role: .testAuthor)], expecting: node.version)
         let directory = try await workspace.createWorktree(for: node.id)
         let task = await makeTask(node, run: run, in: directory, log: agentLog(node, run), for: .testAuthor)
+        let task = await makeTask(node, run: run, in: directory, log: agentLog(node, run), includeComments: false)
         let own = workspace.testFolder(for: node.spec) + "/"
         let report: AgentReport
         do {
@@ -639,14 +648,16 @@ public actor Reconciler {
             try await write(node.id, by: author, [
                 .runFinished(run: run, outcome: "failed: \(error)"),
                 .flagSet(.escalated, reason: "Couldn't write acceptance tests: \(error)")])
-            return "\(node.ticket) test authoring failed → escalated"
+            return "\(node.displayName) test authoring failed → escalated"
         }
-        let questions = policy.questions(in: report)
+        let questions = policy.questions(in: report, role: .testAuthor)
         guard questions.isEmpty else {
             // Tests written on a guess aren't kept: the branch starts over once the questions are answered.
             try? await workspace.removeWorktree(for: node.id)
             return try await raise(questions, on: node, by: author, run: run, role: .testAuthor)
         }
+        await postProceedingOnSuggestions(report.questions, on: node.ticket)
+        let assumptions = policy.assumptions(in: report)
         let testFiles: [String]
         do {
             let changed = try await workspace.commitAll(in: directory, message: "\(node.spec.id): acceptance tests", author: run)
@@ -660,7 +671,7 @@ public actor Reconciler {
             try await write(node.id, by: author, [
                 .runFinished(run: run, outcome: "failed: \(error)"),
                 .flagSet(.escalated, reason: "Couldn't write acceptance tests: \(error)")])
-            return "\(node.ticket) test authoring failed → escalated"
+            return "\(node.displayName) test authoring failed → escalated"
         }
 
         switch await acceptanceTestPreflight.compileTests(
@@ -675,6 +686,7 @@ public actor Reconciler {
                 diagnostics,
                 fullLog: fullLog,
                 report: report,
+                assumptions: assumptions,
                 node: node,
                 run: run,
                 author: author,
@@ -685,13 +697,13 @@ public actor Reconciler {
         // Under "assume and report", a leaf whose work rests on assumptions waits for a person to see its tests,
         // unless they already answered something on it. Questions about what users observe stopped it above.
         let state = await ledger.workingState()
-        let review = policy.guesswork == .assumeAndReport && (!report.assumptions.isEmpty
+        let review = policy.guesswork == .assumeAndReport && (!assumptions.isEmpty
             || (!state.assumptions(for: node.id).isEmpty && state.clarifications(for: node.id).isEmpty))
         let reviewReason = "Review the acceptance tests and assumptions, then add harness:build"
         try await write(node.id, by: author, [
             .runFinished(run: run, outcome: "acceptance tests committed"), .testsFixed(digest: testsDigest(node, in: directory)),
             .expectedAPIReported(report.expectedAPI),
-            .assumptionsReported(role: .testAuthor, assumptions: report.assumptions), .phaseChanged(to: .ready)]
+            .assumptionsReported(role: .testAuthor, assumptions: assumptions), .phaseChanged(to: .ready)]
             + (review ? [.flagSet(.needsInput, reason: reviewReason)] : []))
         let reviewNote = review ? """
 
@@ -702,13 +714,14 @@ public actor Reconciler {
             🧪 Acceptance tests written on branch \(workspace.branch(for: node.id)):
             \(Self.testListing(testFiles, in: directory))\(Self.assumptionsNote("Assumptions this work rests on", await ledger.workingState().assumptions(for: node.id)))\(reviewNote)
             """)
-        return "\(node.ticket) acceptance tests written on branch \(workspace.branch(for: node.id)) → " + (review ? "waiting for review" : "Ready")
+        return "\(node.displayName) acceptance tests written on branch \(workspace.branch(for: node.id)) → " + (review ? "waiting for review" : "Ready")
     }
 
     private func returnAcceptanceTests(
         _ diagnostics: [CompilerDiagnostic],
         fullLog: String,
         report: AgentReport,
+        assumptions: [String],
         node: NodeState,
         run: RunID,
         author: Participant,
@@ -716,7 +729,7 @@ public actor Reconciler {
     ) async throws -> String {
         let mistakes = diagnostics.filter { $0.classification == .testAuthorMistake }
         guard let first = mistakes.first else {
-            return "\(node.ticket) acceptance-test preflight found only expected diagnostics"
+            return "\(node.displayName) acceptance-test preflight found only expected diagnostics"
         }
         let artifact = try artifacts.put(
             named: "\(node.id)-\(run)-acceptance-test-preflight.log",
@@ -763,7 +776,7 @@ public actor Reconciler {
         var kinds: [EventKind] = [
             .runFinished(run: run, outcome: "acceptance tests did not compile"),
             .expectedAPIReported(report.expectedAPI),
-            .assumptionsReported(role: .testAuthor, assumptions: report.assumptions),
+            .assumptionsReported(role: .testAuthor, assumptions: assumptions),
             .acceptanceTestPreflightFailed(evidence),
         ]
         if reachedLimit {
@@ -784,26 +797,48 @@ public actor Reconciler {
             \(reachedLimit ? "Fix the tests or comment with guidance, then add harness:retry." : "The test author will rerun with these diagnostics.")
             """)
         return reachedLimit
-            ? "\(node.ticket) acceptance tests don't compile → Needs input"
-            : "\(node.ticket) acceptance tests don't compile → returned to test author"
+            ? "\(node.displayName) acceptance tests don't compile → Needs input"
+            : "\(node.displayName) acceptance tests don't compile → returned to test author"
     }
 
     /// The agent can't go on without a person: record its questions and ask on the ticket.
-    private func raise(_ questions: [String], on node: NodeState, by author: Participant, run: RunID, role: AgentRole) async throws -> String {
+    private func raise(
+        _ questions: [AgentQuestion],
+        on node: NodeState,
+        by author: Participant,
+        run: RunID,
+        role: AgentRole,
+        additionalKinds: [EventKind] = []
+    ) async throws -> String {
         let plural = questions.count == 1 ? "question" : "questions"
         try await write(node.id, by: author, [
             .runFinished(run: run, outcome: "asked \(questions.count) \(plural)"), .questionsRaised(role: role, questions: questions),
-            .flagSet(.needsInput, reason: "\(questions.count) open \(plural) from the \(role.title)")])
+            .flagSet(.needsInput, reason: "\(questions.count) open \(plural) from the \(role.title)")
+        ] + additionalKinds)
         await tracker.comment(on: node.ticket, """
             \(Self.needsInputMarker): the \(role.title) can't go on without answers.
             \(Self.numbered(questions))
-            Answer in a comment, then add harness:retry.
+            \(questions.contains { $0.suggestion != nil }
+                ? "Accept or correct the suggested answers in a comment, then add harness:retry."
+                : "Answer in a comment, then add harness:retry.")
             """)
-        return "\(node.ticket) needs input: \(questions.count) \(plural) from the \(role.title)"
+        return "\(node.displayName) needs input: \(questions.count) \(plural) from the \(role.title)"
     }
 
-    static func numbered(_ items: [String]) -> String {
-        items.enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n")
+    static func numbered(_ items: [AgentQuestion]) -> String {
+        items.enumerated().map { index, item in
+            let suggestion = item.suggestion.map { "\n   Suggested answer: \($0)" } ?? ""
+            return "\(index + 1). \(item.question)\(suggestion)"
+        }.joined(separator: "\n")
+    }
+
+    private func postProceedingOnSuggestions(_ questions: [AgentQuestion], on ticket: String) async {
+        guard !questions.isEmpty, questions.allSatisfy({ $0.suggestion != nil }) else { return }
+        await tracker.comment(on: ticket, """
+            💡 Proceeding on suggested answers:
+            \(Self.numbered(questions))
+            To correct one, comment with its number and the corrected answer, then add harness:retry.
+            """)
     }
 
     /// An empty string without assumptions; otherwise a section to append to a comment.
@@ -856,6 +891,20 @@ public actor Reconciler {
                 }
             }
             let report = implementationResult as? AgentReport ?? AgentReport()
+            let questions = policy.questions(in: report)
+            guard questions.isEmpty else {
+                try await workspace.resetForRework(directory)
+                return try await raise(
+                    questions,
+                    on: node,
+                    by: author,
+                    run: run,
+                    role: .implementer,
+                    additionalKinds: [.phaseChanged(to: .ready)]
+                )
+            }
+            await postProceedingOnSuggestions(report.questions, on: node.ticket)
+            let assumptions = policy.assumptions(in: report)
             if let brokenTest = report.brokenTest {
                 return try await routeBrokenTest(brokenTest, from: node, run: run, author: author, directory: directory)
             }
@@ -870,22 +919,26 @@ public actor Reconciler {
                     .landingRerunRequested(run: run),
                     .phaseChanged(to: .landing),
                 ])
-                return "\(node.ticket) submitted no changes after landing rework → Landing queue"
+                return "\(node.displayName) submitted no changes after landing rework → Landing queue"
             }
             try await write(node.id, by: author, [
-                .runFinished(run: run, outcome: "submitted"), .changeSubmitted(run: run, commit: commit), .phaseChanged(to: .checking)])
-            return "\(node.ticket) implemented by \(run) → Checking"
+                .runFinished(run: run, outcome: "submitted"),
+                .assumptionsReported(role: .implementer, assumptions: assumptions),
+                .changeSubmitted(run: run, commit: commit),
+                .phaseChanged(to: .checking),
+            ])
+            return "\(node.displayName) implemented by \(run) → Checking"
         } catch let error as UserGitStateChanged {
             // Not something another attempt fixes: a human checks what happened to their repo first.
             try await write(node.id, by: author, [
                 .runFinished(run: run, outcome: "failed"), .attemptFailed(summary: "\(error)"), .phaseChanged(to: .ready),
                 .flagSet(.escalated, reason: "\(error)")])
             await tracker.comment(on: node.ticket, "⚠️ Needs a human: \(error)\nWhen checked, add label harness:retry.")
-            return "\(node.ticket) escalated: \(error)"
+            return "\(node.displayName) escalated: \(error)"
         } catch {
             try await write(node.id, by: author, [
                 .runFinished(run: run, outcome: "failed"), .attemptFailed(summary: "\(error)"), .phaseChanged(to: .ready)])
-            return try await escalateIfNeeded(node.id) ?? "\(node.ticket) implementer failed (\(error)); will retry"
+            return try await escalateIfNeeded(node.id) ?? "\(node.displayName) implementer failed (\(error)); will retry"
         }
     }
 
@@ -939,7 +992,7 @@ public actor Reconciler {
                 waiting for a person: the test author already reworked these tests.
                 \(reason)
                 """)
-            return "\(node.ticket) broken test \(report.testName) → waiting for a person"
+            return "\(node.displayName) broken test \(report.testName) → waiting for a person"
         }
 
         try await write(node.id, by: author, [
@@ -952,7 +1005,7 @@ public actor Reconciler {
             🔁 Broken acceptance test \(report.testName): \(report.reason)
             sent back to the test author.
             """)
-        return "\(node.ticket) broken test \(report.testName) → sent back to the test author"
+        return "\(node.displayName) broken test \(report.testName) → sent back to the test author"
     }
 
     /// Whether a reported test may belong to this node. Only a name that clearly points at another suite
@@ -997,7 +1050,7 @@ public actor Reconciler {
 
     /// Fast feedback on the leaf's own branch: only its own acceptance tests (doc 08 §4, layer 2).
     private func preCheck(_ node: NodeState) async throws -> String {
-        guard let submission = node.lastSubmission else { return "\(node.ticket): nothing submitted" }
+        guard let submission = node.lastSubmission else { return "\(node.displayName): nothing submitted" }
         let run = Self.newRunID()
         let directory = workspace.worktree(for: node.id)
         try await write(node.id, by: .reconciler, [.runStarted(run: run, role: .verifier)], expecting: node.version)
@@ -1008,6 +1061,19 @@ public actor Reconciler {
         } else {
             try await workspace.prepareBuild(in: directory)
             output = await checks.runChecks(in: directory, only: node.spec.testTarget)
+            if case .runnerCrash = output.failureKind {
+                output = await checks.runChecks(in: directory, only: node.spec.testTarget)
+            }
+        }
+        if case .runnerCrash = output.failureKind {
+            return try await recordRepeatedRunnerCrash(
+                node,
+                output: output,
+                check: "own acceptance tests on branch",
+                builtBy: submission.run,
+                checkedBy: run,
+                commit: submission.commit
+            )
         }
         let evidence = try makeEvidence(node, check: "own acceptance tests on branch", output: output,
                                         builtBy: submission.run, checkedBy: run, commit: submission.commit,
@@ -1015,15 +1081,15 @@ public actor Reconciler {
         try await write(node.id, by: .agent(run: run, role: .verifier), [
             .evidenceRecorded(evidence), .runFinished(run: run, outcome: output.passed ? "passed" : "failed"),
             .phaseChanged(to: output.passed ? .landing : .ready)])
-        if output.passed { return "\(node.ticket) pre-checked by \(run) → Landing queue" }
+        if output.passed { return "\(node.displayName) pre-checked by \(run) → Landing queue" }
         await tracker.comment(on: node.ticket, "🔁 Pre-check failed; this is the agent's own mistake: \(output.summary)")
-        return try await escalateIfNeeded(node.id) ?? "\(node.ticket) failed pre-check; will retry"
+        return try await escalateIfNeeded(node.id) ?? "\(node.displayName) failed pre-check; will retry"
     }
 
     /// The landing queue (doc 08 §4, layer 3): rebase onto the latest main, run ALL tests (own + every proven
     /// node's), and only then merge. A leaf is proven only once it has landed.
     private func land(_ node: NodeState) async throws -> String {
-        guard let submission = node.lastSubmission else { return "\(node.ticket): nothing to land" }
+        guard let submission = node.lastSubmission else { return "\(node.displayName): nothing to land" }
         let run = Self.newRunID()
         let checker = Participant.agent(run: run, role: .verifier)
         let directory = workspace.worktree(for: node.id)
@@ -1036,7 +1102,7 @@ public actor Reconciler {
             try await write(node.id, by: checker, [
                 .runFinished(run: run, outcome: "conflict"), .reworkNeeded(reason: reason), .phaseChanged(to: .ready)])
             await tracker.comment(on: node.ticket, "♻️ Rework: \(reason). The implementation is redone on the latest code; the tests are kept.")
-            return try await escalateIfNeeded(node.id) ?? "\(node.ticket) conflicted at landing → rework"
+            return try await escalateIfNeeded(node.id) ?? "\(node.displayName) conflicted at landing → rework"
         }
 
         // 2. Re-check everything on top of the latest main.
@@ -1046,8 +1112,21 @@ public actor Reconciler {
         } else {
             try await workspace.prepareBuild(in: directory)
             output = await checks.runChecks(in: directory, only: nil)
+            if case .runnerCrash = output.failureKind {
+                output = await checks.runChecks(in: directory, only: nil)
+            }
         }
         let candidate = try await workspace.head(of: directory)
+        if case .runnerCrash = output.failureKind {
+            return try await recordRepeatedRunnerCrash(
+                node,
+                output: output,
+                check: "all tests on latest main (landing)",
+                builtBy: submission.run,
+                checkedBy: run,
+                commit: candidate
+            )
+        }
         var evidence = try makeEvidence(node, check: "all tests on latest main (landing)", output: output,
                                         builtBy: submission.run, checkedBy: run, commit: candidate)
 
@@ -1059,7 +1138,7 @@ public actor Reconciler {
                 .phaseChanged(to: .proven)])
             try? await workspace.removeWorktree(for: node.id)
             await tracker.comment(on: node.ticket, "🛬 Landed on main at \(main.prefix(8)) with all tests passing.")
-            return "\(node.ticket) landed by \(run) → Proven"
+            return "\(node.displayName) landed by \(run) → Proven"
         }
 
         // Which node's behaviour broke? Someone else's → two requirements may contradict (doc 08 §5).
@@ -1068,15 +1147,15 @@ public actor Reconciler {
             .compactMap { target in state.nodes.values.first { $0.spec.testTarget == target && $0.phase == .proven } }
         var kinds: [EventKind] = [.evidenceRecorded(evidence), .runFinished(run: run, outcome: "failed"), .phaseChanged(to: .ready)]
         if !broken.isEmpty && !output.failingTargets.contains(node.spec.testTarget) {
-            let names = broken.map { "\($0.ticket) (\($0.spec.title))" }.joined(separator: ", ")
+            let names = broken.map { "\($0.displayName) (\($0.spec.title))" }.joined(separator: ", ")
             let reason = "Requirements conflict: this change breaks proven behaviour of \(names). A human must decide which requirement wins."
             kinds.append(.flagSet(.escalated, reason: reason))
             try await write(node.id, by: checker, kinds)
             await tracker.comment(on: node.ticket, "⚠️ Needs a human: \(reason)")
             for other in broken {
-                await tracker.comment(on: other.ticket, "ℹ️ \(node.ticket) (\(node.spec.title)) contradicts this ticket's acceptance criteria. Escalated there.")
+                await tracker.comment(on: other.ticket, "ℹ️ \(node.displayName) (\(node.spec.title)) contradicts this ticket's acceptance criteria. Escalated there.")
             }
-            return "\(node.ticket) breaks \(broken.map(\.ticket).joined(separator: ", ")) → requirements conflict, escalated"
+            return "\(node.displayName) breaks \(broken.map(\.displayName).joined(separator: ", ")) → requirements conflict, escalated"
         }
         evidence.failureClassification = .ownMistake
         let reranSameCandidate = node.evidence.last?.commit == candidate
@@ -1086,7 +1165,7 @@ public actor Reconciler {
             kinds.append(.attemptFailed(summary: reason))
             try await write(node.id, by: checker, kinds)
             await tracker.comment(on: node.ticket, "🔁 \(reason)")
-            return try await escalateIfNeeded(node.id) ?? "\(node.ticket) failed landing rerun; will retry"
+            return try await escalateIfNeeded(node.id) ?? "\(node.displayName) failed landing rerun; will retry"
         }
         let alreadyPassedOwnCheck = node.evidence.contains {
             $0.passed && $0.check == "own acceptance tests on branch" && $0.commit == submission.commit
@@ -1097,7 +1176,7 @@ public actor Reconciler {
                 .evidenceRecorded(evidence), .runFinished(run: run, outcome: "failed"), .phaseChanged(to: .ready),
             ])
             await tracker.comment(on: node.ticket, "🔁 \(reason)")
-            return try await escalateIfNeeded(node.id) ?? "\(node.ticket) failed at landing; will retry"
+            return try await escalateIfNeeded(node.id) ?? "\(node.displayName) failed at landing; will retry"
         }
         kinds[0] = .landingReworkNeeded(evidence)
         try await write(node.id, by: checker, kinds)
@@ -1107,16 +1186,57 @@ public actor Reconciler {
             "♻️ Landing check failed\(cause); this is the agent's own mistake: \(output.summary). "
                 + "The implementer will rework the candidate."
         )
-        return try await escalateIfNeeded(node.id) ?? "\(node.ticket) failed at landing; will retry"
+        return try await escalateIfNeeded(node.id) ?? "\(node.displayName) failed at landing; will retry"
     }
 
     // MARK: Helpers
+
+    private func recordRepeatedRunnerCrash(
+        _ node: NodeState,
+        output: CheckOutput,
+        check: String,
+        builtBy: RunID,
+        checkedBy: RunID,
+        commit: String
+    ) async throws -> String {
+        let evidence = try makeEvidence(
+            node,
+            check: check,
+            output: output,
+            builtBy: builtBy,
+            checkedBy: checkedBy,
+            commit: commit,
+            failureClassification: .runnerCrash
+        )
+        let reason = "Runner crash repeated after one retry: \(output.summary)"
+        try await write(node.id, by: .agent(run: checkedBy, role: .verifier), [
+            .evidenceRecorded(evidence),
+            .runFinished(run: checkedBy, outcome: "runner crash"),
+            .flagSet(.escalated, reason: reason),
+        ])
+        let tail = output.log.split(separator: "\n", omittingEmptySubsequences: false)
+            .suffix(60)
+            .joined(separator: "\n")
+        await tracker.comment(on: node.ticket, """
+            ⚠️ Needs a human: \(reason)
+            Full stored log: \(evidence.artifactPath)
+
+            <details>
+            <summary>Last 60 runner log lines</summary>
+
+            \(tail)
+            </details>
+
+            When the runner is available, add harness:retry.
+            """)
+        return "\(node.displayName) runner crash repeated → needs human"
+    }
 
     private func escalateIfNeeded(_ id: NodeID) async throws -> String? {
         guard let node = await ledger.workingState().nodes[id], let reason = policy.escalationReason(for: node) else { return nil }
         try await write(id, by: .reconciler, [.flagSet(.escalated, reason: reason)])
         await tracker.comment(on: node.ticket, "⚠️ Needs a human: \(reason)\nWhen fixed, add label harness:retry.")
-        return "\(node.ticket) escalated: \(reason)"
+        return "\(node.displayName) escalated: \(reason)"
     }
 
     /// What the node still waits for: its own links and specs, plus a parent's "Blocked by" that its breakdown didn't
@@ -1141,11 +1261,14 @@ public actor Reconciler {
 
     /// The decomposer looks at a snapshot of the latest code when the workspace can make one. Without it the
     /// breakdown still runs, from the ticket alone.
-    private func propose(_ spec: NodeSpec, clarifications: [Clarification], log: URL?) async throws -> Breakdown {
+    private func propose(
+        _ spec: NodeSpec, ticketKey: String, clarifications: [Clarification], log: URL?
+    ) async throws -> Breakdown {
         let codebase = try? await workspace.createSnapshot()
         let request = BreakdownRequest(
             spec: spec, existingComponents: workspace.existingComponents(), clarifications: clarifications,
-            guesswork: policy.guesswork, log: log, codebase: codebase)
+            guesswork: policy.guesswork, log: log, codebase: codebase, ticketKey: ticketKey,
+            agentContext: await makeAgentContext(ticketKey))
         do {
             let breakdown = try await team.decomposer.proposeChildren(request)
             if let codebase { await workspace.removeSnapshot(codebase) }
@@ -1168,7 +1291,7 @@ public actor Reconciler {
     private func watchingUserGitState<T>(_ node: NodeState, run: RunID, _ agent: () async throws -> T) async throws -> T {
         // The span covers both snapshots: whatever changed between them happened during it.
         clock += 1
-        agentRuns[run] = AgentRunSpan(ticket: node.ticket, start: clock)
+        agentRuns[run] = AgentRunSpan(ticket: node.displayName, start: clock)
         defer {
             clock += 1
             agentRuns[run]?.end = clock
@@ -1196,8 +1319,44 @@ public actor Reconciler {
     }
 
     private func makeTask(_ node: NodeState, run: RunID, in directory: URL, log: URL?, for role: AgentRole) async -> AgentTask {
+    private func makeAgentContext(_ key: String) async -> AgentContext {
+        let documents = workspace.designDocumentPaths
+        guard let ticket = await tracker.ticket(key) else {
+            return AgentContext(designDocumentPaths: documents)
+        }
+        var tickets = await tracker.contextTickets()
+        var linkedCount = 0
+        for reference in AgentContextBuilder.referencedKeys(in: ticket, repository: tracker.contextRepository) {
+            if linkedCount == 10 { break }
+            if tickets.contains(where: { $0.key == reference }) {
+                linkedCount += 1
+            } else if let linked = await tracker.ticket(reference) {
+                tickets.append(linked)
+                linkedCount += 1
+            }
+        }
+        if let parent = ticket.parentKey {
+            if !tickets.contains(where: { $0.key == parent }), let issue = await tracker.ticket(parent) {
+                tickets.append(issue)
+            }
+            let state = await ledger.workingState()
+            for sibling in state.nodes.values where sibling.ticket != key {
+                guard let parentNode = state.node(forTicket: parent),
+                      sibling.spec.parent == parentNode.id,
+                      !tickets.contains(where: { $0.key == sibling.ticket }),
+                      let issue = await tracker.ticket(sibling.ticket) else { continue }
+                tickets.append(issue)
+            }
+        }
+        return AgentContextBuilder.build(ticket: ticket, tickets: tickets, repository: tracker.contextRepository,
+                                         designDocumentPaths: documents)
+    }
+
+    private func makeTask(_ node: NodeState, run: RunID, in directory: URL, log: URL?,
+                          includeComments: Bool = true) async -> AgentTask {
         let labels = await tracker.ticket(node.ticket)?.labels.map(\.name) ?? []
         let state = await ledger.workingState()
+        let context = await makeAgentContext(node.ticket)
         return AgentTask(
             spec: node.spec, run: run, directory: directory, testFolder: workspace.testFolder(for: node.spec),
             scratchDirectory: directory.appending(path: ".agentos/scratch/\(run)", directoryHint: .isDirectory),
@@ -1210,7 +1369,8 @@ public actor Reconciler {
                     ?? node.recentFailures.last,
             simulationHints: Set(labels.filter { $0.hasPrefix("sim:") }), log: log,
             clarifications: state.clarifications(for: node.id), guesswork: policy.guesswork,
-            expectedAPI: node.expectedAPI)
+            expectedAPI: node.expectedAPI, ticketKey: node.ticket,
+            agentContext: includeComments ? context : context.withoutComments())
     }
 
     private static func uniqueLines(_ lines: [String]) -> [String] {

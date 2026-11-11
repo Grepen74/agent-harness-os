@@ -5,6 +5,21 @@ import Foundation
 public typealias NodeID = String
 public typealias RunID = String
 
+/// The canonical human-facing identity of a work node.
+public struct NodeIdentity: Sendable, Hashable {
+    public let ticketKey: String
+    public let nodeID: NodeID
+
+    public init(ticketKey: String, nodeID: NodeID) {
+        self.ticketKey = ticketKey
+        self.nodeID = nodeID
+    }
+
+    public var displayName: String {
+        nodeID == "wn-\(ticketKey)" ? ticketKey : "\(ticketKey) (\(nodeID))"
+    }
+}
+
 /// Who did something. Every ledger event says who is responsible for it.
 public enum Participant: Codable, Sendable, Hashable {
     case human(String)
@@ -108,6 +123,7 @@ public struct NodeSpec: Codable, Sendable, Hashable, Identifiable {
 /// Proof that something was checked.
 public enum FailureClassification: String, Codable, Sendable, Hashable {
     case ownMistake
+    case runnerCrash
 }
 
 public struct Evidence: Codable, Sendable, Hashable {

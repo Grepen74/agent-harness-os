@@ -20,7 +20,7 @@ extension Reconciler {
 
         var steps: [String?] = []
         if let parent = node.spec.parent.flatMap({ state.nodes[$0] }), parent.phase != .split {
-            steps.append(step(nil, "Nothing for now: \(parent.ticket) was replanned. Its next breakdown keeps this ticket " +
+            steps.append(step(nil, "Nothing for now: \(parent.displayName) was replanned. Its next breakdown keeps this ticket " +
                 "if it still contains it unchanged, or closes it"))
         } else if node.flags[.needsInput] != nil {
             steps.append(step(.retest, "\(HarnessCommand.retest.label) to discard the current tests and restart the test author"))
@@ -58,7 +58,7 @@ extension Reconciler {
 
         let waiting = subtree.filter { $0.id != node.id }
             .filter { $0.flags[.needsInput] != nil || $0.flags[.escalated] != nil }
-            .map(\.ticket)
+            .map(\.displayName)
         if !waiting.isEmpty {
             steps.append(step(nil, "Tickets below it need you: \(waiting.joined(separator: ", "))"))
         }

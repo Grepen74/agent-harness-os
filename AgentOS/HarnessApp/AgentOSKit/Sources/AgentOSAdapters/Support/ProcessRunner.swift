@@ -6,6 +6,7 @@ public enum ProcessRunner {
     public struct Result: Sendable {
         public let status: Int32
         public let output: String
+        public let crashSignal: Int32?
     }
 
     /// - `log`: a file to write the output to as it comes, e.g. to follow it live, which is kept afterwards.
@@ -15,23 +16,23 @@ public enum ProcessRunner {
                     timeout: Duration = .seconds(1200), log keptLog: URL? = nil,
                     environment extra: [String: String] = [:]) async throws -> Result {
         try await run(executable, arguments, in: directory, timeout: timeout, log: keptLog,
-                      timeZone: nil, environment: extra)
+                      timeZone: nil, environment: extra, logPreamble: "")
     }
 
     /// Runs a command and timestamps each persisted output line in the supplied time zone.
     public static func run(_ executable: String, _ arguments: [String], in directory: URL,
                     timeout: Duration = .seconds(1200), log keptLog: URL? = nil,
                     timeZone: TimeZone,
-                    environment extra: [String: String] = [:]) async throws -> Result {
+                    environment extra: [String: String] = [:], logPreamble: String = "") async throws -> Result {
         try await run(executable, arguments, in: directory, timeout: timeout, log: keptLog,
-                      timeZone: Optional(timeZone), environment: extra)
+                      timeZone: Optional(timeZone), environment: extra, logPreamble: logPreamble)
     }
 
     private static func run(_ executable: String, _ arguments: [String], in directory: URL,
                     timeout: Duration, log keptLog: URL?, timeZone: TimeZone?,
-                    environment extra: [String: String]) async throws -> Result {
+                    environment extra: [String: String], logPreamble: String) async throws -> Result {
         let logURL = keptLog ?? FileManager.default.temporaryDirectory.appending(path: "agentos-\(UUID().uuidString).log")
-        FileManager.default.createFile(atPath: logURL.path, contents: nil)
+        FileManager.default.createFile(atPath: logURL.path, contents: Data(logPreamble.utf8))
         let outputPipe = Pipe()
         let outputTask = Task {
             try await collectOutput(from: outputPipe.fileHandleForReading, in: logURL, timeZone: timeZone)
@@ -64,10 +65,13 @@ public enum ProcessRunner {
         }
         defer { timeoutTask.cancel() }
 
-        let status: Int32 = try await withCheckedThrowingContinuation { continuation in
+        let termination: (status: Int32, reason: Process.TerminationReason) = try await withCheckedThrowingContinuation { continuation in
             // Install this before launch: a short-lived child can otherwise exit during handler registration.
             process.terminationHandler = { terminatedProcess in
-                continuation.resume(returning: terminatedProcess.terminationStatus)
+                continuation.resume(returning: (
+                    terminatedProcess.terminationStatus,
+                    terminatedProcess.terminationReason
+                ))
             }
             do {
                 try process.run()
@@ -78,7 +82,11 @@ public enum ProcessRunner {
             }
         }
         let output = try await outputTask.value
-        return Result(status: status, output: output)
+        return Result(
+            status: termination.status,
+            output: output,
+            crashSignal: termination.reason == .uncaughtSignal ? termination.status : nil
+        )
     }
 
     private static func collectOutput(from handle: FileHandle, in log: URL,

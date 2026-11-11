@@ -1,5 +1,10 @@
 import Foundation
 
+public enum CheckFailureKind: Sendable, Equatable {
+    case reportedFailure
+    case runnerCrash(signal: Int32?)
+}
+
 public struct CheckOutput: Sendable {
     public let passed: Bool
     /// One line, stable for the same failure (used for no-progress detection).
@@ -7,12 +12,20 @@ public struct CheckOutput: Sendable {
     public let log: String
     /// Test targets with failures, i.e. whose node's behaviour is broken (doc 08 §5). Empty if unknown.
     public let failingTargets: Set<String>
+    public let failureKind: CheckFailureKind
 
-    public init(passed: Bool, summary: String, log: String, failingTargets: Set<String> = []) {
+    public init(
+        passed: Bool,
+        summary: String,
+        log: String,
+        failingTargets: Set<String> = [],
+        failureKind: CheckFailureKind = .reportedFailure
+    ) {
         self.passed = passed
         self.summary = summary
         self.log = log
         self.failingTargets = failingTargets
+        self.failureKind = failureKind
     }
 }
 

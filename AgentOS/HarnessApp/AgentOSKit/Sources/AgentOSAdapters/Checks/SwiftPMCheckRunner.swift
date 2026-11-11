@@ -13,7 +13,8 @@ public struct SwiftPMCheckRunner: CheckRunner {
             let result = try await ProcessRunner.run("/usr/bin/env", ["swift", "test"] + filter, in: directory)
             let passed = result.status == 0
             return CheckOutput(passed: passed, summary: passed ? "swift test passed" : Self.summarize(result.output),
-                               log: result.output, failingTargets: passed ? [] : Self.failingTargets(in: result.output))
+                               log: result.output, failingTargets: passed ? [] : Self.failingTargets(in: result.output),
+                               failureKind: result.crashSignal.map { .runnerCrash(signal: $0) } ?? .reportedFailure)
         } catch {
             return CheckOutput(passed: false, summary: "could not run swift test: \(error)", log: "\(error)")
         }

@@ -61,7 +61,7 @@ struct NodeRow: View {
     var body: some View {
         HStack(spacing: 6) {
             Circle().fill(node.phase.color).frame(width: 9, height: 9)
-            Text(node.ticket).monospaced().foregroundStyle(.secondary)
+            Text(node.displayName).monospaced().foregroundStyle(.secondary)
             Text(node.spec.title).lineLimit(1)
             Spacer()
             ForEach(Flag.allCases.filter { node.flags[$0] != nil }, id: \.self) { flag in
@@ -84,7 +84,7 @@ struct AttentionList: View {
                 // A node can have several flags at once.
                 ForEach(items.map { (id: "\($0.node.id) \($0.flag.rawValue)", item: $0) }, id: \.id) { entry in
                     let item = entry.item
-                    Label("\(item.node.ticket): \(item.reason)", systemImage: item.flag.symbol)
+                    Label("\(item.node.displayName): \(item.reason)", systemImage: item.flag.symbol)
                         .font(.caption)
                         .foregroundStyle(item.flag.color)
                 }
@@ -129,7 +129,7 @@ struct NodeDetail: View {
 
     private var grid: some View {
         Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 3) {
-            row("Ticket", [node.ticket, model.ticket(node.ticket)?.title].compactMap { $0 }.joined(separator: "  "))
+            row("Ticket", [node.displayName, model.ticket(node.ticket)?.title].compactMap { $0 }.joined(separator: "  "))
             row("Phase", node.phase.rawValue)
             row("Gates", node.gates.isEmpty ? "– (inherited from parent if any)" : node.gates.map(\.rawValue).sorted().joined(separator: ", "))
             row("Links", node.links.isEmpty ? "–" : node.links.map { "\($0.type.rawValue) \($0.to)" }.joined(separator: "\n"))

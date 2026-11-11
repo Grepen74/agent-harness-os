@@ -45,6 +45,7 @@ public protocol Workspace: Sendable {
     func testFolder(for spec: NodeSpec) -> String
     /// What agents need to know about the repo: its layout, how to build and test, what not to do.
     var agentContext: String { get }
+    var designDocumentPaths: [String] { get }
 
     /// Replays the branch on top of the latest `main`. On conflict, everything is put back as it was.
     func rebaseOntoMain(_ directory: URL) async throws -> RebaseResult
@@ -71,6 +72,7 @@ public protocol Workspace: Sendable {
 }
 
 extension Workspace {
+    public var designDocumentPaths: [String] { [] }
     public func userGitState() async throws -> [String] { [] }
     public func createSnapshot() async throws -> URL? { nil }
     public func removeSnapshot(_ directory: URL) async {}

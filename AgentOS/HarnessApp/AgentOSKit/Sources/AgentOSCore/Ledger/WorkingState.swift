@@ -44,6 +44,8 @@ public struct CatchUpSuccess: Sendable, Hashable {
 /// The current state of one Work Node, derived from its events.
 public struct NodeState: Sendable, Identifiable {
     public var id: NodeID { spec.id }
+    public var identity: NodeIdentity { NodeIdentity(ticketKey: ticket, nodeID: id) }
+    public var displayName: String { identity.displayName }
     public var spec: NodeSpec
     public var ticket: String
     /// Position of the last event that touched this node; used for compare-and-swap.
@@ -71,7 +73,7 @@ public struct NodeState: Sendable, Identifiable {
     public var queuedAt: Int?
     public var landedCommit: String?
     /// What an agent asked and nobody answered yet (with the `needsInput` flag).
-    public var openQuestions: [String] = []
+    public var openQuestions: [AgentQuestion] = []
     /// Choices agents made themselves, per role (the decomposer's for a breakdown, the test author's for tests).
     public var assumptions: [AgentRole: [String]] = [:]
     /// Answers people gave on this node's ticket.
@@ -282,7 +284,7 @@ public struct WorkingState: Sendable {
             node.latestTestFeedback = evidence.details ?? evidence.summary
         case .evidenceRecorded(let evidence):
             node.evidence.append(evidence)
-            if !evidence.passed {
+            if !evidence.passed && evidence.failureClassification != .runnerCrash {
                 node.failedAttempts += 1
                 node.recentFailures.append(evidence.summary)
             }

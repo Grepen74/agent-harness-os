@@ -1,8 +1,8 @@
 import Foundation
 
-/// How much agents may guess before a person must answer (phase 6). Guesses about what users observe (what to
-/// check, which screen, which behaviour) always stop the node, at every level; this sets what happens to the
-/// rest, the assumptions. Ordered from strictest to loosest: a repo may only choose a stricter level.
+/// How much agents may guess before a person must answer (phase 6). Autonomous planning roles may settle
+/// user-visible details using cited repository conventions. Ordered from strictest to loosest:
+/// a repo may only choose a stricter level.
 public enum Guesswork: String, Codable, Sendable, CaseIterable, Comparable {
     /// Any open question or assumption stops the node.
     case ask
@@ -54,9 +54,52 @@ public struct Policy: Sendable, Equatable {
         self.guesswork = guesswork
     }
 
-    /// What stops a node: the agent's questions, plus its assumptions when it may not assume anything.
-    func questions(in report: AgentReport) -> [String] {
-        guesswork == .ask ? report.questions + report.assumptions : report.questions
+    /// What stops a node. Autonomous agents may proceed only when every question has a suggested answer.
+    func questions(in report: AgentReport, role: AgentRole? = nil) -> [AgentQuestion] {
+        if guesswork == .ask {
+            return report.questions + report.assumptions.map { AgentQuestion(question: $0) }
+        }
+        let citationQuestions: [AgentQuestion]
+        if guesswork == .autonomous && (role == .decomposer || role == .testAuthor) {
+            citationQuestions = report.assumptions.filter(Self.hasMissingConventionPath).map {
+                AgentQuestion(question: "\($0) - Which repository file and symbol or section establishes this convention? " +
+                    "Provide '<choice> (follows <path>: <symbol or section>)'.")
+            }
+        } else {
+            citationQuestions = []
+        }
+        if guesswork == .autonomous,
+           !report.questions.isEmpty,
+           report.questions.allSatisfy({ $0.suggestion != nil }) {
+            return citationQuestions
+        }
+        return report.questions + citationQuestions
+    }
+
+    private static func hasMissingConventionPath(_ assumption: String) -> Bool {
+        let claims = assumption.lowercased().components(separatedBy: "(follows")
+        return claims.dropFirst().contains { claim in
+            guard let end = claim.firstIndex(of: ")"),
+                  let colon = claim[..<end].firstIndex(of: ":") else { return true }
+            let path = claim[..<colon].trimmingCharacters(in: .whitespacesAndNewlines)
+            let section = claim[claim.index(after: colon)..<end].trimmingCharacters(in: .whitespacesAndNewlines)
+            let components = path.split(separator: "/", omittingEmptySubsequences: false)
+            return path.isEmpty || section.isEmpty || path.hasPrefix("/") || path.hasPrefix("~")
+                || (!path.contains("/") && !path.contains("."))
+                || components.contains(where: { $0.isEmpty || $0 == "." || $0 == ".." })
+        }
+    }
+
+    /// Explicit assumptions plus suggested answers that autonomous agents are allowed to follow.
+    func assumptions(in report: AgentReport) -> [String] {
+        guard guesswork == .autonomous,
+              !report.questions.isEmpty,
+              report.questions.allSatisfy({ $0.suggestion != nil }) else {
+            return report.assumptions
+        }
+        return report.assumptions + report.questions.map {
+            "\($0.suggestion!) (suggested answer to: \($0.question))"
+        }
     }
 
     /// The changed files that touch a protected path.

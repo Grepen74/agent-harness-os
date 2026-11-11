@@ -76,7 +76,9 @@ public struct ScriptedDecomposer: Decomposer {
         let questions = parent.acceptanceCriteria.filter { $0.trimmingCharacters(in: .whitespaces).hasSuffix("?") }
         if !questions.isEmpty && request.clarifications.isEmpty {
             AgentLog.append("Unclear criteria: asking \(questions.count) question(s)", to: request.log)
-            return Breakdown(children: [], report: AgentReport(questions: questions))
+            return Breakdown(children: [], report: AgentReport(
+                questions: questions.map { AgentQuestion(question: $0) }
+            ))
         }
         let criteria = parent.acceptanceCriteria.filter { !questions.contains($0) }
         guard !criteria.isEmpty else { throw AgentFailure("Nothing to break down: no acceptance criteria") }
@@ -99,7 +101,9 @@ public struct ScriptedTestAuthor: TestAuthor {
     public func writeAcceptanceTests(_ task: AgentTask) async throws -> AgentReport {
         if task.simulationHints.contains("sim:ask") && task.clarifications.isEmpty {
             AgentLog.append("Unclear what users should observe: asking", to: task.log)
-            return AgentReport(questions: ["Which screen should show \(task.spec.title.lowercased())?"])
+            return AgentReport(questions: [
+                AgentQuestion(question: "Which screen should show \(task.spec.title.lowercased())?")
+            ])
         }
         let target = task.spec.testTarget
         let tests = task.spec.acceptanceCriteria.enumerated().map { index, criterion in
