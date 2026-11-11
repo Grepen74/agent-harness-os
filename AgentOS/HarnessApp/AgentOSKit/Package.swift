@@ -25,8 +25,16 @@ let package = Package(
         .executableTarget(name: "agentos", dependencies: ["AgentOSCore", "AgentOSAdapters", "AgentOSSimulation"]),
         .testTarget(name: "AgentOSCoreTests", dependencies: ["AgentOSCore"]),
         .testTarget(
-            name: "AgentOSAdaptersTests",
+            name: "AgentOSAdaptersLegacyTests",
             dependencies: ["AgentOSAdapters", "AgentOSUI"],
+            path: "Tests/AgentOSAdaptersTests",
+            exclude: ["GH_29_1Tests"],
+            swiftSettings: [.unsafeFlags(["-Xfrontend", "-disable-access-control"])]
+        ),
+        .testTarget(
+            name: "AgentOSAdaptersTests",
+            dependencies: ["AgentOSAdapters"],
+            path: "Tests/AgentOSAdaptersTests/GH_29_1Tests",
             swiftSettings: [.unsafeFlags(["-Xfrontend", "-disable-access-control"])]
         ),
         .testTarget(name: "AgentOSSimulationTests", dependencies: ["AgentOSSimulation"]),

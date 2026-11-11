@@ -29,7 +29,8 @@ public final class RepositorySession: Sendable {
             ledger: ledger, tracker: self.tracker.adapter, external: NoExternalSystem(), workspace: workspace,
             artifacts: FileArtifactStore(directory: workspace.artifactsDirectory),
             checks: checks ?? CommandCheckRunner(config: config, simulators: SimulatorPool(size: policy.maxParallelAgents)),
-            team: team, policy: policy.policy)
+            team: team, policy: policy.policy,
+            acceptanceTestPreflight: SwiftAcceptanceTestPreflight())
     }
 
     /// The repo's local tracker. Pass one to `init` to keep using it across sessions (e.g. after a policy change).

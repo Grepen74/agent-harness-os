@@ -78,6 +78,8 @@ public enum EventKind: Codable, Sendable {
     case runFinished(run: RunID, outcome: String)
     case changeSubmitted(run: RunID, commit: String)
     case attemptFailed(summary: String)
+    /// Compiler output from acceptance-test authoring. This is evidence, but not an implementation attempt.
+    case acceptanceTestPreflightFailed(Evidence)
     /// The main commit beneath a successful branch or landing check.
     case passingCheckRecorded(kind: PassingCheckKind, mainCommit: String)
     /// A landing failure attributed to work that landed after the last passing check.
@@ -201,6 +203,8 @@ extension EventKind {
         case .runFinished(let run, let outcome): "run \(run) finished: \(outcome)"
         case .changeSubmitted(let run, let commit): "change submitted by \(run) (\(commit.prefix(8)))"
         case .attemptFailed(let summary): "attempt failed: \(summary)"
+        case .acceptanceTestPreflightFailed(let evidence):
+            "acceptance tests don't compile: \(evidence.summary)"
         case .passingCheckRecorded(let kind, let mainCommit):
             "\(kind.rawValue) passed on main at \(mainCommit.prefix(8))"
         case .mainMovedRework(let oldMain, let newMain, let landedWork):

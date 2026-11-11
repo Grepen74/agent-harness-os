@@ -273,6 +273,8 @@ public struct WorkingState: Sendable {
             node.recentFailures.append(summary)
             node.landingReworkPending = false
             node.landingRerunPending = false
+        case .acceptanceTestPreflightFailed(let evidence):
+            node.evidence.append(evidence)
         case .evidenceRecorded(let evidence):
             node.evidence.append(evidence)
             if !evidence.passed {

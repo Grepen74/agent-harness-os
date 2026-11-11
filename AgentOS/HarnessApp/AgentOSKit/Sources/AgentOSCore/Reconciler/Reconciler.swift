@@ -23,6 +23,7 @@ public actor Reconciler {
     let workspace: any Workspace
     let artifacts: any ArtifactStore
     let checks: any CheckRunner
+    let acceptanceTestPreflight: any AcceptanceTestPreflight
     public nonisolated let policy: Policy
     public private(set) var team: AgentTeam
     /// When each agent of the current round started and finished, in steps of `clock`.
@@ -31,13 +32,15 @@ public actor Reconciler {
 
     public init(ledger: Ledger, tracker: any TrackerAdapter, external: any ExternalDependencySource,
                 workspace: any Workspace, artifacts: any ArtifactStore, checks: any CheckRunner, team: AgentTeam,
-                policy: Policy = Policy()) {
+                policy: Policy = Policy(),
+                acceptanceTestPreflight: any AcceptanceTestPreflight = SkippedAcceptanceTestPreflight()) {
         self.ledger = ledger
         self.artifacts = artifacts
         self.tracker = tracker
         self.external = external
         self.workspace = workspace
         self.checks = checks
+        self.acceptanceTestPreflight = acceptanceTestPreflight
         self.team = team
         self.policy = policy
     }
@@ -596,6 +599,25 @@ public actor Reconciler {
             return "\(node.ticket) test authoring failed → escalated"
         }
 
+        switch await acceptanceTestPreflight.compileTests(
+            in: directory,
+            testFolder: workspace.testFolder(for: node.spec),
+            expectedAPI: report.expectedAPI
+        ) {
+        case .compiled, .skipped:
+            break
+        case .diagnostics(let diagnostics, let fullLog):
+            return try await returnAcceptanceTests(
+                diagnostics,
+                fullLog: fullLog,
+                report: report,
+                node: node,
+                run: run,
+                author: author,
+                directory: directory
+            )
+        }
+
         // Under "assume and report", a leaf whose work rests on assumptions waits for a person to see its tests,
         // unless they already answered something on it. Questions about what users observe stopped it above.
         let state = await ledger.workingState()
@@ -617,6 +639,72 @@ public actor Reconciler {
             \(Self.testListing(testFiles, in: directory))\(Self.assumptionsNote("Assumptions this work rests on", await ledger.workingState().assumptions(for: node.id)))\(reviewNote)
             """)
         return "\(node.ticket) acceptance tests written on branch \(workspace.branch(for: node.id)) → " + (review ? "waiting for review" : "Ready")
+    }
+
+    private func returnAcceptanceTests(
+        _ diagnostics: [CompilerDiagnostic],
+        fullLog: String,
+        report: AgentReport,
+        node: NodeState,
+        run: RunID,
+        author: Participant,
+        directory: URL
+    ) async throws -> String {
+        let mistakes = diagnostics.filter { $0.classification == .testAuthorMistake }
+        guard let first = mistakes.first else {
+            return "\(node.ticket) acceptance-test preflight found only expected diagnostics"
+        }
+        let artifact = try artifacts.put(
+            named: "\(node.id)-\(run)-acceptance-test-preflight.log",
+            contents: Data(fullLog.utf8)
+        )
+        let commit = (try? await workspace.head(of: directory)) ?? "acceptance-tests"
+        let summary = "\(first.file):\(first.line): \(first.message)"
+        let evidence = Evidence(
+            check: "acceptance-test compilation",
+            passed: false,
+            summary: summary,
+            specHash: node.spec.specHash,
+            builtBy: run,
+            checkedBy: run,
+            artifactPath: artifact.path,
+            artifactSHA256: artifact.sha256,
+            commit: commit,
+            failureClassification: nil
+        )
+        let authorAttempts = await ledger.allRecords().filter {
+            guard $0.event.node == node.id else { return false }
+            if case .runStarted(_, .testAuthor) = $0.event.kind { return true }
+            return false
+        }.count
+        let reachedLimit = authorAttempts >= policy.maxAttempts
+        let reason = "Acceptance tests don't compile. First error: \(summary)"
+        var kinds: [EventKind] = [
+            .runFinished(run: run, outcome: "acceptance tests did not compile"),
+            .expectedAPIReported(report.expectedAPI),
+            .assumptionsReported(role: .testAuthor, assumptions: report.assumptions),
+            .acceptanceTestPreflightFailed(evidence),
+        ]
+        if reachedLimit {
+            kinds.append(.flagSet(.needsInput, reason: reason))
+        }
+        try await write(node.id, by: author, kinds)
+
+        let files = Set(mistakes.map(\.file)).sorted()
+        let listed = mistakes.prefix(20).map { "\($0.file):\($0.line): \($0.message)" }.joined(separator: "\n")
+        let heading = reachedLimit
+            ? "\(Self.needsInputMarker): Acceptance tests don't compile."
+            : "↩️ Acceptance tests don't compile; returned to the test author."
+        await tracker.comment(on: node.ticket, """
+            \(heading)
+            Affected test files: \(files.joined(separator: ", "))
+            \(listed)
+            Full compiler log: \(artifact.path)
+            \(reachedLimit ? "Fix the tests or comment with guidance, then add harness:retry." : "The test author will rerun with these diagnostics.")
+            """)
+        return reachedLimit
+            ? "\(node.ticket) acceptance tests don't compile → Needs input"
+            : "\(node.ticket) acceptance tests don't compile → returned to test author"
     }
 
     /// The agent can't go on without a person: record its questions and ask on the ticket.
@@ -988,7 +1076,9 @@ public actor Reconciler {
         return AgentTask(
             spec: node.spec, run: run, directory: directory, testFolder: workspace.testFolder(for: node.spec),
             context: workspace.agentContext, attempt: node.failedAttempts + 1,
-            previousFailure: node.brokenTestReports.last?.reason ?? node.recentFailures.last,
+            previousFailure: node.brokenTestReports.last?.reason
+                ?? node.evidence.last(where: { $0.check == "acceptance-test compilation" })?.summary
+                ?? node.recentFailures.last,
             simulationHints: Set(labels.filter { $0.hasPrefix("sim:") }), log: log,
             clarifications: state.clarifications(for: node.id), guesswork: policy.guesswork,
             expectedAPI: node.expectedAPI)
