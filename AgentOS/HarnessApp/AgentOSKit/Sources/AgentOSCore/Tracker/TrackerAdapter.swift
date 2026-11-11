@@ -17,6 +17,9 @@ public struct Signal: Sendable {
 public protocol TrackerAdapter: Sendable {
     func pendingSignals() async -> [Signal]
     func ticket(_ key: String) async -> Ticket?
+    /// Available ticket snapshots for one-level relationships and sibling titles.
+    func contextTickets() async -> [Ticket]
+    var contextRepository: String { get }
     /// Labels are one-time requests: remove the label and reply, so the ticket shows what happened.
     func consume(_ signal: Signal, reply: String) async
     /// Throws when the tracker refuses; the reconciler escalates and creates the rest on retry.
@@ -28,6 +31,9 @@ public protocol TrackerAdapter: Sendable {
 }
 
 extension TrackerAdapter {
+    public func contextTickets() async -> [Ticket] { [] }
+    public var contextRepository: String { "" }
+
     /// Trackers without closing show it as a status.
     public func close(_ key: String, saying text: String) async {
         await comment(on: key, text)

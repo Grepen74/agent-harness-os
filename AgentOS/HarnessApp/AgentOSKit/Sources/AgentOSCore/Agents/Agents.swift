@@ -26,12 +26,13 @@ public struct AgentTask: Sendable {
     public let guesswork: Guesswork
     /// Public production symbols the acceptance-test author expects the implementation to provide.
     public let expectedAPI: [String]
+    public let agentContext: AgentContext
 
     public init(spec: NodeSpec, run: RunID, directory: URL, testFolder: String, scratchDirectory: URL,
                 context: String = "", attempt: Int = 1, previousFailure: String? = nil,
                 simulationHints: Set<String> = [], log: URL? = nil,
                 clarifications: [Clarification] = [], guesswork: Guesswork = .assumeAndReport,
-                expectedAPI: [String] = [], ticketKey: String? = nil) {
+                expectedAPI: [String] = [], ticketKey: String? = nil, agentContext: AgentContext = AgentContext()) {
         self.spec = spec
         let inferredTicket = spec.id.hasPrefix("wn-") ? String(spec.id.dropFirst(3)) : spec.id
         self.identity = NodeIdentity(ticketKey: ticketKey ?? inferredTicket, nodeID: spec.id)
@@ -47,6 +48,7 @@ public struct AgentTask: Sendable {
         self.clarifications = clarifications
         self.guesswork = guesswork
         self.expectedAPI = expectedAPI
+        self.agentContext = agentContext
     }
 }
 
@@ -157,10 +159,11 @@ public struct BreakdownRequest: Sendable {
     public let log: URL?
     /// A read-only snapshot of the latest code to look at (see `Workspace.createSnapshot`); nil when there's none.
     public let codebase: URL?
+    public let agentContext: AgentContext
 
     public init(spec: NodeSpec, existingComponents: [String] = [], clarifications: [Clarification] = [],
                 guesswork: Guesswork = .assumeAndReport, log: URL? = nil, codebase: URL? = nil,
-                ticketKey: String? = nil) {
+                ticketKey: String? = nil, agentContext: AgentContext = AgentContext()) {
         self.spec = spec
         let inferredTicket = spec.id.hasPrefix("wn-") ? String(spec.id.dropFirst(3)) : spec.id
         self.identity = NodeIdentity(ticketKey: ticketKey ?? inferredTicket, nodeID: spec.id)
@@ -169,6 +172,7 @@ public struct BreakdownRequest: Sendable {
         self.guesswork = guesswork
         self.log = log
         self.codebase = codebase
+        self.agentContext = agentContext
     }
 }
 

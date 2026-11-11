@@ -150,12 +150,15 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
         if !protectedPaths.isEmpty {
             lines.append("Never change these protected paths: \(protectedPaths.joined(separator: ", ")).")
         }
-        let configuredAgents = config.agents ?? RepoConfig.Agents()
-        let documents = configuredAgents.contextFiles(in: trackedFiles())
+        let documents = designDocumentPaths
         if !documents.isEmpty {
             lines.append("Read these design documents where relevant: \(documents.joined(separator: ", ")).")
         }
         return lines.joined(separator: " ")
+    }
+
+    public var designDocumentPaths: [String] {
+        (config.agents ?? RepoConfig.Agents()).contextFiles(in: trackedFiles())
     }
 
     private func trackedFiles() -> [String] {

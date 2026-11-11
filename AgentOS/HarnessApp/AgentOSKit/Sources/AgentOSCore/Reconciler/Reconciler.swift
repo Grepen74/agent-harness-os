@@ -606,7 +606,7 @@ public actor Reconciler {
         let author = Participant.agent(run: run, role: .testAuthor)
         try await write(node.id, by: .reconciler, [.runStarted(run: run, role: .testAuthor)], expecting: node.version)
         let directory = try await workspace.createWorktree(for: node.id)
-        let task = await makeTask(node, run: run, in: directory, log: agentLog(node, run))
+        let task = await makeTask(node, run: run, in: directory, log: agentLog(node, run), includeComments: false)
         let own = workspace.testFolder(for: node.spec) + "/"
         let report: AgentReport
         do {
@@ -1181,7 +1181,8 @@ public actor Reconciler {
         let codebase = try? await workspace.createSnapshot()
         let request = BreakdownRequest(
             spec: spec, existingComponents: workspace.existingComponents(), clarifications: clarifications,
-            guesswork: policy.guesswork, log: log, codebase: codebase, ticketKey: ticketKey)
+            guesswork: policy.guesswork, log: log, codebase: codebase, ticketKey: ticketKey,
+            agentContext: await makeAgentContext(ticketKey))
         do {
             let breakdown = try await team.decomposer.proposeChildren(request)
             if let codebase { await workspace.removeSnapshot(codebase) }
@@ -1231,9 +1232,44 @@ public actor Reconciler {
         return try await operation()
     }
 
-    private func makeTask(_ node: NodeState, run: RunID, in directory: URL, log: URL?) async -> AgentTask {
+    private func makeAgentContext(_ key: String) async -> AgentContext {
+        let documents = workspace.designDocumentPaths
+        guard let ticket = await tracker.ticket(key) else {
+            return AgentContext(designDocumentPaths: documents)
+        }
+        var tickets = await tracker.contextTickets()
+        var linkedCount = 0
+        for reference in AgentContextBuilder.referencedKeys(in: ticket, repository: tracker.contextRepository) {
+            if linkedCount == 10 { break }
+            if tickets.contains(where: { $0.key == reference }) {
+                linkedCount += 1
+            } else if let linked = await tracker.ticket(reference) {
+                tickets.append(linked)
+                linkedCount += 1
+            }
+        }
+        if let parent = ticket.parentKey {
+            if !tickets.contains(where: { $0.key == parent }), let issue = await tracker.ticket(parent) {
+                tickets.append(issue)
+            }
+            let state = await ledger.workingState()
+            for sibling in state.nodes.values where sibling.ticket != key {
+                guard let parentNode = state.node(forTicket: parent),
+                      sibling.spec.parent == parentNode.id,
+                      !tickets.contains(where: { $0.key == sibling.ticket }),
+                      let issue = await tracker.ticket(sibling.ticket) else { continue }
+                tickets.append(issue)
+            }
+        }
+        return AgentContextBuilder.build(ticket: ticket, tickets: tickets, repository: tracker.contextRepository,
+                                         designDocumentPaths: documents)
+    }
+
+    private func makeTask(_ node: NodeState, run: RunID, in directory: URL, log: URL?,
+                          includeComments: Bool = true) async -> AgentTask {
         let labels = await tracker.ticket(node.ticket)?.labels.map(\.name) ?? []
         let state = await ledger.workingState()
+        let context = await makeAgentContext(node.ticket)
         return AgentTask(
             spec: node.spec, run: run, directory: directory, testFolder: workspace.testFolder(for: node.spec),
             scratchDirectory: directory.appending(path: ".agentos/scratch/\(run)", directoryHint: .isDirectory),
@@ -1243,7 +1279,8 @@ public actor Reconciler {
                 ?? node.recentFailures.last,
             simulationHints: Set(labels.filter { $0.hasPrefix("sim:") }), log: log,
             clarifications: state.clarifications(for: node.id), guesswork: policy.guesswork,
-            expectedAPI: node.expectedAPI, ticketKey: node.ticket)
+            expectedAPI: node.expectedAPI, ticketKey: node.ticket,
+            agentContext: includeComments ? context : context.withoutComments())
     }
 
     private func testsDigest(_ node: NodeState, in directory: URL) -> String {

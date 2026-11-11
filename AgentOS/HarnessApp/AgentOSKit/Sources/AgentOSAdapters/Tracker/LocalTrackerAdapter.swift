@@ -19,6 +19,7 @@ public struct LocalTrackerAdapter: TrackerAdapter {
     }
 
     public func ticket(_ key: String) async -> Ticket? { await tracker.ticket(key) }
+    public func contextTickets() async -> [Ticket] { await tracker.tickets() }
 
     public func consume(_ signal: Signal, reply: String) async {
         await tracker.removeLabel(signal.command.label, from: signal.ticket)

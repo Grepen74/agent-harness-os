@@ -105,6 +105,8 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
 
     public nonisolated var name: String { "GitHub Issues: \(repo)" + (board.map { ", board \($0.name)" } ?? "") }
     public nonisolated var adapter: any TrackerAdapter { self }
+    public nonisolated var contextRepository: String { repo }
+    public func contextTickets() async -> [Ticket] { await tickets() }
 
     /// `owner/name` from a GitHub remote URL (`git@github.com:o/r.git`, `https://github.com/o/r`), else nil.
     public static func repo(fromRemote url: String) -> String? {
