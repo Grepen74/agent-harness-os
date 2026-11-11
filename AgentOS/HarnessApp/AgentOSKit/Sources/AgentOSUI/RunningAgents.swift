@@ -156,8 +156,7 @@ struct Changes: View {
         .task(id: node) {
             while !Task.isCancelled {
                 let refreshed = await model.changes(of: node)
-                output.refresh(with: refreshed)
-                text = output.text
+                text = output.refresh(with: refreshed)
                 try? await Task.sleep(for: .seconds(3))
             }
         }
@@ -188,7 +187,8 @@ private struct TimestampedChangesOutput {
         lines.map { "[\($0.timestamp)] \($0.text)" }.joined(separator: "\n")
     }
 
-    mutating func refresh(with text: String, producedAt: Date = Date()) {
+    @discardableResult
+    mutating func refresh(with text: String, producedAt: Date = Date()) -> String {
         var existing: [String: [Line]] = Dictionary(grouping: lines, by: \.text)
         let timestamp = timestamp(for: producedAt)
         lines = Self.outputLines(in: text).map { text in
@@ -199,6 +199,7 @@ private struct TimestampedChangesOutput {
             }
             return Line(text: text, timestamp: timestamp)
         }
+        return self.text
     }
 
     private func timestamp(for date: Date) -> String {
