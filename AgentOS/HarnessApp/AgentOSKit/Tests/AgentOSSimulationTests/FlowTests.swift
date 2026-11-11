@@ -40,7 +40,9 @@ struct FlowTests {
 
         await sim.signal(.breakdown, "APP-1")
         let created = await sim.ledger.workingState().nodes.values.filter { $0.spec.parent == "wn-APP-1" }.map(\.spec)
-        #expect(Set(created) == Set(preview.proposal))
+        // IDs may change once the child tickets exist; everything else must be what the preview proposed.
+        let withoutIDs = { (specs: [NodeSpec]) in Set(specs.map { var spec = $0; spec.id = ""; return spec }) }
+        #expect(withoutIDs(created) == withoutIDs(preview.proposal))
     }
 
     @Test func epicFlowsToProvenOnceTheExternalDependencyIsDelivered() async throws {
