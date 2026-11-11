@@ -159,6 +159,7 @@ public actor Reconciler {
                     """)
                 return "questions posted above; no preview recorded"
             }
+            await postProceedingOnSuggestions(breakdown.report.questions, on: ticket.key)
             let children = Planner.childSpecs(parent: spec, proposals: breakdown.children)
             let number = (state.previews[ticket.key]?.number ?? 0) + 1
             try await write(nil, by: .reconciler, [
@@ -166,7 +167,7 @@ public actor Reconciler {
             // Accepting the preview accepts its assumptions too: they aren't asked about again.
             await tracker.comment(on: ticket.key, """
                 🔍 Preview #\(number). Nothing has been created.
-                \(Planner.describe(children, under: ticket.title))\(Self.assumptionsNote("Assumptions the decomposer made", breakdown.report.assumptions))
+                \(Planner.describe(children, under: ticket.title))\(Self.assumptionsNote("Assumptions the decomposer made", policy.assumptions(in: breakdown.report)))
                 Accept with label harness:breakdown, or edit the ticket and preview again.
                 """)
             return "preview #\(number) posted above"
@@ -320,7 +321,10 @@ public actor Reconciler {
         }
         let isReview = node.openQuestions.isEmpty
         var kinds: [EventKind] = [
-            .questionsAnswered(Clarification(questions: isReview ? ["Feedback on the acceptance tests"] : node.openQuestions, answer: answer)),
+            .questionsAnswered(Clarification(
+                questions: isReview ? ["Feedback on the acceptance tests"] : node.openQuestions.map(\.question),
+                answer: answer
+            )),
             .flagCleared(.needsInput)]
         if isReview && node.spec.kind == .leaf && node.phase == .ready {
             try? await workspace.removeWorktree(for: node.id)
@@ -506,8 +510,9 @@ public actor Reconciler {
             guard questions.isEmpty else {
                 return try await raise(questions, on: node, by: author, run: run, role: .decomposer)
             }
+            await postProceedingOnSuggestions(breakdown.report.questions, on: node.ticket)
             proposed = Planner.childSpecs(parent: node.spec, proposals: breakdown.children)
-            assumptions = breakdown.report.assumptions
+            assumptions = policy.assumptions(in: breakdown.report)
             try await write(node.id, by: author, [.runFinished(run: run, outcome: "proposed \(proposed.count) children")]
                 + (assumptions.isEmpty ? [] : [.assumptionsReported(role: .decomposer, assumptions: assumptions)]))
         }
@@ -615,6 +620,8 @@ public actor Reconciler {
             try? await workspace.removeWorktree(for: node.id)
             return try await raise(questions, on: node, by: author, run: run, role: .testAuthor)
         }
+        await postProceedingOnSuggestions(report.questions, on: node.ticket)
+        let assumptions = policy.assumptions(in: report)
         let testFiles: [String]
         do {
             let changed = try await workspace.commitAll(in: directory, message: "\(node.spec.id): acceptance tests", author: run)
@@ -643,6 +650,7 @@ public actor Reconciler {
                 diagnostics,
                 fullLog: fullLog,
                 report: report,
+                assumptions: assumptions,
                 node: node,
                 run: run,
                 author: author,
@@ -653,13 +661,13 @@ public actor Reconciler {
         // Under "assume and report", a leaf whose work rests on assumptions waits for a person to see its tests,
         // unless they already answered something on it. Questions about what users observe stopped it above.
         let state = await ledger.workingState()
-        let review = policy.guesswork == .assumeAndReport && (!report.assumptions.isEmpty
+        let review = policy.guesswork == .assumeAndReport && (!assumptions.isEmpty
             || (!state.assumptions(for: node.id).isEmpty && state.clarifications(for: node.id).isEmpty))
         let reviewReason = "Review the acceptance tests and assumptions, then add harness:build"
         try await write(node.id, by: author, [
             .runFinished(run: run, outcome: "acceptance tests committed"), .testsFixed(digest: testsDigest(node, in: directory)),
             .expectedAPIReported(report.expectedAPI),
-            .assumptionsReported(role: .testAuthor, assumptions: report.assumptions), .phaseChanged(to: .ready)]
+            .assumptionsReported(role: .testAuthor, assumptions: assumptions), .phaseChanged(to: .ready)]
             + (review ? [.flagSet(.needsInput, reason: reviewReason)] : []))
         let reviewNote = review ? """
 
@@ -677,6 +685,7 @@ public actor Reconciler {
         _ diagnostics: [CompilerDiagnostic],
         fullLog: String,
         report: AgentReport,
+        assumptions: [String],
         node: NodeState,
         run: RunID,
         author: Participant,
@@ -714,7 +723,7 @@ public actor Reconciler {
         var kinds: [EventKind] = [
             .runFinished(run: run, outcome: "acceptance tests did not compile"),
             .expectedAPIReported(report.expectedAPI),
-            .assumptionsReported(role: .testAuthor, assumptions: report.assumptions),
+            .assumptionsReported(role: .testAuthor, assumptions: assumptions),
             .acceptanceTestPreflightFailed(evidence),
         ]
         if reachedLimit {
@@ -740,21 +749,43 @@ public actor Reconciler {
     }
 
     /// The agent can't go on without a person: record its questions and ask on the ticket.
-    private func raise(_ questions: [String], on node: NodeState, by author: Participant, run: RunID, role: AgentRole) async throws -> String {
+    private func raise(
+        _ questions: [AgentQuestion],
+        on node: NodeState,
+        by author: Participant,
+        run: RunID,
+        role: AgentRole,
+        additionalKinds: [EventKind] = []
+    ) async throws -> String {
         let plural = questions.count == 1 ? "question" : "questions"
         try await write(node.id, by: author, [
             .runFinished(run: run, outcome: "asked \(questions.count) \(plural)"), .questionsRaised(role: role, questions: questions),
-            .flagSet(.needsInput, reason: "\(questions.count) open \(plural) from the \(role.title)")])
+            .flagSet(.needsInput, reason: "\(questions.count) open \(plural) from the \(role.title)")
+        ] + additionalKinds)
         await tracker.comment(on: node.ticket, """
             \(Self.needsInputMarker): the \(role.title) can't go on without answers.
             \(Self.numbered(questions))
-            Answer in a comment, then add harness:retry.
+            \(questions.contains { $0.suggestion != nil }
+                ? "Accept or correct the suggested answers in a comment, then add harness:retry."
+                : "Answer in a comment, then add harness:retry.")
             """)
         return "\(node.ticket) needs input: \(questions.count) \(plural) from the \(role.title)"
     }
 
-    static func numbered(_ items: [String]) -> String {
-        items.enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n")
+    static func numbered(_ items: [AgentQuestion]) -> String {
+        items.enumerated().map { index, item in
+            let suggestion = item.suggestion.map { "\n   Suggested answer: \($0)" } ?? ""
+            return "\(index + 1). \(item.question)\(suggestion)"
+        }.joined(separator: "\n")
+    }
+
+    private func postProceedingOnSuggestions(_ questions: [AgentQuestion], on ticket: String) async {
+        guard !questions.isEmpty, questions.allSatisfy({ $0.suggestion != nil }) else { return }
+        await tracker.comment(on: ticket, """
+            💡 Proceeding on suggested answers:
+            \(Self.numbered(questions))
+            To correct one, comment with its number and the corrected answer, then add harness:retry.
+            """)
     }
 
     /// An empty string without assumptions; otherwise a section to append to a comment.
@@ -807,6 +838,20 @@ public actor Reconciler {
                 }
             }
             let report = implementationResult as? AgentReport ?? AgentReport()
+            let questions = policy.questions(in: report)
+            guard questions.isEmpty else {
+                try await workspace.resetForRework(directory)
+                return try await raise(
+                    questions,
+                    on: node,
+                    by: author,
+                    run: run,
+                    role: .implementer,
+                    additionalKinds: [.phaseChanged(to: .ready)]
+                )
+            }
+            await postProceedingOnSuggestions(report.questions, on: node.ticket)
+            let assumptions = policy.assumptions(in: report)
             if let brokenTest = report.brokenTest {
                 return try await routeBrokenTest(brokenTest, from: node, run: run, author: author, directory: directory)
             }
@@ -824,7 +869,11 @@ public actor Reconciler {
                 return "\(node.ticket) submitted no changes after landing rework → Landing queue"
             }
             try await write(node.id, by: author, [
-                .runFinished(run: run, outcome: "submitted"), .changeSubmitted(run: run, commit: commit), .phaseChanged(to: .checking)])
+                .runFinished(run: run, outcome: "submitted"),
+                .assumptionsReported(role: .implementer, assumptions: assumptions),
+                .changeSubmitted(run: run, commit: commit),
+                .phaseChanged(to: .checking),
+            ])
             return "\(node.ticket) implemented by \(run) → Checking"
         } catch let error as UserGitStateChanged {
             // Not something another attempt fixes: a human checks what happened to their repo first.

@@ -69,7 +69,7 @@ public struct NodeState: Sendable, Identifiable {
     public var queuedAt: Int?
     public var landedCommit: String?
     /// What an agent asked and nobody answered yet (with the `needsInput` flag).
-    public var openQuestions: [String] = []
+    public var openQuestions: [AgentQuestion] = []
     /// Choices agents made themselves, per role (the decomposer's for a breakdown, the test author's for tests).
     public var assumptions: [AgentRole: [String]] = [:]
     /// Answers people gave on this node's ticket.

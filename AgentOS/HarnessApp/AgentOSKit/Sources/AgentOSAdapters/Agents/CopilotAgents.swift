@@ -155,7 +155,8 @@ public struct CopilotDecomposer: Decomposer {
         Do not create or modify any files.
 
         Respond with ONLY a JSON object (no prose, no code fences):
-        {"questions": [string], "assumptions": [string], "children": [{"title": string, "acceptanceCriteria": [string], \
+        {"questions": [string or {"question": string, "suggestion": string}], "assumptions": [string], \
+        "children": [{"title": string, "acceptanceCriteria": [string], \
         "touches": [component names], "dependsOn": [keys from the external dependencies list that this leaf needs, else []]}]}
 
         \(CopilotCLI.dataBlock(request.spec))\(CopilotCLI.answersBlock(request.clarifications))
@@ -176,7 +177,7 @@ public struct CopilotDecomposer: Decomposer {
     }
 
     private struct Answer: Decodable {
-        var questions: [String]?
+        var questions: [AgentQuestion]?
         var assumptions: [String]?
         var children: [ChildProposal]?
     }
@@ -216,7 +217,9 @@ public struct CopilotTestAuthor: TestAuthor {
         Do not run the tests.
 
         \(CopilotCLI.guessingRules(task.guesswork)) Report them in \(AgentReportFile.name) at the top of your \
-        working directory, as {"questions": [string], "assumptions": [string], "expectedAPI": [string]}. \
+        working directory, as {"questions": [string or {"question": string, "suggestion": string}], \
+        "assumptions": [string], "expectedAPI": [string]}. When an existing repository convention suggests an \
+        answer, include that answer as the question's suggestion instead of omitting it. \
         List the public production symbols and signatures your tests expect in expectedAPI. If you have questions, \
         write only that report and no tests.
 

@@ -54,9 +54,29 @@ public struct Policy: Sendable, Equatable {
         self.guesswork = guesswork
     }
 
-    /// What stops a node: the agent's questions, plus its assumptions when it may not assume anything.
-    func questions(in report: AgentReport) -> [String] {
-        guesswork == .ask ? report.questions + report.assumptions : report.questions
+    /// What stops a node. Autonomous agents may proceed only when every question has a suggested answer.
+    func questions(in report: AgentReport) -> [AgentQuestion] {
+        if guesswork == .ask {
+            return report.questions + report.assumptions.map { AgentQuestion(question: $0) }
+        }
+        if guesswork == .autonomous,
+           !report.questions.isEmpty,
+           report.questions.allSatisfy({ $0.suggestion != nil }) {
+            return []
+        }
+        return report.questions
+    }
+
+    /// Explicit assumptions plus suggested answers that autonomous agents are allowed to follow.
+    func assumptions(in report: AgentReport) -> [String] {
+        guard guesswork == .autonomous,
+              !report.questions.isEmpty,
+              report.questions.allSatisfy({ $0.suggestion != nil }) else {
+            return report.assumptions
+        }
+        return report.assumptions + report.questions.map {
+            "\($0.suggestion!) (suggested answer to: \($0.question))"
+        }
     }
 
     /// The changed files that touch a protected path.

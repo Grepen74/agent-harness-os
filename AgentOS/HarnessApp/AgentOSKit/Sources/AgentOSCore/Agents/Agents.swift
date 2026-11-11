@@ -57,10 +57,52 @@ public struct BrokenTestReport: Codable, Sendable, Hashable {
     }
 }
 
+public struct AgentQuestion: Codable, Sendable, Hashable, ExpressibleByStringLiteral {
+    private enum CodingKeys: String, CodingKey {
+        case question
+        case suggestion
+    }
+
+    public var question: String
+    public var suggestion: String?
+
+    public init(question: String, suggestion: String? = nil) {
+        self.question = question
+        self.suggestion = suggestion
+    }
+
+    public init(stringLiteral value: String) {
+        self.init(question: value)
+    }
+
+    public init(from decoder: any Decoder) throws {
+        if let value = try? decoder.singleValueContainer().decode(String.self) {
+            self.init(question: value)
+            return
+        }
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            question: try container.decode(String.self, forKey: .question),
+            suggestion: try container.decodeIfPresent(String.self, forKey: .suggestion)
+        )
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        guard let suggestion else {
+            var container = encoder.singleValueContainer()
+            try container.encode(question)
+            return
+        }
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(question, forKey: .question)
+        try container.encode(suggestion, forKey: .suggestion)
+    }
+}
+
 /// What an agent wasn't sure of (doc 05: open questions and assumptions), returned with its result.
 public struct AgentReport: Codable, Sendable, Hashable {
     /// What users will observe that the spec doesn't settle. Any of them stops the node until a person answers.
-    public var questions: [String]
+    public var questions: [AgentQuestion]
     /// Choices the agent made itself, for a reviewer to see.
     public var assumptions: [String]
     /// Public symbols the tests require from the implementation.
@@ -69,7 +111,7 @@ public struct AgentReport: Codable, Sendable, Hashable {
     public var brokenTest: BrokenTestReport?
 
     public init(
-        questions: [String] = [],
+        questions: [AgentQuestion] = [],
         assumptions: [String] = [],
         expectedAPI: [String] = [],
         brokenTest: BrokenTestReport? = nil
@@ -82,7 +124,7 @@ public struct AgentReport: Codable, Sendable, Hashable {
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        questions = try container.decodeIfPresent([String].self, forKey: .questions) ?? []
+        questions = try container.decodeIfPresent([AgentQuestion].self, forKey: .questions) ?? []
         assumptions = try container.decodeIfPresent([String].self, forKey: .assumptions) ?? []
         expectedAPI = try container.decodeIfPresent([String].self, forKey: .expectedAPI) ?? []
         brokenTest = try container.decodeIfPresent(BrokenTestReport.self, forKey: .brokenTest)
