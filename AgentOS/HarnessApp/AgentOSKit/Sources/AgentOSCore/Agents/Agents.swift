@@ -10,6 +10,8 @@ public struct AgentTask: Sendable {
     /// The leaf's own test folder, relative to `directory`: the test author writes only there, and nobody
     /// changes it afterwards.
     public let testFolder: String
+    /// Writable experiment space for this run, inside `directory` and excluded from its submission.
+    public let scratchDirectory: URL
     /// The repo's layout and rules for agents (from the workspace).
     public let context: String
     public let attempt: Int
@@ -24,14 +26,16 @@ public struct AgentTask: Sendable {
     /// Public production symbols the acceptance-test author expects the implementation to provide.
     public let expectedAPI: [String]
 
-    public init(spec: NodeSpec, run: RunID, directory: URL, testFolder: String, context: String = "", attempt: Int = 1,
-                previousFailure: String? = nil, simulationHints: Set<String> = [], log: URL? = nil,
+    public init(spec: NodeSpec, run: RunID, directory: URL, testFolder: String, scratchDirectory: URL,
+                context: String = "", attempt: Int = 1, previousFailure: String? = nil,
+                simulationHints: Set<String> = [], log: URL? = nil,
                 clarifications: [Clarification] = [], guesswork: Guesswork = .assumeAndReport,
                 expectedAPI: [String] = []) {
         self.spec = spec
         self.run = run
         self.directory = directory
         self.testFolder = testFolder
+        self.scratchDirectory = scratchDirectory
         self.context = context
         self.attempt = attempt
         self.previousFailure = previousFailure

@@ -769,8 +769,10 @@ public actor Reconciler {
         do {
             try await workspace.prepareBuild(in: directory)
             let task = await makeTask(node, run: run, in: directory, log: agentLog(node, run))
-            let implementationResult = try await watchingUserGitState(node, run: run) {
-                try await team.implementer.implement(task)
+            let implementationResult = try await withScratchDirectory(task.scratchDirectory) {
+                try await watchingUserGitState(node, run: run) {
+                    try await team.implementer.implement(task)
+                }
             }
             let report = implementationResult as? AgentReport ?? AgentReport()
             if let brokenTest = report.brokenTest {
@@ -1070,11 +1072,18 @@ public actor Reconciler {
         var end: Int?
     }
 
+    private func withScratchDirectory<T>(_ directory: URL, operation: () async throws -> T) async throws -> T {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        return try await operation()
+    }
+
     private func makeTask(_ node: NodeState, run: RunID, in directory: URL, log: URL?) async -> AgentTask {
         let labels = await tracker.ticket(node.ticket)?.labels.map(\.name) ?? []
         let state = await ledger.workingState()
         return AgentTask(
             spec: node.spec, run: run, directory: directory, testFolder: workspace.testFolder(for: node.spec),
+            scratchDirectory: directory.appending(path: ".agentos/scratch/\(run)", directoryHint: .isDirectory),
             context: workspace.agentContext, attempt: node.failedAttempts + 1,
             previousFailure: node.brokenTestReports.last?.reason
                 ?? node.evidence.last(where: { $0.check == "acceptance-test compilation" })?.summary

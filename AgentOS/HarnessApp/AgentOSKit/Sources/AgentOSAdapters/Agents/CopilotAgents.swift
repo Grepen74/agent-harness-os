@@ -230,25 +230,33 @@ public struct CopilotTestAuthor: TestAuthor {
 public struct CopilotImplementer: Implementer {
     let cli: CopilotCLI
 
-    public func implement(_ task: AgentTask) async throws -> AgentReport {
+    static func prompt(for task: AgentTask) -> String {
         let failure = task.previousFailure.map { "\nThe previous attempt failed verification with: \($0)\n" } ?? ""
         let expected = task.expectedAPI.isEmpty
             ? ""
             : "\nThe test author expects these public APIs:\n" + task.expectedAPI.map { "- \($0)" }.joined(separator: "\n") + "\n"
-        let prompt = """
+        return """
         You are the implementer agent in an agent harness. \(task.context)
 
         Make the tests in \(task.testFolder)/ pass by changing the code this work item touches: \
         \(task.spec.touches.joined(separator: ", ")). The tests are READ-ONLY: changing any test makes your work \
         fail verification, and so does changing the agents' instruction files. Other work items' tests must keep \
         passing too. Run the tests before finishing. You only submit; an independent verifier decides if it's done.
+        Do not change behavior outside the ticket's requested scope. For experiments, use the writable scratch folder \
+        at \(task.scratchDirectory.path) instead of /tmp. You may write experiments there without approval; its \
+        contents are excluded from the submitted implementation.
         \(failure)\(expected)
-        If an acceptance test itself is impossible or contradicts the available public contract, do not change it. \
-        Write \(AgentReportFile.name) as {"questions": [], "assumptions": [], "brokenTest": \
+        If an acceptance test itself is impossible or contradicts the available public contract, report a broken \
+        acceptance test instead of changing it or working around it. Write \(AgentReportFile.name) as \
+        {"questions": [], "assumptions": [], "brokenTest": \
         {"testName": string, "reason": string}}. Otherwise the report may be omitted.
 
         \(CopilotCLI.dataBlock(task.spec))
         """
+    }
+
+    public func implement(_ task: AgentTask) async throws -> AgentReport {
+        let prompt = Self.prompt(for: task)
         _ = try await cli.run(prompt, in: task.directory, log: task.log, silent: false)
         return try AgentReportFile.take(from: task.directory)
     }
