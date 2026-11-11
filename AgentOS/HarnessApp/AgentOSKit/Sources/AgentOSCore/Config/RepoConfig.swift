@@ -67,11 +67,30 @@ public struct RepoConfig: Codable, Sendable, Equatable {
         public var models: AgentModels?
         /// How much agents may guess: `ask`, `assume-and-report` or `autonomous`, at most the harness's level.
         public var guesswork: String?
+        /// Tracked repository-relative paths or globs for design documents agents should read.
+        public var context: [String]?
 
-        public init(deny: [String]? = nil, models: AgentModels? = nil, guesswork: String? = nil) {
+        public init(deny: [String]? = nil, models: AgentModels? = nil, guesswork: String? = nil,
+                    context: [String]? = nil) {
             self.deny = deny
             self.models = models
             self.guesswork = guesswork
+            self.context = context
+        }
+
+        /// Tracked files selected by the configured repository-relative paths and globs.
+        public func contextFiles(in trackedFiles: [String]) -> [String] {
+            guard let context else { return ["README.md", "AGENTS.md"] }
+            return Array(Set(context.flatMap { pattern in
+                trackedFiles.filter { fnmatch(pattern, $0, FNM_PATHNAME) == 0 }
+            })).sorted()
+        }
+
+        public func unmatchedContextEntries(in trackedFiles: [String]) -> [String] {
+            guard let context else { return [] }
+            return context.filter { pattern in
+                !trackedFiles.contains { fnmatch(pattern, $0, FNM_PATHNAME) == 0 }
+            }
         }
     }
 
