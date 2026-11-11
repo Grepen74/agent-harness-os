@@ -703,8 +703,8 @@ public actor Reconciler {
         let author = Participant.agent(run: run, role: .testAuthor)
         try await write(node.id, by: .reconciler, [.runStarted(run: run, role: .testAuthor)], expecting: node.version)
         let directory = try await workspace.createWorktree(for: node.id)
-        let task = await makeTask(node, run: run, in: directory, log: agentLog(node, run), for: .testAuthor)
-        let task = await makeTask(node, run: run, in: directory, log: agentLog(node, run), includeComments: false)
+        let task = await makeTask(node, run: run, in: directory, log: agentLog(node, run),
+                                  for: .testAuthor, includeComments: false)
         let own = workspace.testFolder(for: node.spec) + "/"
         let report: AgentReport
         do {
@@ -1390,7 +1390,6 @@ public actor Reconciler {
         return try await operation()
     }
 
-    private func makeTask(_ node: NodeState, run: RunID, in directory: URL, log: URL?, for role: AgentRole) async -> AgentTask {
     private func makeAgentContext(_ key: String) async -> AgentContext {
         let documents = workspace.designDocumentPaths
         guard let ticket = await tracker.ticket(key) else {
@@ -1425,7 +1424,7 @@ public actor Reconciler {
     }
 
     private func makeTask(_ node: NodeState, run: RunID, in directory: URL, log: URL?,
-                          includeComments: Bool = true) async -> AgentTask {
+                          for role: AgentRole, includeComments: Bool = true) async -> AgentTask {
         let labels = await tracker.ticket(node.ticket)?.labels.map(\.name) ?? []
         let state = await ledger.workingState()
         let context = await makeAgentContext(node.ticket)
