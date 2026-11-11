@@ -5,11 +5,9 @@ public enum OutputWindowPresentation {
     case log
     case changes
 
+    /// Dimensions in which the presented output window may grow and shrink.
     public var resizeAxes: Axis.Set {
-        switch self {
-        case .log, .changes:
-            [.horizontal, .vertical]
-        }
+        [.horizontal, .vertical]
     }
 }
 
@@ -166,7 +164,9 @@ struct Changes: View {
 private extension View {
     func outputWindowPresentation(_ presentation: OutputWindowPresentation) -> some View {
         frame(
+            minWidth: presentation.resizeAxes.contains(.horizontal) ? 0 : nil,
             maxWidth: presentation.resizeAxes.contains(.horizontal) ? .infinity : nil,
+            minHeight: presentation.resizeAxes.contains(.vertical) ? 0 : nil,
             maxHeight: presentation.resizeAxes.contains(.vertical) ? .infinity : nil
         )
     }
