@@ -44,6 +44,8 @@ public struct CatchUpSuccess: Sendable, Hashable {
 /// The current state of one Work Node, derived from its events.
 public struct NodeState: Sendable, Identifiable {
     public var id: NodeID { spec.id }
+    public var identity: NodeIdentity { NodeIdentity(ticketKey: ticket, nodeID: id) }
+    public var displayName: String { identity.displayName }
     public var spec: NodeSpec
     public var ticket: String
     /// Position of the last event that touched this node; used for compare-and-swap.

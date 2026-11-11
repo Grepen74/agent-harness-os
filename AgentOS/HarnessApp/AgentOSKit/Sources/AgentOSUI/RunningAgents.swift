@@ -65,10 +65,10 @@ struct RunRow: View {
     @State private var log: URL?
 
     var body: some View {
-        let title = "\(node.ticket) · \(run.role.rawValue) · \(run.run)"
+        let title = "\(node.displayName) · \(run.role.rawValue) · \(run.run)"
         HStack(spacing: 6) {
             Image(systemName: "cpu").foregroundStyle(.orange)
-            Text(node.ticket).monospaced().lineLimit(1)
+            Text(node.displayName).monospaced().lineLimit(1)
             Text(run.role.rawValue).foregroundStyle(.secondary).lineLimit(1)
             // Updates itself; the hidden widest value keeps its width fixed.
             Text("00:00:00").hidden()

@@ -142,6 +142,7 @@ public struct CopilotDecomposer: Decomposer {
 
         let prompt = """
         You are the decomposer agent in an agent harness. \(Self.codebaseNote(request.codebase != nil))\
+        The work item is \(request.identity.displayName). \
         First check the work item below is ready: could someone \
         write a test for each acceptance criterion without guessing what users will observe? \
         \(CopilotCLI.guessingRules(request.guesswork)) If you have questions, return them and no children.
@@ -207,6 +208,7 @@ public struct CopilotTestAuthor: TestAuthor {
         let suite = task.spec.testTarget
         let prompt = """
         You are the test author agent in an agent harness. \(task.context)
+        The work item is \(task.identity.displayName).
 
         Write acceptance tests for the work item below in \(task.testFolder)/\(suite).swift, at least one test per \
         acceptance criterion, in a test suite named exactly \(suite) (a Swift Testing `@Suite struct \(suite)`, or \
@@ -240,6 +242,7 @@ public struct CopilotImplementer: Implementer {
             : "\nThe test author expects these public APIs:\n" + task.expectedAPI.map { "- \($0)" }.joined(separator: "\n") + "\n"
         return """
         You are the implementer agent in an agent harness. \(task.context)
+        The work item is \(task.identity.displayName).
 
         Make the tests in \(task.testFolder)/ pass by changing the code this work item touches: \
         \(task.spec.touches.joined(separator: ", ")). The tests are READ-ONLY: changing any test makes your work \

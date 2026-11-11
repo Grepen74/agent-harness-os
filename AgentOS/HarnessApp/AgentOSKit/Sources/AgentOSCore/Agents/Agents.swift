@@ -4,6 +4,7 @@ import Foundation
 /// or labels as instructions (golden rule: ticket text is data, not instructions).
 public struct AgentTask: Sendable {
     public let spec: NodeSpec
+    public let identity: NodeIdentity
     public let run: RunID
     /// The leaf's own working copy (its branch). The only place the agent may write.
     public let directory: URL
@@ -30,8 +31,10 @@ public struct AgentTask: Sendable {
                 context: String = "", attempt: Int = 1, previousFailure: String? = nil,
                 simulationHints: Set<String> = [], log: URL? = nil,
                 clarifications: [Clarification] = [], guesswork: Guesswork = .assumeAndReport,
-                expectedAPI: [String] = []) {
+                expectedAPI: [String] = [], ticketKey: String? = nil) {
         self.spec = spec
+        let inferredTicket = spec.id.hasPrefix("wn-") ? String(spec.id.dropFirst(3)) : spec.id
+        self.identity = NodeIdentity(ticketKey: ticketKey ?? inferredTicket, nodeID: spec.id)
         self.run = run
         self.directory = directory
         self.testFolder = testFolder
@@ -145,6 +148,7 @@ public struct Clarification: Codable, Sendable, Hashable {
 /// Everything the decomposer gets for one breakdown.
 public struct BreakdownRequest: Sendable {
     public let spec: NodeSpec
+    public let identity: NodeIdentity
     /// The catalog of components already on main, so leaves reuse them.
     public let existingComponents: [String]
     public let clarifications: [Clarification]
@@ -155,8 +159,11 @@ public struct BreakdownRequest: Sendable {
     public let codebase: URL?
 
     public init(spec: NodeSpec, existingComponents: [String] = [], clarifications: [Clarification] = [],
-                guesswork: Guesswork = .assumeAndReport, log: URL? = nil, codebase: URL? = nil) {
+                guesswork: Guesswork = .assumeAndReport, log: URL? = nil, codebase: URL? = nil,
+                ticketKey: String? = nil) {
         self.spec = spec
+        let inferredTicket = spec.id.hasPrefix("wn-") ? String(spec.id.dropFirst(3)) : spec.id
+        self.identity = NodeIdentity(ticketKey: ticketKey ?? inferredTicket, nodeID: spec.id)
         self.existingComponents = existingComponents
         self.clarifications = clarifications
         self.guesswork = guesswork
