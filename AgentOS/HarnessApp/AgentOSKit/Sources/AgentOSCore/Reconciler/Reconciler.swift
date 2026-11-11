@@ -23,6 +23,7 @@ public actor Reconciler {
     let workspace: any Workspace
     let artifacts: any ArtifactStore
     let checks: any CheckRunner
+    let acceptanceTestPreflight: any AcceptanceTestPreflight
     public nonisolated let policy: Policy
     public private(set) var team: AgentTeam
     /// When each agent of the current round started and finished, in steps of `clock`.
@@ -31,13 +32,15 @@ public actor Reconciler {
 
     public init(ledger: Ledger, tracker: any TrackerAdapter, external: any ExternalDependencySource,
                 workspace: any Workspace, artifacts: any ArtifactStore, checks: any CheckRunner, team: AgentTeam,
-                policy: Policy = Policy()) {
+                policy: Policy = Policy(),
+                acceptanceTestPreflight: any AcceptanceTestPreflight = SkippedAcceptanceTestPreflight()) {
         self.ledger = ledger
         self.artifacts = artifacts
         self.tracker = tracker
         self.external = external
         self.workspace = workspace
         self.checks = checks
+        self.acceptanceTestPreflight = acceptanceTestPreflight
         self.team = team
         self.policy = policy
     }
@@ -209,6 +212,9 @@ public actor Reconciler {
             try await write(node.id, by: .human(person), [.flagCleared(.escalated), .attemptsReset])
             return "escalation cleared; attempts reset"
 
+        case .retest:
+            return try await retest(node, ticket: ticket, by: person)
+
         case .replan:
             return try await replan(node, ticket: ticket, by: person)
 
@@ -234,6 +240,35 @@ public actor Reconciler {
             return "adopted; breakdown and build approved: it will be broken down, built and checked without stopping\n"
                 + spec.trackerSummary
         }
+    }
+
+    /// Discards an obsolete leaf worktree and starts test authoring again from the latest landing branch.
+    private func retest(_ node: NodeState?, ticket: Ticket, by person: String) async throws -> String {
+        guard let node else {
+            throw Rejection(reason: "Not adopted yet, so there are no acceptance tests to rewrite.")
+        }
+        guard node.landedCommit == nil else {
+            throw Rejection(reason: "\(node.spec.id) has already landed, so its acceptance tests cannot be replaced.")
+        }
+        guard node.spec.kind == .leaf,
+              node.flags[.escalated] != nil || node.flags[.needsInput] != nil else {
+            throw Rejection(reason: "Nothing to retest. \(HarnessCommand.retest.label) only rewrites acceptance tests " +
+                "for a leaf that is escalated or waiting for input.")
+        }
+
+        try await workspace.removeWorktree(for: node.id)
+        var kinds: [EventKind] = []
+        if let feedback = Self.answer(on: ticket) {
+            kinds.append(.questionsAnswered(Clarification(
+                questions: ["Feedback for rewriting the acceptance tests"],
+                answer: feedback
+            )))
+        }
+        if node.flags[.needsInput] != nil { kinds.append(.flagCleared(.needsInput)) }
+        if node.flags[.escalated] != nil { kinds.append(.flagCleared(.escalated)) }
+        kinds.append(.phaseChanged(to: .specified))
+        try await write(node.id, by: .human(person), kinds)
+        return "current working copy and tests discarded; the test author will rewrite them from the latest landing branch"
     }
 
     /// `harness:replan`: the ticket changed (criteria, a forgotten "Blocked by", a breakdown that missed the point).
@@ -422,7 +457,7 @@ public actor Reconciler {
             return "\(node.ticket) proven (all children proven)"
 
         case (.leaf, .specified):
-            guard state.hasGate(.breakdown, at: node.id) else { return nil }
+            guard state.hasGate(.breakdown, at: node.id) || state.hasGate(.build, at: node.id) else { return nil }
             return try await authorTests(node)
 
         case (.leaf, .ready):
@@ -596,6 +631,25 @@ public actor Reconciler {
             return "\(node.ticket) test authoring failed → escalated"
         }
 
+        switch await acceptanceTestPreflight.compileTests(
+            in: directory,
+            testFolder: workspace.testFolder(for: node.spec),
+            expectedAPI: report.expectedAPI
+        ) {
+        case .compiled, .skipped:
+            break
+        case .diagnostics(let diagnostics, let fullLog):
+            return try await returnAcceptanceTests(
+                diagnostics,
+                fullLog: fullLog,
+                report: report,
+                node: node,
+                run: run,
+                author: author,
+                directory: directory
+            )
+        }
+
         // Under "assume and report", a leaf whose work rests on assumptions waits for a person to see its tests,
         // unless they already answered something on it. Questions about what users observe stopped it above.
         let state = await ledger.workingState()
@@ -604,6 +658,7 @@ public actor Reconciler {
         let reviewReason = "Review the acceptance tests and assumptions, then add harness:build"
         try await write(node.id, by: author, [
             .runFinished(run: run, outcome: "acceptance tests committed"), .testsFixed(digest: testsDigest(node, in: directory)),
+            .expectedAPIReported(report.expectedAPI),
             .assumptionsReported(role: .testAuthor, assumptions: report.assumptions), .phaseChanged(to: .ready)]
             + (review ? [.flagSet(.needsInput, reason: reviewReason)] : []))
         let reviewNote = review ? """
@@ -616,6 +671,72 @@ public actor Reconciler {
             \(Self.testListing(testFiles, in: directory))\(Self.assumptionsNote("Assumptions this work rests on", await ledger.workingState().assumptions(for: node.id)))\(reviewNote)
             """)
         return "\(node.ticket) acceptance tests written on branch \(workspace.branch(for: node.id)) → " + (review ? "waiting for review" : "Ready")
+    }
+
+    private func returnAcceptanceTests(
+        _ diagnostics: [CompilerDiagnostic],
+        fullLog: String,
+        report: AgentReport,
+        node: NodeState,
+        run: RunID,
+        author: Participant,
+        directory: URL
+    ) async throws -> String {
+        let mistakes = diagnostics.filter { $0.classification == .testAuthorMistake }
+        guard let first = mistakes.first else {
+            return "\(node.ticket) acceptance-test preflight found only expected diagnostics"
+        }
+        let artifact = try artifacts.put(
+            named: "\(node.id)-\(run)-acceptance-test-preflight.log",
+            contents: Data(fullLog.utf8)
+        )
+        let commit = (try? await workspace.head(of: directory)) ?? "acceptance-tests"
+        let summary = "\(first.file):\(first.line): \(first.message)"
+        let evidence = Evidence(
+            check: "acceptance-test compilation",
+            passed: false,
+            summary: summary,
+            specHash: node.spec.specHash,
+            builtBy: run,
+            checkedBy: run,
+            artifactPath: artifact.path,
+            artifactSHA256: artifact.sha256,
+            commit: commit,
+            failureClassification: nil
+        )
+        let authorAttempts = await ledger.allRecords().filter {
+            guard $0.event.node == node.id else { return false }
+            if case .runStarted(_, .testAuthor) = $0.event.kind { return true }
+            return false
+        }.count
+        let reachedLimit = authorAttempts >= policy.maxAttempts
+        let reason = "Acceptance tests don't compile. First error: \(summary)"
+        var kinds: [EventKind] = [
+            .runFinished(run: run, outcome: "acceptance tests did not compile"),
+            .expectedAPIReported(report.expectedAPI),
+            .assumptionsReported(role: .testAuthor, assumptions: report.assumptions),
+            .acceptanceTestPreflightFailed(evidence),
+        ]
+        if reachedLimit {
+            kinds.append(.flagSet(.needsInput, reason: reason))
+        }
+        try await write(node.id, by: author, kinds)
+
+        let files = Set(mistakes.map(\.file)).sorted()
+        let listed = mistakes.prefix(20).map { "\($0.file):\($0.line): \($0.message)" }.joined(separator: "\n")
+        let heading = reachedLimit
+            ? "\(Self.needsInputMarker): Acceptance tests don't compile."
+            : "↩️ Acceptance tests don't compile; returned to the test author."
+        await tracker.comment(on: node.ticket, """
+            \(heading)
+            Affected test files: \(files.joined(separator: ", "))
+            \(listed)
+            Full compiler log: \(artifact.path)
+            \(reachedLimit ? "Fix the tests or comment with guidance, then add harness:retry." : "The test author will rerun with these diagnostics.")
+            """)
+        return reachedLimit
+            ? "\(node.ticket) acceptance tests don't compile → Needs input"
+            : "\(node.ticket) acceptance tests don't compile → returned to test author"
     }
 
     /// The agent can't go on without a person: record its questions and ask on the ticket.
@@ -680,7 +801,15 @@ public actor Reconciler {
         do {
             try await workspace.prepareBuild(in: directory)
             let task = await makeTask(node, run: run, in: directory, log: agentLog(node, run))
-            try await watchingUserGitState(node, run: run) { try await team.implementer.implement(task) }
+            let implementationResult = try await withScratchDirectory(task.scratchDirectory) {
+                try await watchingUserGitState(node, run: run) {
+                    try await team.implementer.implement(task)
+                }
+            }
+            let report = implementationResult as? AgentReport ?? AgentReport()
+            if let brokenTest = report.brokenTest {
+                return try await routeBrokenTest(brokenTest, from: node, run: run, author: author, directory: directory)
+            }
             guard let commit = try await workspace.commitAll(
                 in: directory,
                 message: "\(node.spec.id): \(node.spec.title)",
@@ -708,6 +837,76 @@ public actor Reconciler {
             try await write(node.id, by: author, [
                 .runFinished(run: run, outcome: "failed"), .attemptFailed(summary: "\(error)"), .phaseChanged(to: .ready)])
             return try await escalateIfNeeded(node.id) ?? "\(node.ticket) implementer failed (\(error)); will retry"
+        }
+    }
+
+    private func routeBrokenTest(
+        _ report: BrokenTestReport,
+        from node: NodeState,
+        run: RunID,
+        author: Participant,
+        directory: URL
+    ) async throws -> String {
+        try await workspace.resetForRework(directory)
+        if await testsWereAlreadyReworkedAfterBrokenReport(node.id) {
+            let reports = node.brokenTestReports + [report]
+            let details = reports.map { "\($0.testName): \($0.reason)" }.joined(separator: "\n")
+            let reason = """
+            The test author already reworked these tests after a broken-test report:
+            \(details)
+            Next: a person should review both reports, comment with guidance, then add harness:retry.
+            """
+            try await write(node.id, by: author, [
+                .runFinished(run: run, outcome: "reported a broken test: \(report.testName)"),
+                .brokenTestReported(report),
+                .brokenTestRouted(testName: report.testName, outcome: .waitingForPerson),
+                .phaseChanged(to: .ready),
+                .flagSet(.needsInput, reason: reason),
+            ])
+            await tracker.comment(on: node.ticket, """
+                ⚠️ Broken acceptance test \(report.testName): \(report.reason)
+                waiting for a person: the test author already reworked these tests.
+                \(reason)
+                """)
+            return "\(node.ticket) broken test \(report.testName) → waiting for a person"
+        }
+
+        try await write(node.id, by: author, [
+            .runFinished(run: run, outcome: "reported a broken test: \(report.testName)"),
+            .brokenTestReported(report),
+            .brokenTestRouted(testName: report.testName, outcome: .sentBackToTestAuthor),
+            .phaseChanged(to: .specified),
+        ])
+        await tracker.comment(on: node.ticket, """
+            🔁 Broken acceptance test \(report.testName): \(report.reason)
+            sent back to the test author.
+            """)
+        return "\(node.ticket) broken test \(report.testName) → sent back to the test author"
+    }
+
+    private func testsWereAlreadyReworkedAfterBrokenReport(_ id: NodeID) async -> Bool {
+        let records = await ledger.allRecords().filter { $0.event.node == id }
+        guard let testsFixed = records.last(where: {
+            if case .testsFixed = $0.event.kind { return true }
+            return false
+        }), let previousReport = records.last(where: {
+            guard $0.position < testsFixed.position else { return false }
+            if case .brokenTestReported = $0.event.kind { return true }
+            return false
+        }) else {
+            return false
+        }
+        return !records.contains {
+            guard $0.position > previousReport.position else { return false }
+            guard case .human = $0.event.by else { return false }
+            switch $0.event.kind {
+            case .questionsAnswered:
+                return true
+            case .signalAccepted(_, let command, _):
+                return command == .retry
+            default:
+                return false
+            }
         }
     }
 
@@ -905,14 +1104,25 @@ public actor Reconciler {
         var end: Int?
     }
 
+    private func withScratchDirectory<T>(_ directory: URL, operation: () async throws -> T) async throws -> T {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        return try await operation()
+    }
+
     private func makeTask(_ node: NodeState, run: RunID, in directory: URL, log: URL?) async -> AgentTask {
         let labels = await tracker.ticket(node.ticket)?.labels.map(\.name) ?? []
         let state = await ledger.workingState()
         return AgentTask(
             spec: node.spec, run: run, directory: directory, testFolder: workspace.testFolder(for: node.spec),
+            scratchDirectory: directory.appending(path: ".agentos/scratch/\(run)", directoryHint: .isDirectory),
             context: workspace.agentContext, attempt: node.failedAttempts + 1,
-            previousFailure: node.recentFailures.last, simulationHints: Set(labels.filter { $0.hasPrefix("sim:") }), log: log,
-            clarifications: state.clarifications(for: node.id), guesswork: policy.guesswork)
+            previousFailure: node.brokenTestReports.last?.reason
+                ?? node.evidence.last(where: { $0.check == "acceptance-test compilation" })?.summary
+                ?? node.recentFailures.last,
+            simulationHints: Set(labels.filter { $0.hasPrefix("sim:") }), log: log,
+            clarifications: state.clarifications(for: node.id), guesswork: policy.guesswork,
+            expectedAPI: node.expectedAPI)
     }
 
     private func testsDigest(_ node: NodeState, in directory: URL) -> String {

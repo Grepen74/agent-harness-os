@@ -54,6 +54,8 @@ public struct NodeState: Sendable, Identifiable {
     public var links: [TypedLink] = []
     public var children: [NodeID] = []
     public var testsDigest: String?
+    public var expectedAPI: [String] = []
+    public var brokenTestReports: [BrokenTestReport] = []
     /// The claim: at most one agent run per node at a time.
     public var activeRun: ActiveRun?
     public var lastSubmission: Submission?
@@ -239,6 +241,8 @@ public struct WorkingState: Sendable {
             node.failedAttempts = 0
             node.recentFailures = []
         case .testsFixed(let digest): node.testsDigest = digest
+        case .expectedAPIReported(let api): node.expectedAPI = api
+        case .brokenTestReported(let report): node.brokenTestReports.append(report)
         case .runStarted(let run, let role): node.activeRun = ActiveRun(run: run, role: role, since: event.at)
         case .runFinished: node.activeRun = nil
         case .changeSubmitted(let run, let commit):
@@ -269,6 +273,8 @@ public struct WorkingState: Sendable {
             node.recentFailures.append(summary)
             node.landingReworkPending = false
             node.landingRerunPending = false
+        case .acceptanceTestPreflightFailed(let evidence):
+            node.evidence.append(evidence)
         case .evidenceRecorded(let evidence):
             node.evidence.append(evidence)
             if !evidence.passed {

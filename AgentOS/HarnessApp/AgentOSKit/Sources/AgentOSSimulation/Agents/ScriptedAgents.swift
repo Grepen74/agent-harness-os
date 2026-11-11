@@ -134,7 +134,7 @@ public struct ScriptedTestAuthor: TestAuthor {
 public struct ScriptedImplementer: Implementer {
     public init() {}
 
-    public func implement(_ task: AgentTask) async throws {
+    public func implement(_ task: AgentTask) async throws -> AgentReport {
         if task.simulationHints.contains("sim:stuck") {
             AgentLog.append("Giving up: no progress", to: task.log)
             throw AgentFailure("Agent gave up: couldn't make progress")
@@ -152,6 +152,7 @@ public struct ScriptedImplementer: Implementer {
             }
             try ScriptedFacts.write(facts, component: component, to: url)
         }
+        return AgentReport()
     }
 }
 
