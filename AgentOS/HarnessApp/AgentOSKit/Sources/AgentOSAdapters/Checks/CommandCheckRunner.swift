@@ -66,7 +66,8 @@ public struct CommandCheckRunner: CheckRunner {
                 return CheckOutput(passed: false,
                                    summary: "\(step.name) failed: "
                                        + (trimmed.isEmpty ? "exit status \(result.status)" : SwiftPMCheckRunner.summarize(trimmed)),
-                                   log: log, failingTargets: SwiftPMCheckRunner.failingTargets(in: result.output))
+                                   log: log, failingTargets: SwiftPMCheckRunner.failingTargets(in: result.output),
+                                   failureKind: result.crashSignal.map { .runnerCrash(signal: $0) } ?? .reportedFailure)
             }
         }
         return CheckOutput(passed: true, summary: steps(only: suite).map(\.name).joined(separator: ", ") + " passed", log: log)

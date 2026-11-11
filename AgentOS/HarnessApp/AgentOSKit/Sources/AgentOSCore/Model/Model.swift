@@ -108,6 +108,7 @@ public struct NodeSpec: Codable, Sendable, Hashable, Identifiable {
 /// Proof that something was checked.
 public enum FailureClassification: String, Codable, Sendable, Hashable {
     case ownMistake
+    case runnerCrash
 }
 
 public struct Evidence: Codable, Sendable, Hashable {

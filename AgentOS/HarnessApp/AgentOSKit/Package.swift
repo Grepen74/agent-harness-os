@@ -28,7 +28,13 @@ let package = Package(
             name: "AgentOSAdaptersLegacyTests",
             dependencies: ["AgentOSAdapters", "AgentOSUI"],
             path: "Tests/AgentOSAdaptersTests",
-            exclude: ["GH_29_1Tests", "GH_29_4Tests"],
+            exclude: ["GH_15_1Tests", "GH_29_1Tests", "GH_29_4Tests"],
+            swiftSettings: [.unsafeFlags(["-Xfrontend", "-disable-access-control"])]
+        ),
+        .testTarget(
+            name: "AgentOSAdaptersGH151Tests",
+            dependencies: ["AgentOSAdapters"],
+            path: "Tests/AgentOSAdaptersTests/GH_15_1Tests",
             swiftSettings: [.unsafeFlags(["-Xfrontend", "-disable-access-control"])]
         ),
         .testTarget(

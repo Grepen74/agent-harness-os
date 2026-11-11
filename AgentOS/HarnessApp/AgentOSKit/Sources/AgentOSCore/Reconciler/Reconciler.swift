@@ -923,6 +923,19 @@ public actor Reconciler {
         } else {
             try await workspace.prepareBuild(in: directory)
             output = await checks.runChecks(in: directory, only: node.spec.testTarget)
+            if case .runnerCrash = output.failureKind {
+                output = await checks.runChecks(in: directory, only: node.spec.testTarget)
+            }
+        }
+        if case .runnerCrash = output.failureKind {
+            return try await recordRepeatedRunnerCrash(
+                node,
+                output: output,
+                check: "own acceptance tests on branch",
+                builtBy: submission.run,
+                checkedBy: run,
+                commit: submission.commit
+            )
         }
         let evidence = try makeEvidence(node, check: "own acceptance tests on branch", output: output,
                                         builtBy: submission.run, checkedBy: run, commit: submission.commit,
@@ -961,8 +974,21 @@ public actor Reconciler {
         } else {
             try await workspace.prepareBuild(in: directory)
             output = await checks.runChecks(in: directory, only: nil)
+            if case .runnerCrash = output.failureKind {
+                output = await checks.runChecks(in: directory, only: nil)
+            }
         }
         let candidate = try await workspace.head(of: directory)
+        if case .runnerCrash = output.failureKind {
+            return try await recordRepeatedRunnerCrash(
+                node,
+                output: output,
+                check: "all tests on latest main (landing)",
+                builtBy: submission.run,
+                checkedBy: run,
+                commit: candidate
+            )
+        }
         var evidence = try makeEvidence(node, check: "all tests on latest main (landing)", output: output,
                                         builtBy: submission.run, checkedBy: run, commit: candidate)
 
@@ -1026,6 +1052,47 @@ public actor Reconciler {
     }
 
     // MARK: Helpers
+
+    private func recordRepeatedRunnerCrash(
+        _ node: NodeState,
+        output: CheckOutput,
+        check: String,
+        builtBy: RunID,
+        checkedBy: RunID,
+        commit: String
+    ) async throws -> String {
+        let evidence = try makeEvidence(
+            node,
+            check: check,
+            output: output,
+            builtBy: builtBy,
+            checkedBy: checkedBy,
+            commit: commit,
+            failureClassification: .runnerCrash
+        )
+        let reason = "Runner crash repeated after one retry: \(output.summary)"
+        try await write(node.id, by: .agent(run: checkedBy, role: .verifier), [
+            .evidenceRecorded(evidence),
+            .runFinished(run: checkedBy, outcome: "runner crash"),
+            .flagSet(.escalated, reason: reason),
+        ])
+        let tail = output.log.split(separator: "\n", omittingEmptySubsequences: false)
+            .suffix(60)
+            .joined(separator: "\n")
+        await tracker.comment(on: node.ticket, """
+            ⚠️ Needs a human: \(reason)
+            Full stored log: \(evidence.artifactPath)
+
+            <details>
+            <summary>Last 60 runner log lines</summary>
+
+            \(tail)
+            </details>
+
+            When the runner is available, add harness:retry.
+            """)
+        return "\(node.ticket) runner crash repeated → needs human"
+    }
 
     private func escalateIfNeeded(_ id: NodeID) async throws -> String? {
         guard let node = await ledger.workingState().nodes[id], let reason = policy.escalationReason(for: node) else { return nil }
