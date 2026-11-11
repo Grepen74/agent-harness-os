@@ -203,8 +203,19 @@ public struct CopilotTestAuthor: TestAuthor {
     let cli: CopilotCLI
 
     public func writeAcceptanceTests(_ task: AgentTask) async throws -> AgentReport {
+        _ = try await cli.run(Self.prompt(for: task), in: task.directory, log: task.log, silent: false)
+        return try AgentReportFile.take(from: task.directory)
+    }
+
+    /// The instructions for one run.
+    public static func prompt(for task: AgentTask) -> String {
         let suite = task.spec.testTarget
-        let prompt = """
+        // Set when earlier work came back: an implementer's broken-test report, compiler errors or a failed attempt.
+        let feedback = task.previousFailure.map {
+            "\n\nEarlier work on this item ran into the problem below. If it lies in the acceptance tests, write " +
+            "them so it can't happen again:\n\($0)"
+        } ?? ""
+        return """
         You are the test author agent in an agent harness. \(task.context)
 
         Write acceptance tests for the work item below in \(task.testFolder)/\(suite).swift, at least one test per \
@@ -213,7 +224,9 @@ public struct CopilotTestAuthor: TestAuthor {
         or lack the needed API: your tests define that API, so start the file with a short comment describing it. \
         Read the existing code to reuse what's there. Test behaviour users can observe through that API, \
         never the source text. Only create or change files under \(task.testFolder)/, plus the report below. \
-        Do not run the tests.
+        Do not run the tests. The tests must compile once the API they expect exists: other test files share the \
+        same test target, so make helper types and functions `private` or nest them in the suite, and qualify a \
+        name with its module when more than one imported module declares it (e.g. a type that Testing also has).\(feedback)
 
         \(CopilotCLI.guessingRules(task.guesswork)) Report them in \(AgentReportFile.name) at the top of your \
         working directory, as {"questions": [string], "assumptions": [string], "expectedAPI": [string]}. \
@@ -222,8 +235,6 @@ public struct CopilotTestAuthor: TestAuthor {
 
         \(CopilotCLI.dataBlock(task.spec))\(CopilotCLI.answersBlock(task.clarifications))
         """
-        _ = try await cli.run(prompt, in: task.directory, log: task.log, silent: false)
-        return try AgentReportFile.take(from: task.directory)
     }
 }
 

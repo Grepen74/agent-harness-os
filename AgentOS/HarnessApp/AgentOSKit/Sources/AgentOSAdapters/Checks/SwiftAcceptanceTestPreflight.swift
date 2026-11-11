@@ -11,12 +11,13 @@ public struct SwiftAcceptanceTestPreflight: AcceptanceTestPreflight {
         testFolder: String,
         expectedAPI: [String]
     ) async -> AcceptanceTestPreflightResult {
+        guard let package = Self.packageRoot(for: testFolder, in: directory) else { return .skipped }
         let result: ProcessRunner.Result
         do {
             result = try await ProcessRunner.run(
                 "/usr/bin/env",
                 Array(Self.command),
-                in: directory
+                in: package
             )
         } catch {
             return .skipped
@@ -64,6 +65,18 @@ public struct SwiftAcceptanceTestPreflight: AcceptanceTestPreflight {
         return Classification(diagnostics: diagnostics)
     }
 
+    /// The Swift package the test folder belongs to: the nearest folder at or above it, within the working copy,
+    /// that has a Package.swift. The package is often not at the top of the repo.
+    public static func packageRoot(for testFolder: String, in root: URL) -> URL? {
+        var components = testFolder.split(separator: "/").map(String.init)
+        while true {
+            let folder = components.reduce(root) { $0.appending(path: $1) }
+            if FileManager.default.fileExists(atPath: folder.appending(path: "Package.swift").path) { return folder }
+            if components.isEmpty { return nil }
+            components.removeLast()
+        }
+    }
+
     private static func parse(_ line: String, root: URL) -> (file: String, line: Int, message: String)? {
         let pattern = #"^(.+?):(\d+)(?::\d+)?: error: (.+)$"#
         guard let regex = try? NSRegularExpression(pattern: pattern),
@@ -90,7 +103,7 @@ public struct SwiftAcceptanceTestPreflight: AcceptanceTestPreflight {
         testFolder: String,
         expectedAPI: [String]
     ) -> CompilerDiagnosticClassification {
-        if isSyntaxError(message) { return .testAuthorMistake }
+        if isSyntaxError(message) || isOwnNamingMistake(message) { return .testAuthorMistake }
 
         let quoted = quotedSymbols(in: message)
         if quoted.contains(where: { isDeclared($0, under: root.appending(path: testFolder)) }) {
@@ -103,7 +116,7 @@ public struct SwiftAcceptanceTestPreflight: AcceptanceTestPreflight {
             }) {
                 return .expected
             }
-            if isProductionType(member.type, under: root) {
+            if isProductionType(member.type, under: root, testFolder: testFolder) {
                 return .testAuthorMistake
             }
         }
@@ -125,6 +138,11 @@ public struct SwiftAcceptanceTestPreflight: AcceptanceTestPreflight {
             "extraneous '}'", "expected '}'", "expected ')' after",
         ]
         return fragments.contains { message.localizedCaseInsensitiveContains($0) }
+    }
+
+    /// Names that clash with existing ones: missing code can't cause these, so the tests themselves are wrong.
+    private static func isOwnNamingMistake(_ message: String) -> Bool {
+        ["is ambiguous for type lookup", "ambiguous use of '", "invalid redeclaration of '"].contains { message.contains($0) }
     }
 
     private static func matchesMissingProductionAPIPattern(_ message: String) -> Bool {
@@ -160,8 +178,8 @@ public struct SwiftAcceptanceTestPreflight: AcceptanceTestPreflight {
         }
     }
 
-    private static func isProductionType(_ symbol: String, under root: URL) -> Bool {
-        isDeclared(symbol, under: root.appending(path: "Sources"))
+    private static func isProductionType(_ symbol: String, under root: URL, testFolder: String) -> Bool {
+        isDeclared(symbol, under: (packageRoot(for: testFolder, in: root) ?? root).appending(path: "Sources"))
     }
 
     private static func isDeclared(_ symbol: String, under directory: URL) -> Bool {
