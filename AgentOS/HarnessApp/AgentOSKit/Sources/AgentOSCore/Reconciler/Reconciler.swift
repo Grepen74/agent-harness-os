@@ -212,6 +212,9 @@ public actor Reconciler {
             try await write(node.id, by: .human(person), [.flagCleared(.escalated), .attemptsReset])
             return "escalation cleared; attempts reset"
 
+        case .retest:
+            return try await retest(node, ticket: ticket, by: person)
+
         case .replan:
             return try await replan(node, ticket: ticket, by: person)
 
@@ -237,6 +240,35 @@ public actor Reconciler {
             return "adopted; breakdown and build approved: it will be broken down, built and checked without stopping\n"
                 + spec.trackerSummary
         }
+    }
+
+    /// Discards an obsolete leaf worktree and starts test authoring again from the latest landing branch.
+    private func retest(_ node: NodeState?, ticket: Ticket, by person: String) async throws -> String {
+        guard let node else {
+            throw Rejection(reason: "Not adopted yet, so there are no acceptance tests to rewrite.")
+        }
+        guard node.landedCommit == nil else {
+            throw Rejection(reason: "\(node.spec.id) has already landed, so its acceptance tests cannot be replaced.")
+        }
+        guard node.spec.kind == .leaf,
+              node.flags[.escalated] != nil || node.flags[.needsInput] != nil else {
+            throw Rejection(reason: "Nothing to retest. \(HarnessCommand.retest.label) only rewrites acceptance tests " +
+                "for a leaf that is escalated or waiting for input.")
+        }
+
+        try await workspace.removeWorktree(for: node.id)
+        var kinds: [EventKind] = []
+        if let feedback = Self.answer(on: ticket) {
+            kinds.append(.questionsAnswered(Clarification(
+                questions: ["Feedback for rewriting the acceptance tests"],
+                answer: feedback
+            )))
+        }
+        if node.flags[.needsInput] != nil { kinds.append(.flagCleared(.needsInput)) }
+        if node.flags[.escalated] != nil { kinds.append(.flagCleared(.escalated)) }
+        kinds.append(.phaseChanged(to: .specified))
+        try await write(node.id, by: .human(person), kinds)
+        return "current working copy and tests discarded; the test author will rewrite them from the latest landing branch"
     }
 
     /// `harness:replan`: the ticket changed (criteria, a forgotten "Blocked by", a breakdown that missed the point).

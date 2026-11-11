@@ -23,6 +23,7 @@ extension Reconciler {
             steps.append(step(nil, "Nothing for now: \(parent.ticket) was replanned. Its next breakdown keeps this ticket " +
                 "if it still contains it unchanged, or closes it"))
         } else if node.flags[.needsInput] != nil {
+            steps.append(step(.retest, "\(HarnessCommand.retest.label) to discard the current tests and restart the test author"))
             if node.openQuestions.isEmpty {
                 steps.append(step(.build, "\(HarnessCommand.build.label) to approve the acceptance tests as they are"))
                 steps.append(step(.retry, "or comment with feedback on them, then \(HarnessCommand.retry.label)"))
@@ -30,6 +31,7 @@ extension Reconciler {
                 steps.append(step(.retry, "Answer the questions in a comment, then \(HarnessCommand.retry.label)"))
             }
         } else if node.flags[.escalated] != nil {
+            steps.append(step(.retest, "\(HarnessCommand.retest.label) to discard the current tests and restart the test author"))
             steps.append(step(.retry, "\(HarnessCommand.retry.label) to try again from where it stopped (its attempts start over)"))
         } else if let blocked = node.flags[.blocked] {
             steps.append(step(nil, "Nothing for now: it's blocked (\(blocked)) and continues by itself once that's resolved"))

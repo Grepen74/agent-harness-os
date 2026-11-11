@@ -41,7 +41,7 @@ public struct HarnessSettings: Codable, Sendable, Equatable {
         maxReworks = try container.decodeIfPresent(Int.self, forKey: .maxReworks) ?? defaults.maxReworks
         maxParallelAgents = try container.decodeIfPresent(Int.self, forKey: .maxParallelAgents) ?? defaults.maxParallelAgents
         let known = try container.decodeIfPresent(Set<HarnessCommand>.self, forKey: .knownSignals)
-            ?? [.preview, .breakdown, .build, .go, .retry]
+            ?? [.preview, .breakdown, .build, .go, .retry, .retest]
         let offered = try container.decodeIfPresent(Set<HarnessCommand>.self, forKey: .offeredSignals) ?? defaults.offeredSignals
         offeredSignals = offered.union(Set(HarnessCommand.allCases).subtracting(known))
         offeredModels = try container.decodeIfPresent([String].self, forKey: .offeredModels) ?? defaults.offeredModels

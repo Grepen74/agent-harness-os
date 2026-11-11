@@ -134,7 +134,7 @@ public struct Evidence: Codable, Sendable, Hashable {
 public enum HarnessCommand: String, Codable, Sendable, CaseIterable {
     /// `go` opens the breakdown and build gates in one signal: break down, build and check without stopping.
     /// `replan` re-reads an adopted ticket and starts its breakdown over, as long as nothing below it is built yet.
-    case preview, breakdown, build, go, retry, replan
+    case preview, breakdown, build, go, retry, retest, replan
 
     public var label: String { "harness:\(rawValue)" }
 }
