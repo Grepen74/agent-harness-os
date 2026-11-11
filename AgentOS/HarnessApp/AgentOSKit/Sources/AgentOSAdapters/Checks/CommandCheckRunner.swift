@@ -38,9 +38,36 @@ public struct CommandCheckRunner: CheckRunner {
         return steps
     }
 
+    /// SwiftPM's incremental build sometimes keeps object files from before a type's layout changed, so
+    /// linking fails with undefined symbols although the code is fine. No agent can fix that.
+    public static func isStaleBuildFailure(_ output: String) -> Bool {
+        output.contains("Undefined symbols for architecture")
+            && (output.contains("link command failed") || output.contains("linker command failed"))
+    }
+
+    /// Removes every `.build` folder in the checkout, outside `.git`. Returns the ones removed.
+    @discardableResult
+    public static func removeBuildFolders(in directory: URL) -> [URL] {
+        let manager = FileManager.default
+        guard let walker = manager.enumerator(at: directory, includingPropertiesForKeys: [.isDirectoryKey]) else { return [] }
+        var found: [URL] = []
+        for case let url as URL in walker {
+            guard (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { continue }
+            if url.lastPathComponent == ".git" { walker.skipDescendants() }
+            if url.lastPathComponent == ".build" {
+                walker.skipDescendants()
+                found.append(url)
+            }
+        }
+        return found.filter { (try? manager.removeItem(at: $0)) != nil }
+    }
+
     public func runChecks(in directory: URL, only suite: String?) async -> CheckOutput {
         var log = ""
-        for step in steps(only: suite) {
+        var cleaned = false
+        var pending = steps(only: suite)
+        while !pending.isEmpty {
+            let step = pending.removeFirst()
             let result: ProcessRunner.Result
             do {
                 let run: @Sendable (String) async throws -> (String, ProcessRunner.Result) = { [timeout] command in
@@ -62,6 +89,13 @@ public struct CommandCheckRunner: CheckRunner {
             if !result.output.hasSuffix("\n") && !result.output.isEmpty { log += "\n" }
             guard result.status == 0 else {
                 log += "exit status \(result.status)\n"
+                if !cleaned && Self.isStaleBuildFailure(result.output) {
+                    cleaned = true
+                    let removed = Self.removeBuildFolders(in: directory)
+                    log += "Stale build output (undefined symbols at link time): removed \(removed.count) .build folder(s); running \(step.name) again.\n"
+                    pending.insert(step, at: 0)
+                    continue
+                }
                 let trimmed = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
                 return CheckOutput(passed: false,
                                    summary: "\(step.name) failed: "

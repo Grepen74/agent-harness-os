@@ -226,6 +226,27 @@ struct ReadinessTests {
         #expect(await runner.runChecks(in: folder, only: "X").passed)
     }
 
+    @Test func aStaleBuildLinkFailureIsCleanedAndRunOnceMore() async throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "agentos-stale-\(UUID().uuidString)")
+        let build = folder.appending(path: "Pkg/.build")
+        try FileManager.default.createDirectory(at: build, withIntermediateDirectories: true)
+        // Fails with a linker error while Pkg/.build exists, passes once it's gone.
+        let test = #"if [ -d Pkg/.build ]; then echo 'Undefined symbols for architecture arm64:'; "#
+            + #"echo 'error: link command failed with exit code 1'; exit 1; fi; echo ok"#
+        let runner = CommandCheckRunner(config: RepoConfig(test: .init(command: test)))
+
+        let output = await runner.runChecks(in: folder, only: nil)
+        #expect(output.passed)
+        #expect(!FileManager.default.fileExists(atPath: build.path))
+        #expect(output.log.contains("removed 1 .build folder(s)"))
+
+        let failing = CommandCheckRunner(config: RepoConfig(test: .init(
+            command: "echo 'Undefined symbols for architecture arm64:'; echo 'linker command failed'; exit 1")))
+        let again = await failing.runChecks(in: folder, only: nil)
+        #expect(!again.passed)
+        #expect(again.log.components(separatedBy: "running test again").count == 2)
+    }
+
     @Test func baselineRunsOnTheCommittedBranchOutsideTheCheckout() async throws {
         let config = #"{"test": {"command": "test -f README.md && test ! -f scratch.txt"}}"#
         let repo = try await makeRepo(["README.md": "# App", ".agentos/config.json": config])

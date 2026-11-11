@@ -188,6 +188,60 @@ struct GH_29_1Tests {
         #expect(comment.contains("Support.swift:19: latest syntax error"))
         #expect(comment.contains(".log"))
     }
+
+    @Test
+    func aRetestGivesTheTestAuthorFreshAttemptsAfterTheLimitWasReached() async throws {
+        let mistake = CompilerDiagnostic(
+            file: "Tests/AgentOSAdaptersTests/GH_29_1Tests/GH_29_1Tests.swift",
+            line: 7,
+            message: "syntax error",
+            classification: .testAuthorMistake
+        )
+        let fixture = try await Fixture(
+            preflight: .init(outcomes: Array(repeating: .diagnostics([mistake], fullLog: "log"), count: 3)),
+            maxAttempts: 2
+        )
+        _ = await fixture.reconciler.runRound()
+        _ = await fixture.reconciler.runRound()
+        #expect(try await fixture.node().flags[.needsInput] != nil)
+
+        try await fixture.ledger.append([
+            LedgerEvent(node: Fixture.spec.id, by: .human("Alice"), kind: .flagCleared(.needsInput)),
+            LedgerEvent(node: Fixture.spec.id, by: .human("Alice"), kind: .phaseChanged(to: .specified)),
+        ])
+        _ = await fixture.reconciler.runRound()
+
+        #expect(try await fixture.node().flags[.needsInput] == nil)
+        #expect(await fixture.testAuthor.tasks.count == 3)
+        #expect(await fixture.tracker.comments.last?.contains("returned to the test author") == true)
+    }
+
+    @Test
+    func theTestAuthorIsToldAboutTheNewestCompileErrorsNotAnOlderBrokenTestReport() async throws {
+        let clash = CompilerDiagnostic(
+            file: "Tests/AgentOSAdaptersTests/GH_15_4Tests/GH_15_4Tests.swift",
+            line: 96,
+            message: "'RecordingTracker' is ambiguous for type lookup in this context",
+            classification: .testAuthorMistake
+        )
+        let fixture = try await Fixture(preflight: .init(outcomes: [.diagnostics([clash, clash], fullLog: "log")]))
+        try await fixture.ledger.append([LedgerEvent(
+            node: Fixture.spec.id,
+            by: .agent(run: "run-old", role: .implementer),
+            kind: .brokenTestReported(BrokenTestReport(testName: "GH_29_1Tests", reason: "old: 'Comment' is ambiguous"))
+        )])
+
+        _ = await fixture.reconciler.runRound()
+        _ = await fixture.reconciler.runRound()
+
+        let tasks = await fixture.testAuthor.tasks
+        #expect(tasks.count == 2)
+        let feedback = try #require(tasks.last?.previousFailure)
+        #expect(!feedback.contains("old: 'Comment' is ambiguous"))
+        #expect(feedback.contains("GH_15_4Tests.swift:96: 'RecordingTracker' is ambiguous"))
+        #expect(feedback.components(separatedBy: "GH_15_4Tests.swift:96").count == 2)
+        #expect(feedback.contains("`private`"))
+    }
 }
 
 private struct ClassificationFixture {

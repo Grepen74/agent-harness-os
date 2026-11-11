@@ -38,6 +38,8 @@ public struct LandedWorkItem: Codable, Sendable, Equatable {
 public enum BrokenTestRoutingOutcome: String, Codable, Sendable {
     case sentBackToTestAuthor
     case waitingForPerson
+    /// The broken test belongs to other work, so no agent may change it.
+    case otherTestWaitingForPerson
 }
 
 public enum EventKind: Codable, Sendable {
