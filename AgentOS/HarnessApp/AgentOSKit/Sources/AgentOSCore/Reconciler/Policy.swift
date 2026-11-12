@@ -181,7 +181,7 @@ enum Planner {
         // Production: the leaf check (doc 02 §4, doc 08 §1) decides per child whether it needs further
         // breakdown, e.g. because its touch set spans repos or profiles. The mock has one repo and one
         // profile, so every child is a leaf and the tree is two levels deep.
-        proposals.enumerated().map { index, proposal in
+        var specs = proposals.enumerated().map { index, proposal in
             let touches = (proposal.touches ?? []).map { ComponentName.from($0) }
             return NodeSpec(
                 id: "\(parent.id).\(index + 1)", parent: parent.id, kind: .leaf, title: proposal.title,
@@ -189,6 +189,12 @@ enum Planner {
                 touches: touches.isEmpty ? [ComponentName.from(parent.title, maxWords: 3)] : Array(Set(touches)).sorted(),
                 dependsOn: proposal.dependsOn ?? [])
         }
+        for (index, proposal) in proposals.enumerated() {
+            // Only earlier siblings, so a breakdown can't wait on itself in a cycle.
+            let earlier = Set(proposal.after ?? []).filter { $0 >= 1 && $0 <= index }.sorted()
+            if !earlier.isEmpty { specs[index].after = earlier.map { specs[$0 - 1].specHash } }
+        }
+        return specs
     }
 
     static func describe(_ specs: [NodeSpec], under title: String) -> String {
@@ -198,7 +204,11 @@ enum Planner {
         }
         let lines = specs.enumerated().map { index, spec in
             let branch = index == specs.count - 1 ? "└─" : "├─"
-            let waits = spec.dependsOn.isEmpty ? "" : "  (waits for \(spec.dependsOn.joined(separator: ", ")))"
+            let siblings = (spec.after ?? []).compactMap { hash in
+                specs.firstIndex { $0.specHash == hash }.map { "child \($0 + 1)" }
+            }
+            let names = siblings + spec.dependsOn
+            let waits = names.isEmpty ? "" : "  (waits for \(names.joined(separator: ", ")))"
             return "\(branch) \(spec.title)  touches: \(spec.touches.joined(separator: ", "))\(waits)"
         }
         return ([title] + lines).joined(separator: "\n")

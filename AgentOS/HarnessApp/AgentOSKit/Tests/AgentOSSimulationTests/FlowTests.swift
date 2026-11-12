@@ -45,6 +45,50 @@ struct FlowTests {
         #expect(withoutIDs(created) == withoutIDs(preview.proposal))
     }
 
+    struct SecondChildBuildsOnTheFirst: Decomposer {
+        func proposeChildren(_ request: BreakdownRequest) async throws -> Breakdown {
+            var breakdown = try await ScriptedDecomposer().proposeChildren(request)
+            breakdown.children[1].after = [1]
+            breakdown.children[0].after = [1, 2] // Not earlier children: ignored.
+            return breakdown
+        }
+    }
+
+    @Test func aChildThatBuildsOnAnEarlierSiblingIsBuiltOnlyOnceThatSiblingIsProven() async throws {
+        let team = AgentTeam(name: "Ordered", decomposer: SecondChildBuildsOnTheFirst(),
+                             testAuthor: ScriptedTestAuthor(), implementer: ScriptedImplementer())
+        let sim = try Simulation(directory: temporaryDirectory(), team: team, checks: FakeCheckRunner())
+        let ticket = try #require(await sim.tracker.newTicket(
+            title: "Greeting", description: "Greet people",
+            acceptanceCriteria: ["The greeting is stored", "The greeting is shown"], blockedBy: [], by: alice))
+        await sim.signal(.go, ticket.key)
+
+        let state = await sim.ledger.workingState()
+        let children = try #require(state.node(forTicket: ticket.key)?.children.compactMap { state.nodes[$0] })
+        try #require(children.count == 2)
+        let (first, second) = (children[0], children[1])
+        #expect(first.spec.after == nil)
+        #expect(second.spec.after == [first.spec.specHash])
+        #expect(children.allSatisfy { $0.phase == .proven })
+        let breakdown = await sim.tracker.ticket(ticket.key)?.comments.map(\.text).first { $0.contains("Broken down") }
+        #expect(breakdown?.contains("The greeting is shown  touches: Greeting  (waits for child 1)") == true)
+
+        let records = await sim.ledger.allRecords()
+        let firstLanded = try #require(records.firstIndex {
+            if case .landed = $0.event.kind { return $0.event.node == first.id } else { return false }
+        })
+        let secondBuilt = try #require(records.firstIndex {
+            if case .runStarted(_, .implementer) = $0.event.kind { return $0.event.node == second.id } else { return false }
+        })
+        #expect(secondBuilt > firstLanded)
+        #expect(records.contains {
+            if case .flagSet(.blocked, let reason) = $0.event.kind {
+                return $0.event.node == second.id && reason == "Waiting for \(first.displayName)"
+            }
+            return false
+        })
+    }
+
     @Test func epicFlowsToProvenOnceTheExternalDependencyIsDelivered() async throws {
         let sim = try makeSimulation()
         await sim.loadDemo()

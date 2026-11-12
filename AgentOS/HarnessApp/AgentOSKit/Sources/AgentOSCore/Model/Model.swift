@@ -104,6 +104,9 @@ public struct NodeSpec: Codable, Sendable, Hashable, Identifiable {
     public var touches: [String] = []
     /// External items this node needs, e.g. "BACKEND-42" (become `depends-on` links).
     public var dependsOn: [String] = []
+    /// Earlier siblings that must be proven before this leaf is built, by spec fingerprint: it survives the
+    /// renames that ticket creation and replans give children. Absent in older ledgers.
+    public var after: [String]?
     /// Production: a profile name selects checks, reviews and permissions (doc 02 §3).
     public var profile: String = "simple-app"
 

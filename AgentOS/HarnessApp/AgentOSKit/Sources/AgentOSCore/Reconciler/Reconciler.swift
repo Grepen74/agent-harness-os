@@ -1642,8 +1642,15 @@ public actor Reconciler {
             }
         }
         let wanted = node.links.filter { $0.type == .dependsOn }.map(\.to) + node.spec.dependsOn + inherited
+        let siblings = (node.spec.after ?? []).compactMap { hash -> String? in
+            let parent = node.spec.parent.flatMap { state.nodes[$0] }
+            // A sibling the latest breakdown no longer has can't be waited for.
+            guard let sibling = parent?.children.lazy.compactMap({ state.nodes[$0] })
+                .first(where: { $0.spec.specHash == hash }) else { return nil }
+            return sibling.phase == .proven ? nil : sibling.displayName
+        }
         var seen = Set<String>()
-        return wanted.filter { seen.insert($0).inserted }.filter { ref in
+        return siblings + wanted.filter { seen.insert($0).inserted }.filter { ref in
             if state.resolvedExternal.contains(ref) { return false }
             let here = state.nodes[ref] ?? state.node(forTicket: ref)
             return here?.phase != .proven
