@@ -344,7 +344,9 @@ public struct CopilotImplementer: Implementer {
         acceptance test instead of changing it or working around it. Write \(AgentReportFile.name) as \
         {"questions": [], "assumptions": [], "brokenTest": \
         {"testName": string, "reason": string}}. Name the test as Suite.testName (for example FlowTests.someTest), \
-        so the harness can tell this item's tests from other work's. Otherwise the report may be omitted.
+        so the harness can tell this item's tests from other work's. If the tests already pass without any change \
+        (for example because other work delivered it), change nothing and write {"alreadySatisfied": true}; \
+        the verifier then checks the branch as it is. Otherwise the report may be omitted.
 
         \(CopilotCLI.dataBlock(task.spec))
         \(CopilotCLI.contextBlock(task.agentContext, includeComments: false))

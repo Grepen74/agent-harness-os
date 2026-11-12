@@ -114,17 +114,21 @@ public struct AgentReport: Codable, Sendable, Hashable {
     public var expectedAPI: [String]
     /// An acceptance test the implementer cannot satisfy because its contract is broken.
     public var brokenTest: BrokenTestReport?
+    /// The implementer found the tests already pass without changes, e.g. because other work delivered it.
+    public var alreadySatisfied: Bool
 
     public init(
         questions: [AgentQuestion] = [],
         assumptions: [String] = [],
         expectedAPI: [String] = [],
-        brokenTest: BrokenTestReport? = nil
+        brokenTest: BrokenTestReport? = nil,
+        alreadySatisfied: Bool = false
     ) {
         self.questions = questions
         self.assumptions = assumptions
         self.expectedAPI = expectedAPI
         self.brokenTest = brokenTest
+        self.alreadySatisfied = alreadySatisfied
     }
 
     public init(from decoder: any Decoder) throws {
@@ -133,6 +137,7 @@ public struct AgentReport: Codable, Sendable, Hashable {
         assumptions = try container.decodeIfPresent([String].self, forKey: .assumptions) ?? []
         expectedAPI = try container.decodeIfPresent([String].self, forKey: .expectedAPI) ?? []
         brokenTest = try container.decodeIfPresent(BrokenTestReport.self, forKey: .brokenTest)
+        alreadySatisfied = try container.decodeIfPresent(Bool.self, forKey: .alreadySatisfied) ?? false
     }
 }
 
