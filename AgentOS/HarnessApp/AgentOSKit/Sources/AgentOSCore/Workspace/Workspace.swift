@@ -39,6 +39,7 @@ public protocol Workspace: Sendable {
     func head(of directory: URL) async throws -> String
     /// Every file this branch changed since it left `main`, relative to the repo's top folder.
     func changedFiles(in directory: URL) async throws -> [String]
+    func reviewContext(in directory: URL, against branch: String) async throws -> ReviewContext
     /// Where every node's acceptance tests live, relative to the repo's top folder, ending in "/".
     var testArea: String { get }
     /// The folder with this node's own acceptance tests (inside `testArea`, no trailing "/").
@@ -72,6 +73,9 @@ public protocol Workspace: Sendable {
 }
 
 extension Workspace {
+    public func reviewContext(in directory: URL, against branch: String) async throws -> ReviewContext {
+        throw AgentFailure("This workspace does not provide review context.")
+    }
     public var designDocumentPaths: [String] { [] }
     public func userGitState() async throws -> [String] { [] }
     public func createSnapshot() async throws -> URL? { nil }

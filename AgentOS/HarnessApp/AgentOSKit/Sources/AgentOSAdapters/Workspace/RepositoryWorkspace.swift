@@ -126,6 +126,48 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
             .split(separator: "\0").map(String.init)
     }
 
+    public func reviewContext(in directory: URL, against branch: String) async throws -> ReviewContext {
+        guard try await git(["status", "--porcelain"], in: directory).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw AgentFailure("Review requires a clean committed candidate. Check the worktree, then add harness:retry.")
+        }
+        let commit = try await head(of: directory)
+        let files = try await changedFiles(in: directory)
+        let diff = try await git(["diff", "--no-ext-diff", "--no-color", "\(branch)...HEAD"], in: directory)
+        let history = files.isEmpty ? "" : try await git(
+            ["log", "-20", "--format=%H%x09%s", branch, "--"] + files, in: directory)
+        let recent = history.split(separator: "\n").compactMap { line -> LandedWorkItem? in
+            let parts = line.split(separator: "\t", maxSplits: 1)
+            guard parts.count == 2 else { return nil }
+            let title = String(parts[1])
+            let node = String(title.split(separator: ":").first ?? parts[1])
+            return LandedWorkItem(ticket: node.hasPrefix("wn-") ? String(node.dropFirst(3)) : node,
+                                  title: title, commit: String(parts[0]))
+        }
+        let evidenceFile = directory.appending(path: ".agentos-ui-evidence.json")
+        var evidence = FileManager.default.fileExists(atPath: evidenceFile.path)
+            ? try JSONDecoder().decode(UIReviewEvidence.self, from: Data(contentsOf: evidenceFile)) : nil
+        if var ui = evidence {
+            func preserve(_ path: String, named name: String) throws -> String {
+                let file = (path.hasPrefix("/") ? URL(filePath: path) : directory.appending(path: path))
+                    .resolvingSymlinksInPath().standardizedFileURL
+                let root = directory.resolvingSymlinksInPath().standardizedFileURL.path + "/"
+                guard file.path.hasPrefix(root) else {
+                    throw AgentFailure("UI evidence must be inside the candidate worktree: \(path)")
+                }
+                return try FileArtifactStore(directory: artifactsDirectory).put(
+                    named: "\(commit)-\(name)-\(file.lastPathComponent)", contents: Data(contentsOf: file)).path
+            }
+            ui.snapshotPaths = try ui.snapshotPaths.enumerated().map {
+                try preserve($0.element, named: "snapshot-\($0.offset)")
+            }
+            ui.beforeScreenshot = try ui.beforeScreenshot.map { try preserve($0, named: "before") }
+            ui.afterScreenshot = try ui.afterScreenshot.map { try preserve($0, named: "after") }
+            evidence = ui
+        }
+        return ReviewContext(baseBranch: branch, commit: commit, fullDiff: diff,
+                             changedFiles: files, recentChanges: recent, uiEvidence: evidence)
+    }
+
     // MARK: Tests
 
     public var testArea: String { leafTests.folder.isEmpty ? "" : leafTests.folder + "/" }

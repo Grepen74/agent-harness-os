@@ -72,6 +72,9 @@ public enum EventKind: Codable, Sendable {
     // Work
     /// Fingerprint of the node's acceptance tests; nobody may change them afterwards.
     case testsFixed(digest: String)
+    case reviewRecorded(ReviewRecord)
+    case humanReviewRequested(commit: String)
+    case humanReviewApproved(commit: String)
     case expectedAPIReported([String])
     case brokenTestReported(BrokenTestReport)
     case brokenTestRouted(testName: String, outcome: BrokenTestRoutingOutcome)
@@ -197,6 +200,10 @@ extension EventKind {
         case .flagCleared(let flag): "⚑ \(flag.rawValue) cleared"
         case .attemptsReset: "attempts reset"
         case .testsFixed(let digest): "acceptance tests fixed (\(digest.prefix(8)))"
+        case .reviewRecorded(let review):
+            "\(review.stage.rawValue) review \(review.result.passed ? "passed" : "failed"): \(review.result.findings.joined(separator: "\n"))"
+        case .humanReviewRequested(let commit): "human review requested for \(commit)"
+        case .humanReviewApproved(let commit): "human review approved for \(commit)"
         case .expectedAPIReported(let api): "acceptance-test API: \(api.joined(separator: ", "))"
         case .brokenTestReported(let report): "reported a broken test: \(report.testName) – \(report.reason)"
         case .brokenTestRouted(let testName, let outcome):

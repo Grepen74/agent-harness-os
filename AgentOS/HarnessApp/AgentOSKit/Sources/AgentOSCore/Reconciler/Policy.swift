@@ -28,6 +28,7 @@ public enum Guesswork: String, Codable, Sendable, CaseIterable, Comparable {
 /// Central rules (doc 01: repos declare, central policy decides). One profile in the mock.
 /// Production: policy as code in its own reviewed repo, several profiles, stricter-only overrides.
 public struct Policy: Sendable, Equatable {
+    public var review = ReviewPolicy()
     /// Attempts per leaf before a human must look (the Ralph-loop guardrail, doc 02 §7).
     public var maxAttempts = 3
     /// Merge-conflict reworks per leaf before a human (or a smarter planner) should order the work (doc 08 §5).
@@ -148,6 +149,7 @@ extension WorkingState {
     /// ledger's own word for where it is in the V; this also says whether it waits for someone.
     public func status(of node: NodeState) -> String {
         if node.flags[.escalated] != nil { return "Needs human" }
+        if node.awaitingHumanReview { return "In review" }
         if node.flags[.needsInput] != nil { return "Needs input" }
         if node.flags[.blocked] != nil { return "Blocked" }
         // A replanned parent holds its old children until its new breakdown; a proven parent holds nothing.

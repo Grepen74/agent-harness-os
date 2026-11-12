@@ -105,6 +105,32 @@ struct NodeDetail: View {
                 Text("\(node.spec.id) · \(node.spec.kind.rawValue)").font(.headline)
                 grid
                 AgentRuns(node: node)
+                if !node.reviews.isEmpty {
+                    Text("Reviews").font(.caption.bold()).padding(.top, 4)
+                    ForEach(Array(node.reviews.enumerated()), id: \.offset) { _, review in
+                        VStack(alignment: .leading, spacing: 3) {
+                            Label("\(review.stage.rawValue): \(review.result.passed ? "Passed" : "Findings")",
+                                  systemImage: review.result.passed ? "checkmark.seal.fill" : "xmark.seal.fill")
+                                .foregroundStyle(review.result.passed ? .green : .red)
+                            Text("commit \(review.commit.prefix(8))").monospaced().foregroundStyle(.secondary)
+                            ForEach(Array(review.result.findings.enumerated()), id: \.offset) { _, finding in
+                                Text(finding).textSelection(.enabled)
+                            }
+                            if let evidence = review.uiEvidence {
+                                ForEach(evidence.snapshotPaths, id: \.self) { path in
+                                    reviewArtifact("Snapshot", path: path)
+                                }
+                                if let path = evidence.beforeScreenshot { reviewArtifact("Before", path: path) }
+                                if let path = evidence.afterScreenshot { reviewArtifact("After", path: path) }
+                                Text("Windows opened: \(evidence.windowsOpened ? "yes" : "no"); closed: \(evidence.windowsClosed ? "yes" : "no")")
+                            }
+                        }
+                        .font(.caption)
+                    }
+                }
+                if node.awaitingHumanReview {
+                    Text("Review this candidate, then add harness:build to approve it.").font(.caption)
+                }
                 if !node.evidence.isEmpty {
                     Text("Evidence").font(.caption.bold()).padding(.top, 4)
                     ForEach(Array(node.evidence.enumerated()), id: \.offset) { _, evidence in
@@ -142,6 +168,14 @@ struct NodeDetail: View {
             row("Spec hash", String(node.spec.specHash.prefix(12)))
         }
         .font(.caption)
+    }
+
+    private func reviewArtifact(_ title: String, path: String) -> some View {
+        Button("\(title): \(path)") {
+            let resolved = path.hasPrefix("/") ? path : model.worktree(of: node.id)?.appending(path: path).path ?? path
+            model.open(resolved)
+        }
+        .controlSize(.small)
     }
 
     private func row(_ title: String, _ value: String) -> some View {

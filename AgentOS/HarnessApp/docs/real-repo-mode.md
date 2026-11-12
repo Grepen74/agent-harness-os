@@ -64,6 +64,7 @@ read from `main` only.
 | Push / open pull requests | Never (phase 9: an opt-in setting; only the harness pushes, never agents) | Switch it off |
 | Agent tools | Copilot CLI, with `git push`/`fetch`/`pull`/`remote`/`config`/`stash`, `gh` and network installs denied | Deny more |
 | Agent models | Offered models, plus a default model per role (breakdown, acceptance tests, implementation); none = the CLI's default | Pick a model per role among the offered ones |
+| Review | `agent`; default reviewer with a different explicit model, or a specific model/command | Tighten to `agent+human`, overall or per area; choose an offered reviewer model |
 | Max attempts / reworks per leaf | 3 / 3 | Lower |
 | Max parallel agents | 2 | Lower |
 | Guesswork | `assume and report`: carry on and post assumptions; a leaf whose work rests on assumptions waits for a person to see its acceptance tests before build, even under `harness:go`. Guesses about what users observe (what to check, which screen, which behaviour) always stop the node; guesses about implementation don't. Other levels: `ask` (assumptions are questions too), `autonomous` (assumptions are posted, nothing waits) | Choose a stricter level (`agents.guesswork`) |
@@ -91,6 +92,8 @@ unknown keys are reported as likely typos. For an iOS app:
   "landing": { "branch": "agentos/main" },
   "signals": { "disable": ["go"] },
   "limits": { "maxAttempts": 2 },
+  "review": { "level": "agent", "areas": { "App/Features/Weather": "agent+human" },
+              "instructions": ".agentos/review.md", "maxRounds": 2 },
   "agents": { "deny": ["rm -rf"], "models": { "implementer": "claude-sonnet-4.5" } },
   "protectedPaths": ["App/Secrets/"],
   "tracker": { "type": "github-issues", "repo": "owner/name",
@@ -103,6 +106,39 @@ acceptance tests go; missing = blocker) and should have `test.only` (missing = w
 all tests). Checks run in order (prepare, build, test, then `checks`) with `/bin/sh -c`
 from the repo's top folder, and stop at the first failure. `{suite}` in `test.only` is replaced with a
 leaf's suite, so a leaf runs only its own tests; the extra checks run at landing.
+
+### Review before implementation and landing
+
+Harness settings save review as `{"level":"agent","reviewer":{"type":"default"},"offeredModels":[]}`.
+Older saved settings retain the agent minimum. A specific reviewer uses
+`{"type":"specific","model":"model-name"}` or `{"type":"specific","command":"local-review --stdin"}`.
+Commands receive the complete review prompt on stdin and must return
+`{"passed":true,"findings":[]}` (nonzero exit or invalid JSON stops work for a person).
+A repo can set `review.model` only to a model in the review-specific offered list.
+
+The strictest level among the overall policy and every declared or actually changed area applies.
+A lower repo level, including an area below the overall level, is a start blocker. The effective
+Review level and Reviewer rows each retain their own harness/repo source.
+
+The reviewer checks authored acceptance tests against the ticket before implementation starts. Weak
+tests return to their author with findings. After all landing checks pass, the reviewer receives the
+ticket, complete diff against the landing branch, recent same-file history, and configured repository
+rules. The built-in checklist covers regressions and loosened constraints, per-line/loop I/O and
+allocation, duplicated logic, and tests that fail to prove the requirement. Rejected changes return to
+the implementer without unlocking the acceptance tests. After `maxRounds` reviews with findings at
+either stage (default 2), work escalates; a human `harness:retry` resets the limit.
+
+UI changes must include snapshot evidence and confirmation that windows actually open and close.
+The implementer supplies `.agentos-ui-evidence.json` with `snapshotPaths`, `windowsOpened`,
+`windowsClosed`, `beforeScreenshot` and `afterScreenshot`; file paths must refer to evidence inside
+the worktree, outside the per-run scratch folder. The workspace copies those files to artifact storage
+so removing a landed worktree does not lose them.
+
+At `agent+human`, a passing candidate stays **In review** until a fresh human `harness:build`
+approves that reviewed commit. Earlier build gates and agent signals cannot approve it.
+UI candidates additionally need both screenshots. A changed candidate is reviewed and approved anew.
+Every review is a ledger event, replayed onto the node and displayed with its findings and UI evidence.
+Scripted/legacy teams without a reviewer retain their existing checks-only behavior.
 
 When the repo has no config, the scan **drafts** one from what it found and shows it with a Copy button
 (also printed by `agentos scan`). In the Policy pane, **Create** writes the draft into your checkout and

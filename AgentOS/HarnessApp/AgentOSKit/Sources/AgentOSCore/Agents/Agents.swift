@@ -252,13 +252,14 @@ public protocol Implementer: Sendable {
     func implement(_ task: AgentTask) async throws -> ImplementationReport
 }
 
-/// There is no verifier agent protocol: in the mock, verification is plain checks run by the harness
-/// under a separate run ID. Production could add an AI reviewer as an extra, independent check.
+/// Verification runs checks independently of implementation. Repository teams also assign a reviewer;
+/// scripted and legacy teams may omit it.
 public struct AgentTeam: Sendable {
     public let name: String
     public let decomposer: any Decomposer
     public let testAuthor: any TestAuthor
     public let implementer: any Implementer
+    public var reviewer: (any Reviewer)?
 
     public init(name: String, decomposer: any Decomposer, testAuthor: any TestAuthor, implementer: any Implementer) {
         self.name = name

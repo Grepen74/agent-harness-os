@@ -22,6 +22,7 @@ final class SettingsModel {
 struct SettingsView: View {
     @Environment(SettingsModel.self) private var model
     @State private var offeredModels = ""
+    @State private var offeredReviewerModels = ""
     @State private var githubAccount = ""
     var body: some View {
         @Bindable var model = model
@@ -52,6 +53,51 @@ struct SettingsView: View {
                         get: { model.settings.offeredSignals.contains(command) },
                         set: { if $0 { model.settings.offeredSignals.insert(command) } else { model.settings.offeredSignals.remove(command) } }))
                 }
+            }
+            Section {
+                Picker("Minimum review level", selection: $model.settings.review.level) {
+                    ForEach(ReviewLevel.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                }
+                Picker("Reviewer", selection: Binding(
+                    get: {
+                        let reviewer = model.settings.review.reviewer
+                        return reviewer.type == "default" ? "default" : reviewer.command == nil ? "model" : "command"
+                    },
+                    set: { choice in
+                        model.settings.review.reviewer = ReviewerSelection(
+                            type: choice == "default" ? "default" : "specific",
+                            model: choice == "model" ? "" : nil,
+                            command: choice == "command" ? "" : nil)
+                    })) {
+                    Text("Default (different model)").tag("default")
+                    Text("Specific model").tag("model")
+                    Text("Specific command").tag("command")
+                }
+                if model.settings.review.reviewer.type == "specific" {
+                    if model.settings.review.reviewer.command != nil {
+                        TextField("Reviewer command", text: Binding(
+                            get: { model.settings.review.reviewer.command ?? "" },
+                            set: { model.settings.review.reviewer.command = $0 }))
+                    } else {
+                        TextField("Reviewer model", text: Binding(
+                            get: { model.settings.review.reviewer.model ?? "" },
+                            set: { model.settings.review.reviewer.model = $0 }))
+                    }
+                }
+                TextField("Offered reviewer models", text: $offeredReviewerModels)
+                    .onSubmit {
+                        model.settings.review.offeredModels = offeredReviewerModels.split(separator: ",")
+                            .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+                    }
+                    .onAppear { offeredReviewerModels = model.settings.review.offeredModels.joined(separator: ", ") }
+                    .onChange(of: model.settings.review.offeredModels) { _, models in
+                        offeredReviewerModels = models.joined(separator: ", ")
+                    }
+            } header: {
+                Text("Review")
+            } footer: {
+                Text("A repo may tighten review or choose an offered reviewer model. Commands receive the review prompt on stdin and return JSON with passed and findings. Separate offered models with commas; press Return to apply.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Section {
                 TextField("Offered models", text: $offeredModels)

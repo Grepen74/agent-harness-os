@@ -69,6 +69,11 @@ public struct NodeState: Sendable, Identifiable {
     public var activeRun: ActiveRun?
     public var lastSubmission: Submission?
     public var evidence: [Evidence] = []
+    public var reviews: [ReviewRecord] = []
+    public var latestReviewFeedback: String?
+    public var pendingHumanReview: String?
+    public var approvedReviewCommit: String?
+    public var awaitingHumanReview: Bool { pendingHumanReview != nil }
     public var failedAttempts = 0
     public var recentFailures: [String] = []
     public var landingReworkPending = false
@@ -251,6 +256,22 @@ public struct WorkingState: Sendable {
             node.failedAttempts = 0
             node.recentFailures = []
         case .testsFixed(let digest): node.testsDigest = digest
+        case .reviewRecorded(let review):
+            node.reviews.append(review)
+            if !review.result.passed && review.stage == .acceptanceTests {
+                node.latestTestFeedback = review.result.findings.joined(separator: "\n")
+            }
+            if review.stage == .change {
+                node.latestReviewFeedback = review.result.passed ? nil : review.result.findings.joined(separator: "\n")
+            }
+        case .humanReviewRequested(let commit):
+            node.pendingHumanReview = commit
+            node.approvedReviewCommit = nil
+        case .humanReviewApproved(let commit):
+            if event.by.isHuman, node.pendingHumanReview == commit {
+                node.pendingHumanReview = nil
+                node.approvedReviewCommit = commit
+            }
         case .expectedAPIReported(let api): node.expectedAPI = api
         case .brokenTestReported(let report):
             node.brokenTestReports.append(report)
@@ -258,6 +279,9 @@ public struct WorkingState: Sendable {
         case .runStarted(let run, let role): node.activeRun = ActiveRun(run: run, role: role, since: event.at)
         case .runFinished: node.activeRun = nil
         case .changeSubmitted(let run, let commit):
+            node.latestReviewFeedback = nil
+            node.pendingHumanReview = nil
+            node.approvedReviewCommit = nil
             node.lastSubmission = Submission(run: run, commit: commit)
             node.landingReworkPending = false
             node.landingRerunPending = false
@@ -269,6 +293,7 @@ public struct WorkingState: Sendable {
             node.landingReworkPending = false
             node.landingRerunPending = true
         case .reworkNeeded:
+            node.latestReviewFeedback = nil
             node.reworks += 1
             node.lastSubmission = nil
         case .landed(let commit):
@@ -283,6 +308,7 @@ public struct WorkingState: Sendable {
             node.clarifications.append(clarification)
             node.openQuestions = []
         case .attemptFailed(let summary):
+            node.latestReviewFeedback = nil
             node.failedAttempts += 1
             node.recentFailures.append(summary)
             node.landingReworkPending = false
@@ -292,6 +318,7 @@ public struct WorkingState: Sendable {
             node.latestTestFeedback = evidence.details ?? evidence.summary
         case .evidenceRecorded(let evidence):
             node.evidence.append(evidence)
+            if !evidence.passed { node.latestReviewFeedback = nil }
             if !evidence.passed && evidence.failureClassification != .runnerCrash
                 && evidence.failureClassification != .landingInfrastructure {
                 node.failedAttempts += 1

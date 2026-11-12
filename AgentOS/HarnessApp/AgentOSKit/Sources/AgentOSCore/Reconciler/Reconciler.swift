@@ -255,7 +255,7 @@ public actor Reconciler {
             // of permission. Production: also checks the build budget is set (doc 05 §5).
             if let node {
                 let missing = [Gate.breakdown, .build].filter { !node.gates.contains($0) }
-                let reviews = waitingForReview(under: node.id, in: state)
+                let reviews = waitingForReview(under: node.id, in: state).filter { !$0.awaitingHumanReview }
                 guard !missing.isEmpty || !reviews.isEmpty else { throw Rejection(reason: "Breakdown and build are already approved.") }
                 if !missing.isEmpty {
                     try await write(node.id, by: .human(person), missing.map { .gateOpened($0) } + Self.answerEvents(on: ticket, for: node))
@@ -564,13 +564,22 @@ public actor Reconciler {
 
     /// Leaves below `id` (or `id` itself) whose acceptance tests wait for a person's review before build.
     private func waitingForReview(under id: NodeID, in state: WorkingState) -> [NodeState] {
-        state.subtree(of: id).filter { $0.flags[.needsInput] != nil && $0.openQuestions.isEmpty && $0.phase == .ready }
+        state.subtree(of: id).filter {
+            $0.awaitingHumanReview
+                || ($0.flags[.needsInput] != nil && $0.openQuestions.isEmpty && $0.phase == .ready)
+        }
     }
 
     /// `harness:build` or `harness:go` approves the tests of the leaves waiting for review.
     private func approve(_ reviews: [NodeState], by person: String) async throws -> String {
-        for node in reviews { try await write(node.id, by: .human(person), [.flagCleared(.needsInput)]) }
-        return reviews.isEmpty ? "" : "; acceptance tests approved for \(reviews.map(\.ticket).joined(separator: ", "))"
+        for node in reviews {
+            if let commit = node.pendingHumanReview {
+                try await write(node.id, by: .human(person), [.humanReviewApproved(commit: commit)])
+            } else {
+                try await write(node.id, by: .human(person), [.flagCleared(.needsInput)])
+            }
+        }
+        return reviews.isEmpty ? "" : "; review approved for \(reviews.map(\.ticket).joined(separator: ", "))"
     }
 
     private func intakeExternal(_ report: inout RoundReport) async {
@@ -638,7 +647,8 @@ public actor Reconciler {
             try Task.checkCancellation()
             guard shutdownReason == nil else { return nil }
             if landing {
-                guard node.phase == .landing, node.activeRun == nil, node.flags[.escalated] == nil else { return nil }
+                guard node.phase == .landing, node.activeRun == nil, node.flags[.escalated] == nil,
+                      !node.awaitingHumanReview else { return nil }
                 result = try await land(node)
             } else {
                 result = try await advance(node, in: state)
@@ -887,6 +897,16 @@ public actor Reconciler {
                 .runFinished(run: run, outcome: "failed: \(error)"),
                 .flagSet(.escalated, reason: "Couldn't write acceptance tests: \(error)")])
             return "\(node.displayName) test authoring failed → escalated"
+        }
+
+        if team.reviewer != nil, policy.review.requiresReview {
+            let context = try await workspace.reviewContext(in: directory, against: policy.review.baseBranch)
+            if policy.review.level(for: node.spec.touches + context.changedFiles) != .none {
+                let result = try await review(node, stage: .acceptanceTests, context: context, in: directory, run: run)
+                if !result.passed {
+                    return try await returnReviewFindings(result, stage: .acceptanceTests, node: node, run: run)
+                }
+            }
         }
 
         let preflight = await acceptanceTestPreflight.compileTests(
@@ -1438,6 +1458,39 @@ public actor Reconciler {
 
         // 3. Merge.
         if output.passed {
+            if team.reviewer != nil, policy.review.requiresReview {
+                let context = try await workspace.reviewContext(in: directory, against: policy.review.baseBranch)
+                let level = policy.review.level(for: node.spec.touches + context.changedFiles)
+                if level != .none {
+                    let current = await ledger.workingState().nodes[node.id] ?? node
+                    let prior = current.reviews.last { $0.stage == .change }
+                    let result: ReviewResult
+                    if let prior, prior.commit == context.commit, prior.result.passed {
+                        result = prior.result
+                    } else {
+                        result = try await review(node, stage: .change, context: context, in: directory, run: run)
+                    }
+                    if !result.passed {
+                        try await write(node.id, by: checker, [.evidenceRecorded(evidence)])
+                        return try await returnReviewFindings(result, stage: .change, node: node, run: run)
+                    }
+                    if level == .agentAndHuman, current.approvedReviewCommit != context.commit {
+                        try await write(node.id, by: checker, [
+                            .evidenceRecorded(evidence), .runFinished(run: run, outcome: "waiting for human review"),
+                            .humanReviewRequested(commit: context.commit),
+                        ])
+                        let screenshots = context.uiEvidence.map {
+                            "\nBefore screenshot: \($0.beforeScreenshot ?? "missing")\nAfter screenshot: \($0.afterScreenshot ?? "missing")"
+                        } ?? ""
+                        await tracker.comment(on: node.ticket, """
+                            Agent review passed for \(context.commit).
+                            \(result.findings.joined(separator: "\n"))\(screenshots)
+                            Review the change, then add harness:build to approve this candidate.
+                            """)
+                        return "\(node.displayName) → In review"
+                    }
+                }
+            }
             try Task.checkCancellation()
             let main = try await workspace.landOnMain(node.id)
             try await write(node.id, by: checker, [
@@ -1690,6 +1743,86 @@ public actor Reconciler {
                                          designDocumentPaths: documents)
     }
 
+    private func review(_ node: NodeState, stage: ReviewStage, context: ReviewContext,
+                        in directory: URL, run: RunID) async throws -> ReviewResult {
+        guard let reviewer = team.reviewer else { throw AgentFailure("No reviewer is assigned.") }
+        let folder = workspace.testFolder(for: node.spec) + "/"
+        var tests: [String: String] = [:]
+        for path in context.changedFiles where path.hasPrefix(folder) {
+            let file = directory.appending(path: path)
+            if FileManager.default.fileExists(atPath: file.path) {
+                tests[path] = try String(contentsOf: file, encoding: .utf8)
+            }
+        }
+        var instructions = ""
+        if let path = policy.review.instructions {
+            guard !path.hasPrefix("/"), !path.split(separator: "/").contains("..") else {
+                throw AgentFailure("Review instructions must name a repository-relative file.")
+            }
+            instructions = try String(contentsOf: directory.appending(path: path), encoding: .utf8)
+        }
+        let request = ReviewRequest(
+            stage: stage, spec: node.spec, acceptanceTests: tests, context: context,
+            instructions: instructions, directory: directory)
+        var result = try await watchingUserGitState(node, run: run) { try await reviewer.review(request) }
+        try Task.checkCancellation()
+        let after = try await workspace.reviewContext(in: directory, against: context.baseBranch)
+        guard after.commit == context.commit, after.fullDiff == context.fullDiff,
+              Set(after.changedFiles) == Set(context.changedFiles) else {
+            throw AgentFailure("The candidate changed during review. Check the reviewer, then add harness:retry.")
+        }
+        if stage == .change {
+            let areas = node.spec.touches + context.changedFiles
+            let isUI = areas.contains { path in
+                path.split(separator: "/").contains { component in
+                    let name = component.lowercased()
+                    return name.hasSuffix("ui") || ["views", "windows"].contains(name)
+                        || name.hasSuffix("view.swift") || name.hasSuffix("window.swift")
+                }
+            }
+            if isUI {
+                var missing: [String] = []
+                if context.uiEvidence?.snapshotPaths.isEmpty != false { missing.append("UI snapshot evidence is required.") }
+                if context.uiEvidence?.windowsOpened != true { missing.append("Evidence that windows open is required.") }
+                if context.uiEvidence?.windowsClosed != true { missing.append("Evidence that windows close is required.") }
+                if policy.review.level(for: areas) == .agentAndHuman {
+                    if context.uiEvidence?.beforeScreenshot?.isEmpty != false {
+                        missing.append("A before screenshot is required for human UI review.")
+                    }
+                    if context.uiEvidence?.afterScreenshot?.isEmpty != false {
+                        missing.append("An after screenshot is required for human UI review.")
+                    }
+                }
+                if !missing.isEmpty { result = ReviewResult(passed: false, findings: result.findings + missing) }
+            }
+        }
+        try await write(node.id, by: .reconciler, [.reviewRecorded(ReviewRecord(
+            stage: stage, result: result, commit: context.commit, uiEvidence: context.uiEvidence))])
+        return result
+    }
+
+    private func returnReviewFindings(_ result: ReviewResult, stage: ReviewStage,
+                                     node: NodeState, run: RunID) async throws -> String {
+        let records = await ledger.allRecords().filter { $0.event.node == node.id }
+        let reset = records.lastIndex { if case .attemptsReset = $0.event.kind { return true }; return false }
+        let failures = records.dropFirst(reset.map { $0 + 1 } ?? 0).compactMap { record -> ReviewRecord? in
+            guard case .reviewRecorded(let review) = record.event.kind,
+                  review.stage == stage, !review.result.passed else { return nil }
+            return review
+        }
+        let escalated = failures.count >= policy.review.maxRounds
+        let findings = (escalated ? failures.flatMap(\.result.findings) : result.findings).joined(separator: "\n")
+        let reason = "\(stage.rawValue) review findings:\n\(findings)\nComment with guidance, then add harness:retry."
+        var kinds: [EventKind] = [
+            .runFinished(run: run, outcome: "review findings"),
+            .phaseChanged(to: stage == .acceptanceTests ? .specified : .ready),
+        ]
+        if escalated { kinds.append(.flagSet(.escalated, reason: reason)) }
+        try await write(node.id, by: .reconciler, kinds)
+        await tracker.comment(on: node.ticket, reason)
+        return "\(node.displayName) review findings → \(escalated ? "Needs human" : stage == .acceptanceTests ? "test author" : "implementer")"
+    }
+
     private func makeTask(_ node: NodeState, run: RunID, in directory: URL, log: URL?,
                           for role: AgentRole, includeComments: Bool = true) async -> AgentTask {
         let labels = await tracker.ticket(node.ticket)?.labels.map(\.name) ?? []
@@ -1702,7 +1835,8 @@ public actor Reconciler {
             // The test author needs the latest problem with its tests; older reports may be about tests since rewritten.
             previousFailure: role == .testAuthor
                 ? node.latestTestFeedback ?? node.recentFailures.last
-                : node.brokenTestReports.last?.reason
+                : node.latestReviewFeedback
+                    ?? node.brokenTestReports.last?.reason
                     ?? node.evidence.last(where: { $0.check == "acceptance-test compilation" })?.summary
                     ?? node.recentFailures.last,
             simulationHints: Set(labels.filter { $0.hasPrefix("sim:") }), log: log,

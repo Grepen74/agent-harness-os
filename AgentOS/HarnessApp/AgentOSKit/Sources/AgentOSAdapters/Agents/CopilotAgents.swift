@@ -353,6 +353,11 @@ public struct CopilotImplementer: Implementer {
         Do not change behavior outside the ticket's requested scope. For experiments, use the writable scratch folder \
         at \(task.scratchDirectory.path) instead of /tmp. You may write experiments there without approval; its \
         contents are excluded from the submitted implementation.
+        For UI changes, capture snapshot-test evidence and actually open and close the affected windows. \
+        Capture before and after screenshots. Write .agentos-ui-evidence.json at the worktree root as \
+        {"snapshotPaths": [string], "windowsOpened": Bool, "windowsClosed": Bool, \
+        "beforeScreenshot": string, "afterScreenshot": string}, with paths to real evidence files inside \
+        this worktree, outside the scratch folder. Do not claim evidence you did not produce.
         \(failure)\(expected)
         If an acceptance test itself is impossible or contradicts the available public contract, report a broken \
         acceptance test instead of changing it or working around it. Write \(AgentReportFile.name) as \

@@ -51,8 +51,18 @@ public final class RepositorySession: Sendable {
 
     /// Copilot CLI agents restricted by the effective policy: denied tools, protected paths, a model per role.
     public static func copilotTeam(executable: String, policy: EffectivePolicy) -> AgentTeam {
-        .copilot(CopilotCLI(executable: executable, deniedTools: policy.deniedTools, protectedPaths: policy.protectedPaths),
-                 models: policy.agentModels)
+        var team = AgentTeam.copilot(
+            CopilotCLI(executable: executable, deniedTools: policy.deniedTools, protectedPaths: policy.protectedPaths),
+            models: policy.agentModels)
+        let selection = policy.policy.review.reviewer
+        if let command = selection.command {
+            team.reviewer = CommandReviewer(command: command)
+        } else {
+            team.reviewer = CopilotReviewer(cli: CopilotCLI(
+                executable: executable, model: selection.model,
+                deniedTools: policy.deniedTools + ["write", "git"], protectedPaths: policy.protectedPaths))
+        }
+        return team
     }
 
     /// Why agents may not start on this repo yet: every blocker from the readiness scan (which includes the

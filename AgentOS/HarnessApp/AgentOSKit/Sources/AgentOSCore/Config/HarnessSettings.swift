@@ -17,6 +17,7 @@ public struct HarnessSettings: Codable, Sendable, Equatable {
     public var offeredModels: [String] = []
     /// The model per role when the repo doesn't choose one (nil: the agent CLI's default).
     public var models = AgentModels()
+    public var review = ReviewSettings()
     /// How much agents may guess before asking (a repo may only choose a stricter level).
     public var guesswork = Guesswork.assumeAndReport
     /// The `gh` account the harness uses for GitHub Issues, when several are logged in (nil: the active one).
@@ -46,6 +47,7 @@ public struct HarnessSettings: Codable, Sendable, Equatable {
         offeredSignals = offered.union(Set(HarnessCommand.allCases).subtracting(known))
         offeredModels = try container.decodeIfPresent([String].self, forKey: .offeredModels) ?? defaults.offeredModels
         models = try container.decodeIfPresent(AgentModels.self, forKey: .models) ?? defaults.models
+        review = try container.decodeIfPresent(ReviewSettings.self, forKey: .review) ?? defaults.review
         guesswork = try container.decodeIfPresent(Guesswork.self, forKey: .guesswork) ?? defaults.guesswork
         githubAccount = try container.decodeIfPresent(String.self, forKey: .githubAccount)
     }
@@ -207,6 +209,62 @@ public struct EffectivePolicy: Sendable, Equatable {
                 name: "\(role.job) agent", value: "\(HarnessSettings.agentProvider) · \(model ?? "default model")",
                 source: source, note: note))
         }
+        var review = ReviewPolicy()
+        review.level = harness.review.level
+        review.baseBranch = result.landingBranch
+        review.instructions = repo?.review?.instructions
+        var levelSource = EffectiveSetting.Source.harness
+        var levelNote: String?
+        if let wanted = repo?.review?.level {
+            if let level = ReviewLevel(rawValue: wanted), level >= harness.review.level {
+                review.level = level
+                levelSource = .repo
+            } else {
+                refuse("Repo config weakens or invalidates review: \(wanted)",
+                       "The harness requires at least \(harness.review.level.rawValue) review.")
+                levelNote = "repo asked for \(wanted): refused"
+            }
+        }
+        for (area, wanted) in repo?.review?.areas ?? [:] {
+            if let level = ReviewLevel(rawValue: wanted), level >= review.level {
+                review.areas[area] = level
+            } else {
+                refuse("Repo config weakens or invalidates review for \(area): \(wanted)",
+                       "Review must be at least \(review.level.rawValue).")
+            }
+        }
+        if let rounds = repo?.review?.maxRounds {
+            if rounds > 0 { review.maxRounds = rounds }
+            else { refuse("Invalid review maxRounds: \(rounds)", "Use at least one review round.") }
+        }
+        review.reviewer = harness.review.reviewer
+        var reviewerSource = EffectiveSetting.Source.harness
+        var reviewerNote: String?
+        if let wanted = repo?.review?.model {
+            if harness.review.offeredModels.contains(wanted) {
+                review.reviewer = ReviewerSelection(type: "specific", model: wanted)
+                reviewerSource = .repo
+            } else {
+                refuse("Repo config picks unoffered reviewer \(wanted)",
+                       "Offered reviewer models: \(harness.review.offeredModels.joined(separator: ", ")).")
+                reviewerNote = "repo asked for \(wanted): not offered"
+            }
+        }
+        let selection = review.reviewer
+        if selection.type == "default" {
+            review.reviewer.model = result.agentModels[.implementer] == "claude-sonnet-4.5"
+                ? "gpt-5.3-codex" : "claude-sonnet-4.5"
+            review.reviewer.command = nil
+        } else if selection.type != "specific"
+                    || ((selection.model?.isEmpty != false) == (selection.command?.isEmpty != false)) {
+            refuse("Invalid reviewer selection", "Choose default, or specific with exactly one model or command.")
+        }
+        result.policy.review = review
+        result.settings.append(EffectiveSetting(name: "Review level", value: review.level.rawValue,
+                                                source: levelSource, note: levelNote))
+        result.settings.append(EffectiveSetting(name: "Reviewer",
+                                                value: review.reviewer.command ?? review.reviewer.model ?? "default",
+                                                source: reviewerSource, note: reviewerNote))
         return result
     }
 

@@ -4,6 +4,24 @@ import Foundation
 /// It declares how to build and test, and may only choose within the harness's limits or make them
 /// stricter (doc 04 §8). JSON so it needs no extra parser; unknown keys are reported, not ignored.
 public struct RepoConfig: Codable, Sendable, Equatable {
+    public struct Review: Codable, Sendable, Equatable {
+        public var level: String?
+        public var areas: [String: String]?
+        public var instructions: String?
+        public var maxRounds: Int?
+        public var model: String?
+
+        public init(level: String? = nil, areas: [String: String]? = nil, instructions: String? = nil,
+                    maxRounds: Int? = nil, model: String? = nil) {
+            self.level = level
+            self.areas = areas
+            self.instructions = instructions
+            self.maxRounds = maxRounds
+            self.model = model
+        }
+    }
+
+    public var review: Review?
     public struct Build: Codable, Sendable, Equatable {
         /// Run before building, e.g. `xcodegen generate`.
         public var prepare: String?
@@ -148,7 +166,7 @@ public struct RepoConfig: Codable, Sendable, Equatable {
 
     public static let path = ".agentos/config.json"
     public static let knownKeys: Set<String> = ["build", "test", "checks", "leafTests", "components", "landing", "signals",
-                                                "limits", "agents", "protectedPaths", "tracker"]
+                                                "limits", "agents", "protectedPaths", "tracker", "review"]
 
     /// Every command line the config runs, in order.
     public var commands: [String] {
@@ -157,7 +175,7 @@ public struct RepoConfig: Codable, Sendable, Equatable {
 
     public init(build: Build? = nil, test: Test, checks: [NamedCheck]? = nil, leafTests: LeafTests? = nil,
                 components: [String]? = nil, landing: Landing? = nil, signals: Signals? = nil, limits: Limits? = nil,
-                agents: Agents? = nil, protectedPaths: [String]? = nil, tracker: Tracker? = nil) {
+                agents: Agents? = nil, protectedPaths: [String]? = nil, tracker: Tracker? = nil, review: Review? = nil) {
         self.build = build
         self.test = test
         self.checks = checks
@@ -169,6 +187,7 @@ public struct RepoConfig: Codable, Sendable, Equatable {
         self.agents = agents
         self.protectedPaths = protectedPaths
         self.tracker = tracker
+        self.review = review
     }
 
     public struct ParseError: Error, CustomStringConvertible {

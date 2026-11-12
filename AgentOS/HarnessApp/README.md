@@ -81,6 +81,20 @@ folder. Proven work lands on `agentos/main`; review, merge and push it yourself.
 models offered to agents and a default per role; a repo may choose among them in `agents.models`. From the
 terminal: `swift run agentos work <path> --ticket "<title>" --criterion "<criterion>" --go`.
 
+Repository teams review acceptance tests before implementation and review the complete change after all
+landing checks pass. **Settings → Review** sets the minimum (`none`, `agent`, or `agent+human`), reviewer
+and models a repo may choose. The default is agent review with an explicit model different from the
+configured implementer. The repo's `review` config may tighten levels overall or by touched area, name
+an instructions file, set `maxRounds` (default 2), and choose an offered reviewer model. Looser levels
+and unoffered models block starting. The Policy pane shows the effective level and reviewer with sources.
+
+Findings return to the test author or implementer; repeated findings escalate with `harness:retry` as the
+next step. Reviews and findings appear on the node and in the ledger. At `agent+human`, a passing candidate
+waits **In review** for a fresh human `harness:build`, even if building was already approved.
+UI changes require snapshots and evidence that windows open and close; human UI review also requires
+before and after screenshots. Implementers report actual evidence in `.agentos-ui-evidence.json` at the
+worktree root; evidence files are retained in the repository's artifact storage.
+
 **Pause** stops new rounds, not work already running. Each agent or check in **Running now** has a
 **Stop** button: it waits for the run and its child processes to end, records who stopped it, and leaves
 the node waiting for `harness:retry` without adding a failed attempt. Closing the repository window or
