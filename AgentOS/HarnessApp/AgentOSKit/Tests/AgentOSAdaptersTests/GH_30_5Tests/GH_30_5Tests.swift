@@ -1,4 +1,4 @@
-// API contract: Reconciler.runRound() handles numbered suggested-answer corrections from human
+// API contract: Reconciler.runRound(waitForAgents: true) handles numbered suggested-answer corrections from human
 // ticket comments plus harness:retry, records human-authored questionsAnswered events, and passes
 // Clarification values to replacement BreakdownRequest/AgentTask runs through the existing protocols.
 
@@ -386,7 +386,7 @@ struct GH_30_5Tests {
 
         func advance(rounds: Int = 1) async throws {
             for _ in 0..<rounds {
-                let report = await reconciler.runRound()
+                let report = await reconciler.runRound(waitForAgents: true)
                 #expect(report.safeStop == nil)
             }
         }

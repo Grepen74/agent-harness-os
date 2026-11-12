@@ -19,7 +19,7 @@ struct GH_25Tests {
         let fixture = try await Fixture(failure: failure, command: "printf 'checks passed\\n'")
         defer { fixture.cleanup() }
 
-        _ = await fixture.reconciler.runRound()
+        _ = await fixture.reconciler.runRound(waitForAgents: true)
 
         let records = await fixture.ledger.allRecords()
         let starts = Self.starts(in: records)
@@ -39,7 +39,7 @@ struct GH_25Tests {
         let fixture = try await Fixture(phase: phase, command: "printf 'finished normally\\n'")
         defer { fixture.cleanup() }
 
-        _ = await fixture.reconciler.runRound()
+        _ = await fixture.reconciler.runRound(waitForAgents: true)
 
         #expect(await fixture.probe.active == 0)
         let state = await fixture.ledger.workingState()
@@ -58,7 +58,7 @@ struct GH_25Tests {
         defer { fixture.cleanup() }
         let watchdog = fixture.tree.cleanupWatchdog()
         defer { watchdog.cancel() }
-        let round = Task { await fixture.reconciler.runRound() }
+        let round = Task { await fixture.reconciler.runRound(waitForAgents: true) }
         defer { round.cancel() }
         try await Self.eventually { fixture.tree.isReady }
         let node = try #require(await fixture.node())
@@ -105,7 +105,7 @@ struct GH_25Tests {
         ])
         let watchdog = fixture.tree.cleanupWatchdog()
         defer { watchdog.cancel() }
-        let round = Task { await fixture.reconciler.runRound() }
+        let round = Task { await fixture.reconciler.runRound(waitForAgents: true) }
         defer { round.cancel() }
         try await Self.eventually { fixture.tree.isReady }
         let run = try #require(await fixture.node()?.activeRun?.run)
@@ -113,7 +113,7 @@ struct GH_25Tests {
         _ = await round.value
         let startCount = Self.starts(in: await fixture.ledger.allRecords()).count
 
-        for _ in 0..<3 { _ = await fixture.reconciler.runRound() }
+        for _ in 0..<3 { _ = await fixture.reconciler.runRound(waitForAgents: true) }
 
         #expect(Self.starts(in: await fixture.ledger.allRecords()).count == startCount)
         #expect(await fixture.node()?.failedAttempts == 2, "Stop neither adds an attempt nor erases prior failures")
@@ -121,7 +121,7 @@ struct GH_25Tests {
 
         try fixture.tree.removePIDFiles()
         await fixture.tracker.retry()
-        let retryRound = Task { await fixture.reconciler.runRound() }
+        let retryRound = Task { await fixture.reconciler.runRound(waitForAgents: true) }
         defer { retryRound.cancel() }
         try await Self.eventually { fixture.tree.isReady }
         let retriedRun = try #require(await fixture.node()?.activeRun?.run)
@@ -138,7 +138,7 @@ struct GH_25Tests {
         defer { fixture.cleanup() }
         let watchdog = fixture.tree.cleanupWatchdog()
         defer { watchdog.cancel() }
-        let round = Task { await fixture.reconciler.runRound() }
+        let round = Task { await fixture.reconciler.runRound(waitForAgents: true) }
         defer { round.cancel() }
         try await Self.eventually { fixture.tree.isReady }
         let run = try #require(await fixture.node()?.activeRun?.run)
@@ -234,7 +234,7 @@ struct GH_25Tests {
         defer { watchdog.cancel() }
         let second = Self.spec(id: "wn-GH-25-check")
         try await fixture.seed(second, phase: .checking)
-        let round = Task { await fixture.reconciler.runRound() }
+        let round = Task { await fixture.reconciler.runRound(waitForAgents: true) }
         defer { round.cancel() }
         try await Self.eventually { await fixture.probe.active == 2 }
         try await Self.eventually { fixture.tree.livingPIDs.count == 6 }

@@ -23,7 +23,7 @@ struct GH_15_4Tests {
         for failure in cases {
             let fixture = try await Fixture(failure: failure, phase: .checking)
 
-            _ = await fixture.reconciler.runRound()
+            _ = await fixture.reconciler.runRound(waitForAgents: true)
 
             let comment = try #require(await fixture.tracker.comments().last)
             #expect(comment.lowercased().contains("agent's own mistake"), "Comment for '\(failure.summary)': \(comment)")
@@ -41,7 +41,7 @@ struct GH_15_4Tests {
                 phase: phase
             )
 
-            _ = await fixture.reconciler.runRound()
+            _ = await fixture.reconciler.runRound(waitForAgents: true)
 
             let node = try #require(await fixture.node())
             #expect(node.failedAttempts == 1, "\(phase.rawValue) failure counted \(node.failedAttempts) times")
@@ -59,7 +59,7 @@ struct GH_15_4Tests {
                 maxAttempts: 1
             )
 
-            _ = await fixture.reconciler.runRound()
+            _ = await fixture.reconciler.runRound(waitForAgents: true)
 
             let node = try #require(await fixture.node())
             #expect(node.failedAttempts == 1)

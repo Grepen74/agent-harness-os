@@ -225,7 +225,7 @@ private extension GH_29_2Tests {
 
         func runRounds(_ count: Int) async {
             for _ in 0..<count {
-                _ = await reconciler.runRound()
+                _ = await reconciler.runRound(waitForAgents: true)
             }
         }
 

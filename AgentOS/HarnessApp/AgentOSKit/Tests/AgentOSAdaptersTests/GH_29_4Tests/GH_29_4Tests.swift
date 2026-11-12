@@ -15,7 +15,7 @@ struct GH_29_4Tests {
 
         for flag in [Flag.escalated, .needsInput] {
             let fixture = try await Fixture(flag: flag)
-            _ = await fixture.reconciler.runRound()
+            _ = await fixture.reconciler.runRound(waitForAgents: true)
 
             let reply = try #require(await fixture.tracker.replies().last)
             #expect(reply.contains("✅ harness:retest"))
@@ -31,7 +31,7 @@ struct GH_29_4Tests {
         let fixture = try await Fixture(flag: .escalated)
         let before = try #require(await fixture.node())
 
-        _ = await fixture.reconciler.runRound()
+        _ = await fixture.reconciler.runRound(waitForAgents: true)
 
         let after = try #require(await fixture.node())
         #expect(after.spec == before.spec)
@@ -53,7 +53,7 @@ struct GH_29_4Tests {
             feedback: ["Keep the public API synchronous.", "Cover the empty result as well."]
         )
 
-        _ = await fixture.reconciler.runRound()
+        _ = await fixture.reconciler.runRound(waitForAgents: true)
 
         let task = try #require(await fixture.testAuthor.tasks().first)
         let feedback = try #require(task.clarifications.last?.answer)
@@ -65,7 +65,7 @@ struct GH_29_4Tests {
     @Test
     func acceptedAndLandedRejectedRetestsAreAuditedAndExplainedOnTheTicket() async throws {
         let accepted = try await Fixture(flag: .escalated)
-        _ = await accepted.reconciler.runRound()
+        _ = await accepted.reconciler.runRound(waitForAgents: true)
 
         let acceptedEvents = await accepted.eventKinds()
         #expect(acceptedEvents.contains {
@@ -80,7 +80,7 @@ struct GH_29_4Tests {
         accepted.cleanup()
 
         let landed = try await Fixture(flag: nil, landed: true)
-        _ = await landed.reconciler.runRound()
+        _ = await landed.reconciler.runRound(waitForAgents: true)
 
         let rejectedEvents = await landed.eventKinds()
         #expect(rejectedEvents.contains {
@@ -111,7 +111,7 @@ struct GH_29_4Tests {
         #expect(!effective.policy.allowedSignals.contains(.retest))
 
         let fixture = try await Fixture(flag: .escalated, allowedSignals: effective.policy.allowedSignals)
-        _ = await fixture.reconciler.runRound()
+        _ = await fixture.reconciler.runRound(waitForAgents: true)
 
         #expect(await fixture.tracker.replies().contains {
             $0.contains("❌ harness:retest") && $0.contains("isn't enabled")

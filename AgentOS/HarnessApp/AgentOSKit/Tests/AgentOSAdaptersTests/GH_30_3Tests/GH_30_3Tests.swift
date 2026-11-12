@@ -67,7 +67,7 @@ struct GH_30_3Tests {
             )
             defer { fixture.cleanup() }
 
-            let firstRound = await fixture.reconciler.runRound()
+            let firstRound = await fixture.reconciler.runRound(waitForAgents: true)
 
             #expect(firstRound.safeStop == nil)
             let state = await fixture.ledger.workingState()
@@ -89,7 +89,7 @@ struct GH_30_3Tests {
             })
             #expect(await fixture.tracker.status() == "Needs input")
 
-            let secondRound = await fixture.reconciler.runRound()
+            let secondRound = await fixture.reconciler.runRound(waitForAgents: true)
             #expect(secondRound.safeStop == nil)
             #expect(secondRound.isIdle)
             #expect(await fixture.reporter.calls(for: role) == 1,
@@ -108,7 +108,7 @@ struct GH_30_3Tests {
             )
             defer { fixture.cleanup() }
 
-            let round = await fixture.reconciler.runRound()
+            let round = await fixture.reconciler.runRound(waitForAgents: true)
 
             #expect(round.safeStop == nil)
             let state = await fixture.ledger.workingState()
@@ -145,7 +145,7 @@ struct GH_30_3Tests {
         )
         defer { fixture.cleanup() }
 
-        _ = await fixture.reconciler.runRound()
+        _ = await fixture.reconciler.runRound(waitForAgents: true)
 
         let state = await fixture.ledger.workingState()
         let node = try #require(state.nodes[fixture.spec.id])
@@ -167,7 +167,7 @@ struct GH_30_3Tests {
         )
         defer { fixture.cleanup() }
 
-        _ = await fixture.reconciler.runRound()
+        _ = await fixture.reconciler.runRound(waitForAgents: true)
 
         let node = try #require(await fixture.ledger.workingState().nodes[fixture.spec.id])
         #expect(node.openQuestions.isEmpty)
@@ -189,7 +189,7 @@ struct GH_30_3Tests {
         )
         defer { fixture.cleanup() }
 
-        _ = await fixture.reconciler.runRound()
+        _ = await fixture.reconciler.runRound(waitForAgents: true)
 
         let state = await fixture.ledger.workingState()
         let node = try #require(state.nodes[fixture.spec.id])
@@ -209,7 +209,7 @@ struct GH_30_3Tests {
         )
         defer { fixture.cleanup() }
 
-        _ = await fixture.reconciler.runRound()
+        _ = await fixture.reconciler.runRound(waitForAgents: true)
 
         let state = await fixture.ledger.workingState()
         let node = try #require(state.nodes[fixture.spec.id])
@@ -228,7 +228,7 @@ struct GH_30_3Tests {
         )
         defer { fixture.cleanup() }
 
-        _ = await fixture.reconciler.runRound()
+        _ = await fixture.reconciler.runRound(waitForAgents: true)
 
         let node = try #require(await fixture.ledger.workingState().nodes[fixture.spec.id])
         #expect(node.openQuestions.isEmpty)

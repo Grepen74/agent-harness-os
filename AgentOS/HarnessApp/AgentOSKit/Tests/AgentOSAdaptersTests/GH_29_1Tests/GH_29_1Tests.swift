@@ -13,17 +13,17 @@ struct GH_29_1Tests {
         #expect(SwiftAcceptanceTestPreflight.command == ["swift", "build", "--build-tests"])
 
         let supported = try await Fixture(preflight: .init(outcomes: [.compiled]))
-        _ = await supported.reconciler.runRound()
+        _ = await supported.reconciler.runRound(waitForAgents: true)
         #expect(await supported.preflight.invocationCount == 1)
         #expect(await supported.implementer.tasks.isEmpty)
 
-        _ = await supported.reconciler.runRound()
+        _ = await supported.reconciler.runRound(waitForAgents: true)
         #expect(await supported.implementer.tasks.count == 1)
         #expect(await supported.preflight.invocationCount == 1)
 
         let unsupported = try await Fixture(preflight: .init(outcomes: [.skipped]))
-        _ = await unsupported.reconciler.runRound()
-        _ = await unsupported.reconciler.runRound()
+        _ = await unsupported.reconciler.runRound(waitForAgents: true)
+        _ = await unsupported.reconciler.runRound(waitForAgents: true)
         #expect(await unsupported.implementer.tasks.count == 1)
     }
 
@@ -99,20 +99,20 @@ struct GH_29_1Tests {
         ])
         let fixture = try await Fixture(preflight: preflight)
 
-        _ = await fixture.reconciler.runRound()
+        _ = await fixture.reconciler.runRound(waitForAgents: true)
         #expect(await fixture.testAuthor.tasks.count == 1)
         #expect(await fixture.implementer.tasks.isEmpty)
         let nodeAfterFirstAttempt = try await fixture.node()
         #expect(nodeAfterFirstAttempt.failedAttempts == 0)
 
-        _ = await fixture.reconciler.runRound()
+        _ = await fixture.reconciler.runRound(waitForAgents: true)
         #expect(await fixture.testAuthor.tasks.count == 2)
         #expect(await fixture.testAuthor.tasks.last?.previousFailure?.contains("expected expression") == true)
         #expect(await fixture.implementer.tasks.isEmpty)
         let nodeAfterRewrite = try await fixture.node()
         #expect(nodeAfterRewrite.failedAttempts == 0)
 
-        _ = await fixture.reconciler.runRound()
+        _ = await fixture.reconciler.runRound(waitForAgents: true)
         let implementationTask = try #require(await fixture.implementer.tasks.first)
         #expect(implementationTask.expectedAPI == ["NewRunner.run(timeZone:)"])
         let nodeAfterImplementation = try await fixture.node()
@@ -136,7 +136,7 @@ struct GH_29_1Tests {
             preflight: .init(outcomes: [.diagnostics(diagnostics, fullLog: fullLog)])
         )
 
-        _ = await fixture.reconciler.runRound()
+        _ = await fixture.reconciler.runRound(waitForAgents: true)
 
         let comment = try #require(await fixture.tracker.comments.last)
         #expect(comment.contains("GH_29_1Tests.swift"))
@@ -174,8 +174,8 @@ struct GH_29_1Tests {
             maxAttempts: 2
         )
 
-        _ = await fixture.reconciler.runRound()
-        _ = await fixture.reconciler.runRound()
+        _ = await fixture.reconciler.runRound(waitForAgents: true)
+        _ = await fixture.reconciler.runRound(waitForAgents: true)
 
         let node = try await fixture.node()
         #expect(node.flags[.needsInput]?.contains("Acceptance tests don't compile") == true)
@@ -201,15 +201,15 @@ struct GH_29_1Tests {
             preflight: .init(outcomes: Array(repeating: .diagnostics([mistake], fullLog: "log"), count: 3)),
             maxAttempts: 2
         )
-        _ = await fixture.reconciler.runRound()
-        _ = await fixture.reconciler.runRound()
+        _ = await fixture.reconciler.runRound(waitForAgents: true)
+        _ = await fixture.reconciler.runRound(waitForAgents: true)
         #expect(try await fixture.node().flags[.needsInput] != nil)
 
         try await fixture.ledger.append([
             LedgerEvent(node: Fixture.spec.id, by: .human("Alice"), kind: .flagCleared(.needsInput)),
             LedgerEvent(node: Fixture.spec.id, by: .human("Alice"), kind: .phaseChanged(to: .specified)),
         ])
-        _ = await fixture.reconciler.runRound()
+        _ = await fixture.reconciler.runRound(waitForAgents: true)
 
         #expect(try await fixture.node().flags[.needsInput] == nil)
         #expect(await fixture.testAuthor.tasks.count == 3)
@@ -228,12 +228,12 @@ struct GH_29_1Tests {
             preflight: .init(outcomes: [.diagnostics([mistake], fullLog: "log"), .diagnostics([mistake], fullLog: "log"), .compiled]),
             maxAttempts: 2
         )
-        _ = await fixture.reconciler.runRound()
-        _ = await fixture.reconciler.runRound()
+        _ = await fixture.reconciler.runRound(waitForAgents: true)
+        _ = await fixture.reconciler.runRound(waitForAgents: true)
         #expect(try await fixture.node().flags[.needsInput] != nil)
 
         await fixture.tracker.send(.retry)
-        _ = await fixture.reconciler.runRound()
+        _ = await fixture.reconciler.runRound(waitForAgents: true)
 
         #expect(await fixture.tracker.replies.last?.hasPrefix("✅") == true)
         #expect(try await fixture.node().flags[.needsInput] == nil)
@@ -255,8 +255,8 @@ struct GH_29_1Tests {
             kind: .brokenTestReported(BrokenTestReport(testName: "GH_29_1Tests", reason: "old: 'Comment' is ambiguous"))
         )])
 
-        _ = await fixture.reconciler.runRound()
-        _ = await fixture.reconciler.runRound()
+        _ = await fixture.reconciler.runRound(waitForAgents: true)
+        _ = await fixture.reconciler.runRound(waitForAgents: true)
 
         let tasks = await fixture.testAuthor.tasks
         #expect(tasks.count == 2)

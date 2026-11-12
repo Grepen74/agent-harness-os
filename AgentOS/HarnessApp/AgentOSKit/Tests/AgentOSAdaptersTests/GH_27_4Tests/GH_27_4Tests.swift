@@ -19,7 +19,7 @@ struct GH_27_4Tests {
         ])
         let reconciler = fixture.reconciler()
 
-        let breakdown = await reconciler.runRound()
+        let breakdown = await reconciler.runRound(waitForAgents: true)
         #expect(breakdown.safeStop == nil)
         let state = await fixture.ledger.workingState()
         let child = try #require(state.node(forTicket: "GH-18"))
@@ -27,7 +27,7 @@ struct GH_27_4Tests {
         #expect(child.spec.parent == parent.id)
         #expect(state.nodes[parent.id]?.children.contains(child.id) == true)
 
-        let authoring = await reconciler.runRound()
+        let authoring = await reconciler.runRound(waitForAgents: true)
         #expect(authoring.safeStop == nil)
         let task = try #require(await fixture.trace.authored.first { $0.identity.ticketKey == "GH-18" })
         let expectedDirectory = fixture.directory.appending(path: "storage/worktrees/wn-GH-18")
@@ -74,7 +74,7 @@ struct GH_27_4Tests {
         let reconciler = fixture.reconciler(ledger: reloaded)
 
         for _ in 0..<4 {
-            let report = await reconciler.runRound()
+            let report = await reconciler.runRound(waitForAgents: true)
             #expect(report.safeStop == nil)
             if await reloaded.workingState().nodes[legacy.id]?.phase == .proven { break }
         }

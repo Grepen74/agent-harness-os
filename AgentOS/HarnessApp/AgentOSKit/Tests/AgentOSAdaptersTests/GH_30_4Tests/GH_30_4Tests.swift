@@ -46,7 +46,7 @@ struct GH_30_4Tests {
             ])
         )
 
-        _ = await testAuthor.reconciler.runRound()
+        _ = await testAuthor.reconciler.runRound(waitForAgents: true)
 
         let node = try #require(await testAuthor.node())
         #expect(node.phase == .ready)
@@ -63,7 +63,7 @@ struct GH_30_4Tests {
                 AgentQuestion(question: "How should this be split?", suggestion: "Keep it as one leaf"),
             ])
         )
-        _ = await breakdown.reconciler.runRound()
+        _ = await breakdown.reconciler.runRound(waitForAgents: true)
         let breakdownNode = try #require(await breakdown.node())
         #expect(breakdownNode.flags[.needsInput] == nil)
         #expect(breakdownNode.assumptions[.decomposer] == [
@@ -76,7 +76,7 @@ struct GH_30_4Tests {
                 AgentQuestion(question: "How should this be split?", suggestion: "Keep it as one leaf"),
             ])
         )
-        _ = await preview.reconciler.runRound()
+        _ = await preview.reconciler.runRound(waitForAgents: true)
         #expect(await preview.ledger.workingState().previews["GH-30.4"] != nil)
     }
 
@@ -91,7 +91,7 @@ struct GH_30_4Tests {
                 ])
             )
 
-            _ = await fixture.reconciler.runRound()
+            _ = await fixture.reconciler.runRound(waitForAgents: true)
 
             let comment = try #require(await fixture.tracker.postedComments().first {
                 $0.contains("Proceeding on suggested answers")
@@ -113,20 +113,20 @@ struct GH_30_4Tests {
         let question = AgentQuestion(question: "Which screen should show the result?")
 
         let preview = try await Fixture(flow: .preview, report: AgentReport(questions: [question]))
-        _ = await preview.reconciler.runRound()
+        _ = await preview.reconciler.runRound(waitForAgents: true)
         #expect(await preview.ledger.workingState().previews["GH-30.4"] == nil)
         #expect(await preview.tracker.postedComments().contains {
             $0.contains(question.question) && $0.localizedCaseInsensitiveContains("answer")
         })
 
         let breakdown = try await Fixture(flow: .breakdown, report: AgentReport(questions: [question]))
-        _ = await breakdown.reconciler.runRound()
+        _ = await breakdown.reconciler.runRound(waitForAgents: true)
         let breakdownNode = try #require(await breakdown.node())
         #expect(breakdownNode.flags[.needsInput] != nil)
         #expect(breakdownNode.openQuestions == [question])
 
         let testAuthor = try await Fixture(flow: .testAuthor, report: AgentReport(questions: [question]))
-        _ = await testAuthor.reconciler.runRound()
+        _ = await testAuthor.reconciler.runRound(waitForAgents: true)
         let testAuthorNode = try #require(await testAuthor.node())
         #expect(testAuthorNode.flags[.needsInput] != nil)
         #expect(testAuthorNode.openQuestions == [question])
@@ -145,7 +145,7 @@ struct GH_30_4Tests {
             report: AgentReport(questions: [suggested, plain])
         )
 
-        _ = await fixture.reconciler.runRound()
+        _ = await fixture.reconciler.runRound(waitForAgents: true)
 
         let node = try #require(await fixture.node())
         #expect(node.flags[.needsInput] != nil)
@@ -168,7 +168,7 @@ struct GH_30_4Tests {
             ]),
             persistentLedger: true
         )
-        _ = await suggestedFixture.reconciler.runRound()
+        _ = await suggestedFixture.reconciler.runRound(waitForAgents: true)
 
         let expectedAssumption = "Use compact (suggested answer to: Which layout?)"
         #expect(await suggestedFixture.eventKinds().contains {
@@ -191,7 +191,7 @@ struct GH_30_4Tests {
             report: AgentReport(questions: questions),
             persistentLedger: true
         )
-        _ = await stoppingFixture.reconciler.runRound()
+        _ = await stoppingFixture.reconciler.runRound(waitForAgents: true)
 
         #expect(await stoppingFixture.eventKinds().contains {
             if case .questionsRaised(.decomposer, let recorded) = $0 {

@@ -90,7 +90,7 @@ private extension BrokenTestRoutingTests {
         }
 
         func rounds(_ count: Int) async {
-            for _ in 0..<count { _ = await reconciler.runRound() }
+            for _ in 0..<count { _ = await reconciler.runRound(waitForAgents: true) }
         }
 
         func node() async -> NodeState? { await ledger.workingState().nodes[Self.spec.id] }

@@ -16,14 +16,14 @@ struct GH_27_1Tests {
 
         if fromPreview {
             await fixture.local.addLabel("harness:preview", to: fixture.parentTicket, by: .human("Alice"))
-            let preview = await reconciler.runRound()
+            let preview = await reconciler.runRound(waitForAgents: true)
             #expect(preview.safeStop == nil)
             #expect(fixture.audit.childCreations().isEmpty)
             #expect(await fixture.childTickets().isEmpty)
             await fixture.local.addLabel("harness:breakdown", to: fixture.parentTicket, by: .human("Alice"))
         }
 
-        let report = await reconciler.runRound()
+        let report = await reconciler.runRound(waitForAgents: true)
 
         #expect(report.safeStop == nil)
         let creations = fixture.audit.childCreations()
@@ -45,7 +45,7 @@ struct GH_27_1Tests {
     func childSpecsAndRealTrackerTicketsLinkToTheirRespectiveParents() async throws {
         let fixture = try await Fixture()
 
-        _ = await fixture.makeReconciler().runRound()
+        _ = await fixture.makeReconciler().runRound(waitForAgents: true)
 
         let creations = fixture.audit.childCreations()
         #expect(creations.count == Self.proposals.count)
@@ -62,7 +62,7 @@ struct GH_27_1Tests {
     func ticketCreationFailureDoesNotCreateTheFailedChildOrCompleteTheBreakdown(failingIndex: Int) async throws {
         let fixture = try await Fixture(failingTitle: Self.proposals[failingIndex].title)
 
-        let report = await fixture.makeReconciler().runRound()
+        let report = await fixture.makeReconciler().runRound(waitForAgents: true)
 
         #expect(report.safeStop == nil)
         #expect(await fixture.tracker.creationAttempts().contains(Self.proposals[failingIndex].title))
@@ -85,7 +85,7 @@ struct GH_27_1Tests {
     @Test
     func retryAfterPartialFailureKeepsExistingNodesAndTicketsEvenWithANewReconciler() async throws {
         let fixture = try await Fixture(failingTitle: Self.proposals[1].title)
-        _ = await fixture.makeReconciler().runRound()
+        _ = await fixture.makeReconciler().runRound(waitForAgents: true)
         let alreadyCreated = fixture.audit.childCreations()
         let first = try #require(alreadyCreated.first)
         let originalTicket = try #require(await fixture.local.ticket(first.ticket))
@@ -96,7 +96,7 @@ struct GH_27_1Tests {
         if interrupted.nodes[Self.parentID]?.flags[.escalated] != nil {
             await fixture.local.addLabel("harness:retry", to: fixture.parentTicket, by: .human("Alice"))
         }
-        let report = await fixture.makeReconciler().runRound()
+        let report = await fixture.makeReconciler().runRound(waitForAgents: true)
 
         #expect(report.safeStop == nil)
         let creations = fixture.audit.childCreations()

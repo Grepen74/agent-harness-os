@@ -14,7 +14,7 @@ struct GH_15_1Tests {
             let crash = ScriptedChecks.Result.crash(signal: phase == .checking ? nil : 9)
             let fixture = try await Fixture(phase: phase, phaseResults: [crash, crash])
 
-            _ = await fixture.reconciler.runRound()
+            _ = await fixture.reconciler.runRound(waitForAgents: true)
 
             #expect(await fixture.checks.callCount(for: phase) == 2)
             #expect(await fixture.checks.callCount(for: phase == .checking ? .landing : .checking) == 0)
@@ -26,7 +26,7 @@ struct GH_15_1Tests {
         for phase in [Phase.checking, .landing] {
             let fixture = try await Fixture(phase: phase, phaseResults: [.crash(), .pass])
 
-            _ = await fixture.reconciler.runRound()
+            _ = await fixture.reconciler.runRound(waitForAgents: true)
 
             let node = try #require(await fixture.node())
             #expect(node.failedAttempts == 0)
@@ -41,7 +41,7 @@ struct GH_15_1Tests {
         for phase in [Phase.checking, .landing] {
             let fixture = try await Fixture(phase: phase, phaseResults: [.crash(), .crash()])
 
-            _ = await fixture.reconciler.runRound()
+            _ = await fixture.reconciler.runRound(waitForAgents: true)
 
             let node = try #require(await fixture.node())
             #expect(node.flags[.escalated]?.lowercased().contains("runner crash") == true)
@@ -56,7 +56,7 @@ struct GH_15_1Tests {
     func repeatedCrashCommentIncludesLogTailInDetailsAndFullArtifactPath() async throws {
         let fixture = try await Fixture(phase: .checking, phaseResults: [.crash(), .crash()])
 
-        _ = await fixture.reconciler.runRound()
+        _ = await fixture.reconciler.runRound(waitForAgents: true)
 
         let comment = try #require(await fixture.tracker.comments().last {
             $0.lowercased().contains("runner crash")
@@ -78,7 +78,7 @@ struct GH_15_1Tests {
         for phase in [Phase.checking, .landing] {
             let fixture = try await Fixture(phase: phase, phaseResults: [.crash(), .crash()])
 
-            _ = await fixture.reconciler.runRound()
+            _ = await fixture.reconciler.runRound(waitForAgents: true)
 
             let node = try #require(await fixture.node())
             let evidence = try #require(await fixture.crashEvidence().last)

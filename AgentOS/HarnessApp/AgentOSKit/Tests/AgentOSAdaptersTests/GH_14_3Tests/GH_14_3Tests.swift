@@ -1,4 +1,4 @@
-// API contract: Reconciler.runRound() resolves "N. Answer: text" ticket replies on preview/retry,
+// API contract: Reconciler.runRound(waitForAgents: true) resolves "N. Answer: text" ticket replies on preview/retry,
 // preserves unresolved original question numbers across replies, and records Clarification values
 // through EventKind.questionsAnswered for subsequent BreakdownRequest and AgentTask runs.
 
@@ -193,7 +193,7 @@ struct GH_14_3Tests {
 
         func advance(rounds: Int = 1) async throws {
             for _ in 0..<rounds {
-                let report = await reconciler.runRound()
+                let report = await reconciler.runRound(waitForAgents: true)
                 #expect(report.safeStop == nil)
             }
         }

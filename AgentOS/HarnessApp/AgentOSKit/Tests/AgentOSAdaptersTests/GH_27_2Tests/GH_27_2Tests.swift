@@ -39,7 +39,7 @@ struct GH_27_2Tests {
             )
         )
 
-        let report = await reconciler.runRound()
+        let report = await reconciler.runRound(waitForAgents: true)
 
         #expect(report.safeStop == nil)
         let state = await ledger.workingState()

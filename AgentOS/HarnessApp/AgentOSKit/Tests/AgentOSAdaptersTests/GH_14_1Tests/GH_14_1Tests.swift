@@ -208,7 +208,7 @@ struct GH_14_1Tests {
         }
 
         func questionComment() async throws -> String {
-            let result = await reconciler.runRound()
+            let result = await reconciler.runRound(waitForAgents: true)
             #expect(result.safeStop == nil)
             let marker = context == .preview
                 ? "The decomposer has questions before it can propose a breakdown"

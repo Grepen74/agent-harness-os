@@ -225,7 +225,7 @@ struct GH_14_2Tests {
 
         func advance(rounds: Int = 1) async throws {
             for _ in 0..<rounds {
-                let report = await reconciler.runRound()
+                let report = await reconciler.runRound(waitForAgents: true)
                 #expect(report.safeStop == nil)
                 let state = await ledger.workingState()
                 #expect(!state.nodes.values.contains { $0.flags[.escalated] != nil })

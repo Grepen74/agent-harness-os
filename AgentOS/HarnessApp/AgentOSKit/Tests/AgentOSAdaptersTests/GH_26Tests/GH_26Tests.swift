@@ -1,4 +1,4 @@
-// API contract: Reconciler.runRound() diagnoses other proven tickets' landing failures by checking
+// API contract: Reconciler.runRound(waitForAgents: true) diagnoses other proven tickets' landing failures by checking
 // Workspace.createSnapshot() (latest landing main, without the change) and rechecking the candidate.
 // CheckRunner supplies named failures in CheckOutput.log; tracker comments expose both rerun summaries.
 
@@ -13,7 +13,7 @@ struct GH_26Tests {
         let fixture = try await Fixture(mainPasses: true, candidatePasses: false)
         defer { fixture.cleanUp() }
 
-        let round = await fixture.reconciler.runRound()
+        let round = await fixture.reconciler.runRound(waitForAgents: true)
 
         #expect(round.safeStop == nil)
         let calls = await fixture.checks.calls
@@ -42,7 +42,7 @@ struct GH_26Tests {
         let fixture = try await Fixture(mainPasses: false, candidatePasses: candidatePasses)
         defer { fixture.cleanUp() }
 
-        _ = await fixture.reconciler.runRound()
+        _ = await fixture.reconciler.runRound(waitForAgents: true)
 
         let node = try #require(await fixture.node())
         #expect(node.failedAttempts == 0)
@@ -65,7 +65,7 @@ struct GH_26Tests {
         let fixture = try await Fixture(mainPasses: true, candidatePasses: false)
         defer { fixture.cleanUp() }
 
-        _ = await fixture.reconciler.runRound()
+        _ = await fixture.reconciler.runRound(waitForAgents: true)
 
         let calls = await fixture.checks.calls
         #expect(calls.contains { $0.directory == fixture.workspace.snapshot })
@@ -85,7 +85,7 @@ struct GH_26Tests {
         let fixture = try await Fixture(mainPasses: true, candidatePasses: true)
         defer { fixture.cleanUp() }
 
-        _ = await fixture.reconciler.runRound()
+        _ = await fixture.reconciler.runRound(waitForAgents: true)
 
         let node = try #require(await fixture.node())
         #expect(node.phase == .proven)
@@ -115,7 +115,7 @@ struct GH_26Tests {
         )
         defer { fixture.cleanUp() }
 
-        _ = await fixture.reconciler.runRound()
+        _ = await fixture.reconciler.runRound(waitForAgents: true)
 
         let report = await fixture.tracker.comments(on: Fixture.ticket).joined(separator: "\n")
         for name in Fixture.failedTests {

@@ -304,7 +304,7 @@ struct FlowTests {
         await sim.tracker.createTicket(title: "Greeting", description: "Say hi", acceptanceCriteria: ["Says hello", "Says bye"], by: alice)
         await sim.tracker.addLabel(HarnessCommand.breakdown.label, to: "APP-1", by: alice)
         await flaky.refuse(after: 1)
-        for _ in 0..<5 { await reconciler.runRound() }
+        for _ in 0..<5 { await reconciler.runRound(waitForAgents: true) }
 
         let stopped = try #require(await sim.node("APP-1"))
         #expect(stopped.flags[.escalated] != nil)
@@ -312,7 +312,7 @@ struct FlowTests {
 
         await flaky.refuse(after: nil)
         await sim.tracker.addLabel(HarnessCommand.retry.label, to: "APP-1", by: alice)
-        for _ in 0..<5 { await reconciler.runRound() }
+        for _ in 0..<5 { await reconciler.runRound(waitForAgents: true) }
         let node = try #require(await sim.node("APP-1"))
         #expect(node.phase == .split)
         #expect(node.children.count == 2)

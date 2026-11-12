@@ -597,12 +597,12 @@ private extension GH_28Tests {
         func cleanUp() { try? FileManager.default.removeItem(at: directory) }
         func node() async -> NodeState? { await ledger.workingState().nodes[Self.spec.id] }
         func rounds(_ count: Int) async {
-            for _ in 0..<count { _ = await reconciler.runRound() }
+            for _ in 0..<count { _ = await reconciler.runRound(waitForAgents: true) }
         }
         func advanceUntil(_ condition: () async -> Bool) async throws {
             for _ in 0..<30 {
                 if await condition() { return }
-                let report = await reconciler.runRound()
+                let report = await reconciler.runRound(waitForAgents: true)
                 #expect(report.safeStop == nil)
             }
             #expect(await condition(), "The expected observable state was not reached within 30 rounds")
