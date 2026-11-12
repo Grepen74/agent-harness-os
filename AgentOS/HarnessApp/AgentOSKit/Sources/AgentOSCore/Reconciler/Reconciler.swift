@@ -29,6 +29,11 @@ public actor Reconciler {
     /// When each agent of the current round started and finished, in steps of `clock`.
     private var agentRuns: [RunID: AgentRunSpan] = [:]
     private var clock = 0
+    private var tasks: [NodeID: Task<String?, Never>] = [:]
+    private var ownedRuns: [NodeID: RunID] = [:]
+    private var stopReasons: [RunID: String] = [:]
+    private var shutdownReason: String?
+    private var lifecycleFailure: String?
 
     public init(ledger: Ledger, tracker: any TrackerAdapter, external: any ExternalDependencySource,
                 workspace: any Workspace, artifacts: any ArtifactStore, checks: any CheckRunner, team: AgentTeam,
@@ -47,10 +52,31 @@ public actor Reconciler {
 
     public func setTeam(_ team: AgentTeam) { self.team = team }
 
+    /// Stops only this exact claim, and returns after its task and process cleanup have finished.
+    public func stopRun(_ run: RunID, by person: String) async throws {
+        guard let node = await ledger.workingState().running.first(where: { $0.activeRun?.run == run }),
+              ownedRuns[node.id] == run, let task = tasks[node.id] else { return }
+        if stopReasons[run] == nil { stopReasons[run] = "stopped by \(person)" }
+        task.cancel()
+        _ = await task.value
+        if await ledger.workingState().nodes[node.id]?.activeRun?.run == run {
+            throw AgentFailure(lifecycleFailure ?? "Couldn't record the stop of \(run)")
+        }
+    }
+
+    /// Prevents new work and drains every owned task, including its durable finish.
+    public func shutdown(reason: String) async {
+        if shutdownReason == nil { shutdownReason = reason }
+        let pending = Array(tasks.values)
+        for task in pending { task.cancel() }
+        for task in pending { _ = await task.value }
+    }
+
     // MARK: The loop
 
     public func runRound() async -> RoundReport {
         var report = RoundReport()
+        guard shutdownReason == nil, !Task.isCancelled else { return report }
         let chain = await ledger.verifyChain()
         if let problem = chain.problem {
             report.safeStop = "Ledger integrity check failed at #\(problem.position): \(problem.reason). " +
@@ -61,6 +87,7 @@ public actor Reconciler {
             report.safeStop = "Workspace repository unavailable: \(error)"
             return report
         }
+        guard shutdownReason == nil, !Task.isCancelled else { return report }
 
         await intakeSignals(&report)
         await intakeExternal(&report)
@@ -69,16 +96,11 @@ public actor Reconciler {
 
         // The landing queue: the only place where work happens strictly one at a time (doc 08 §4).
         for node in await ledger.workingState().landingQueue {
-            do {
-                report.actions.append(try await land(node))
-            } catch LedgerError.conflict {
-                continue
-            } catch {
-                report.actions.append("⚠️ \(node.displayName): \(error)")
-            }
+            if let action = await step(node.id, landing: true) { report.actions.append(action) }
         }
 
         await projectStatuses()
+        report.safeStop = lifecycleFailure
         return report
     }
 
@@ -598,16 +620,62 @@ public actor Reconciler {
         report.actions += actions.keys.sorted().compactMap { actions[$0] }
     }
 
-    private func step(_ id: NodeID) async -> String? {
+    private func step(_ id: NodeID, landing: Bool = false) async -> String? {
+        guard shutdownReason == nil, !Task.isCancelled, tasks[id] == nil else { return nil }
+        let task = Task { await self.performStep(id, landing: landing) }
+        tasks[id] = task
+        let result = await task.value
+        tasks[id] = nil
+        return result
+    }
+
+    private func performStep(_ id: NodeID, landing: Bool) async -> String? {
         let state = await ledger.workingState()
         guard let node = state.nodes[id] else { return nil }
+        var result: String?
+        var failure: String?
         do {
-            return try await advance(node, in: state)
+            try Task.checkCancellation()
+            guard shutdownReason == nil else { return nil }
+            if landing {
+                guard node.phase == .landing, node.activeRun == nil, node.flags[.escalated] == nil else { return nil }
+                result = try await land(node)
+            } else {
+                result = try await advance(node, in: state)
+            }
         } catch LedgerError.conflict {
-            return nil // The node changed meanwhile; the next round sees the new state.
+            failure = "ledger changed during the run"
         } catch {
-            return "⚠️ \(node.displayName): \(error)"
+            failure = "\(error)"
+            result = "⚠️ \(node.displayName): \(error)"
         }
+        // This is the single safety net for every post-start exit, including workspace failures.
+        // Write directly: the operation's task may be cancelled, but its finish must still persist.
+        let ownedRun = ownedRuns[id]
+        defer {
+            ownedRuns[id] = nil
+            if let ownedRun { stopReasons[ownedRun] = nil }
+        }
+        if let current = await ledger.workingState().nodes[id], let active = current.activeRun, active.run == ownedRun {
+            let stopped = stopReasons[active.run] ?? shutdownReason.map { "stopped: \($0)" }
+                ?? (Task.isCancelled ? "stopped: task cancelled" : nil)
+            let outcome = stopped ?? "failed: \(failure ?? "task ended without recording a finish")"
+            let reason = "\(outcome). Check the run, then add harness:retry."
+            var kinds: [EventKind] = [
+                .runFinished(run: active.run, outcome: outcome),
+                .flagSet(.escalated, reason: reason)
+            ]
+            if current.phase == .building { kinds.append(.phaseChanged(to: .ready)) }
+            do {
+                try await ledger.append(kinds.map { LedgerEvent(node: id, by: .reconciler, kind: $0) })
+                await tracker.comment(on: current.ticket, reason)
+                await projectStatus(of: id)
+            } catch {
+                lifecycleFailure = "Couldn't finish \(active.run): \(error)"
+                result = lifecycleFailure
+            }
+        }
+        return result
     }
 
     private func advance(_ node: NodeState, in state: WorkingState) async throws -> String? {
@@ -674,6 +742,7 @@ public actor Reconciler {
                     node.spec, ticketKey: node.ticket,
                     clarifications: state.clarifications(for: node.id), log: agentLog(node, run)
                 )
+                try Task.checkCancellation()
             } catch {
                 try await write(node.id, by: author, [
                     .runFinished(run: run, outcome: "failed: \(error)"),
@@ -787,6 +856,7 @@ public actor Reconciler {
         let report: AgentReport
         do {
             report = try await watchingUserGitState(node, run: run) { try await team.testAuthor.writeAcceptanceTests(task) }
+            try Task.checkCancellation()
         } catch {
             try await write(node.id, by: author, [
                 .runFinished(run: run, outcome: "failed: \(error)"),
@@ -819,11 +889,13 @@ public actor Reconciler {
             return "\(node.displayName) test authoring failed → escalated"
         }
 
-        switch await acceptanceTestPreflight.compileTests(
+        let preflight = await acceptanceTestPreflight.compileTests(
             in: directory,
             testFolder: workspace.testFolder(for: node.spec),
             expectedAPI: report.expectedAPI
-        ) {
+        )
+        try Task.checkCancellation()
+        switch preflight {
         case .compiled, .skipped:
             break
         case .diagnostics(let diagnostics, let fullLog):
@@ -1053,6 +1125,7 @@ public actor Reconciler {
                     try await team.implementer.implement(task)
                 }
             }
+            try Task.checkCancellation()
             let report = implementationResult as? AgentReport ?? AgentReport()
             let questions = policy.questions(in: report)
             guard questions.isEmpty else {
@@ -1102,13 +1175,13 @@ public actor Reconciler {
         } catch let error as UserGitStateChanged {
             // Not something another attempt fixes: a human checks what happened to their repo first.
             try await write(node.id, by: author, [
-                .runFinished(run: run, outcome: "failed"), .attemptFailed(summary: "\(error)"), .phaseChanged(to: .ready),
+                .runFinished(run: run, outcome: "failed: \(error)"), .attemptFailed(summary: "\(error)"), .phaseChanged(to: .ready),
                 .flagSet(.escalated, reason: "\(error)")])
             await tracker.comment(on: node.ticket, "⚠️ Needs a human: \(error)\nWhen checked, add label harness:retry.")
             return "\(node.displayName) escalated: \(error)"
         } catch {
             try await write(node.id, by: author, [
-                .runFinished(run: run, outcome: "failed"), .attemptFailed(summary: "\(error)"), .phaseChanged(to: .ready)])
+                .runFinished(run: run, outcome: "failed: \(error)"), .attemptFailed(summary: "\(error)"), .phaseChanged(to: .ready)])
             return try await escalateIfNeeded(node.id) ?? "\(node.displayName) implementer failed (\(error)); will retry"
         }
     }
@@ -1246,6 +1319,7 @@ public actor Reconciler {
                 commit: submission.commit
             )
         }
+        try Task.checkCancellation()
         let evidence = try makeEvidence(node, check: "own acceptance tests on branch", output: output,
                                         builtBy: submission.run, checkedBy: run, commit: submission.commit,
                                         failureClassification: output.passed ? nil : .ownMistake)
@@ -1364,6 +1438,7 @@ public actor Reconciler {
 
         // 3. Merge.
         if output.passed {
+            try Task.checkCancellation()
             let main = try await workspace.landOnMain(node.id)
             try await write(node.id, by: checker, [
                 .evidenceRecorded(evidence), .landed(commit: main), .runFinished(run: run, outcome: "landed"),
@@ -1561,6 +1636,7 @@ public actor Reconciler {
         }
         let before = try await workspace.userGitState()
         let result = try await agent()
+        try Task.checkCancellation()
         let after = try await workspace.userGitState()
         guard after != before, let mine = agentRuns[run] else { return result }
         let changed = Set(before).symmetricDifference(after).compactMap { $0.split(separator: " ").last.map(String.init) }
@@ -1686,9 +1762,20 @@ public actor Reconciler {
     }
 
     private func write(_ node: NodeID?, by who: Participant, _ kinds: [EventKind], expecting version: Int? = nil) async throws {
+        try Task.checkCancellation()
         let events = kinds.map { LedgerEvent(node: node, by: who, kind: $0) }
         let expecting = node.flatMap { id in version.map { [id: $0] } } ?? [:]
-        try await ledger.append(events, expecting: expecting)
+        let starting = kinds.compactMap { kind -> RunID? in
+            if case .runStarted(let run, _) = kind { return run }
+            return nil
+        }.first
+        if let node, let starting { ownedRuns[node] = starting }
+        do {
+            try await ledger.append(events, expecting: expecting)
+        } catch {
+            if let node, starting != nil { ownedRuns[node] = nil }
+            throw error
+        }
         if let node { await projectStatus(of: node) }
     }
 

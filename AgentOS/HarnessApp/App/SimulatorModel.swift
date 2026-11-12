@@ -33,6 +33,7 @@ final class SimulatorModel: HarnessActions {
         directory = URL.applicationSupportDirectory.appending(path: "AgentOSSimulator")
         simulation = Self.open(directory)
         view.actions = self
+        HarnessLifecycle.simulators.add(self)
         view.offersLedgerDemo = true
         view.extraLabels = ("Simulation (make agents misbehave)", ["sim:fail-once", "sim:always-fail", "sim:stuck", "sim:ask", "sim:assume"])
         followLedger()
@@ -148,6 +149,19 @@ final class SimulatorModel: HarnessActions {
     }
 
     // MARK: Lifecycle
+
+    func stopRun(node: NodeID, run: RunID, by person: String) async {
+        guard await simulation.ledger.workingState().nodes[node]?.activeRun?.run == run else { return }
+        do { try await simulation.reconciler.stopRun(run, by: person) }
+        catch { view.activity.insert("Couldn't stop \(run): \(error)", at: 0) }
+        await refresh()
+    }
+
+    func shutdown(reason: String) async {
+        setRunning(false)
+        await simulation.reconciler.shutdown(reason: reason)
+        await stopAndWait()
+    }
 
     func loadDemo() async { await simulation.loadDemo(by: you); await refresh() }
     func loadConflictingTicket() async { await simulation.loadConflictingTicket(by: you); await refresh() }

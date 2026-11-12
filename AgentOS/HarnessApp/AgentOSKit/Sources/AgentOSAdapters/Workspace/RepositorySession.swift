@@ -61,6 +61,26 @@ public final class RepositorySession: Sendable {
         scan.findings.filter { $0.severity == .blocker }.map(\.title)
     }
 
+    /// Ledger-only recovery, before readiness checks can prevent a repository session from starting.
+    public static func recoverInterruptedRuns(in ledger: Ledger) async throws -> [String] {
+        var notes: [String] = []
+        for node in await ledger.workingState().running {
+            guard let active = node.activeRun else { continue }
+            var kinds: [EventKind] = [
+                .runFinished(run: active.run, outcome: "abandoned: harness restarted")
+            ]
+            if node.phase == .building { kinds.append(.phaseChanged(to: .ready)) }
+            do {
+                try await ledger.append(kinds.map { LedgerEvent(node: node.id, by: .reconciler, kind: $0) },
+                                        expecting: [node.id: node.version])
+                notes.append("Reclaimed \(node.displayName) from \(active.run) after restart")
+            } catch LedgerError.conflict {
+                continue
+            }
+        }
+        return notes
+    }
+
     /// One reconciler round.
     @discardableResult
     public func step() async -> RoundReport {

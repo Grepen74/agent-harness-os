@@ -211,6 +211,8 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
 - **Watching agents work.** The window refreshes on every ledger event (a run starting, a submission,
   evidence), not only after a round. *Running now*, above the work tree, lists each run under way with its
   role and time so far, and offers:
+  - **Stop**: cancels this exact run and waits for its task and child processes to end. The ledger and
+    ticket name the person who stopped it; no failed attempt is counted. Add `harness:retry` to resume.
   - **Log**: the agent's output, followed live. Copilot writes each step as it goes (only the decomposer
     runs with `-s`, since its answer is parsed). The file is kept, and the node's details list every agent
     run with its log. Checks have no live log; theirs is recorded as evidence when they finish.
@@ -218,6 +220,12 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
     files. Read with `git --no-optional-locks`, so looking never takes the index lock from an agent.
   - **Finder** and **Xcode**: the worktree itself. Look, don't change: anything changed there is committed
     as the agent's work.
+- **Run cleanup.** Pause prevents new rounds but lets the current work finish. Closing a repository
+  window or quitting the app stops and awaits all its active agents and checks, recording why they
+  ended. Opening a repository durably abandons old runs before readiness blockers are considered.
+  Post-start errors always finish their run with the diagnostic. Checks that write nothing for
+  10 minutes are ended as hung and retain their log; `CommandCheckRunner.idleTimeout` configures this
+  limit independently of the 30-minute total timeout. Any output, including partial lines, resets it.
 
 Known limits: a leaf's tests go in the one configured test target, so if that target needs a simulator,
 every leaf's checks do; picking a target per leaf (e.g. a package's tests for service-layer work) would

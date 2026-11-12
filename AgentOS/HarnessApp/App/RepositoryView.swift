@@ -48,7 +48,7 @@ struct RepositoryView: View {
             model.harness = new
             Task { await model.rescan() }
         }
-        .onDisappear { model.close() }
+        .onDisappear { Task { await model.close() } }
         .toolbar {
             ToolbarItemGroup(placement: .navigation) {
                 HStack(spacing: 0) {

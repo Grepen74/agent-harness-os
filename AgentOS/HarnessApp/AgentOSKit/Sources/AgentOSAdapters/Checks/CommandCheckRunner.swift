@@ -12,12 +12,15 @@ public struct CommandCheckRunner: CheckRunner {
 
     public let config: RepoConfig
     public let timeout: Duration
+    public let idleTimeout: Duration
     /// Where commands that name a simulator get one of their own; nil runs them as written.
     public let simulators: SimulatorPool?
 
-    public init(config: RepoConfig, timeout: Duration = .seconds(1800), simulators: SimulatorPool? = nil) {
+    public init(config: RepoConfig, timeout: Duration = .seconds(1800), idleTimeout: Duration = .seconds(600),
+                simulators: SimulatorPool? = nil) {
         self.config = config
         self.timeout = timeout
+        self.idleTimeout = idleTimeout
         self.simulators = simulators
     }
 
@@ -72,8 +75,9 @@ public struct CommandCheckRunner: CheckRunner {
             let step = pending.removeFirst()
             let result: ProcessRunner.Result
             do {
-                let run: @Sendable (String) async throws -> (String, ProcessRunner.Result) = { [timeout] command in
-                    (command, try await ProcessRunner.run("/bin/sh", ["-c", command], in: directory, timeout: timeout))
+                let run: @Sendable (String) async throws -> (String, ProcessRunner.Result) = { [timeout, idleTimeout] command in
+                    (command, try await ProcessRunner.run("/bin/sh", ["-c", command], in: directory,
+                                                          timeout: timeout, idleTimeout: idleTimeout))
                 }
                 let (command, output) = if let simulators {
                     try await simulators.withSimulator(for: step.command, run)
@@ -89,6 +93,11 @@ public struct CommandCheckRunner: CheckRunner {
             }
             log += result.output
             if !result.output.hasSuffix("\n") && !result.output.isEmpty { log += "\n" }
+            if result.idleTimedOut {
+                let summary = "\(step.name) hung: no output for \(idleTimeout)"
+                log += summary + "\n"
+                return CheckOutput(passed: false, summary: summary, log: log, failureKind: .runnerCrash(signal: SIGKILL))
+            }
             guard result.status == 0 else {
                 log += "exit status \(result.status)\n"
                 if !cleaned && Self.isStaleBuildFailure(result.output) {

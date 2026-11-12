@@ -213,6 +213,7 @@ case "work":
         exit(1)
     }
     let ledger = try Ledger(store: RepositoryStorage.ledgerStore(for: location.identity))
+    for note in try await RepositorySession.recoverInterruptedRuns(in: ledger) { print("  · \(note)") }
     let scanned = await scanner.scan(location, baseline: await ledger.workingState().baseline)
     try await ledger.record(scanned.scan)
     let blockers = RepositorySession.blockers(scanned.scan)
@@ -231,7 +232,6 @@ case "work":
         policy: scanned.policy, team: RepositorySession.copilotTeam(executable: copilot, policy: scanned.policy),
         tracker: RepositorySession.tracker(scanned.tracker, storage: storage, githubAccount: option("--github-account")))
     say("Tracker: \(session.tracker.name)")
-    for note in await session.reconciler.recoverAfterRestart() { print("  · \(note)") }
     let you = Participant.human(NSUserName())
     if let title = option("--ticket") {
         guard let ticket = await session.tracker.newTicket(

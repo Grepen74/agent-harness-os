@@ -3,6 +3,7 @@ import SwiftUI
 /// The app's windows. At launch: the welcome window, plus any repository windows macOS restores.
 @main
 struct AgentOSHarnessApp: App {
+    @NSApplicationDelegateAdaptor(HarnessLifecycle.self) private var lifecycle
     static let welcomeID = "welcome"
     static let simulatorID = "simulator"
     @State private var settings = SettingsModel()
@@ -32,6 +33,30 @@ struct AgentOSHarnessApp: App {
         Settings {
             SettingsView().environment(settings)
         }
+    }
+}
+
+@MainActor
+final class HarnessLifecycle: NSObject, NSApplicationDelegate {
+    static let repositories = NSHashTable<RepositoryModel>.weakObjects()
+    static let simulators = NSHashTable<SimulatorModel>.weakObjects()
+    private var terminating = false
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard !terminating else { return .terminateLater }
+        terminating = true
+        Task {
+            await withTaskGroup(of: Void.self) { group in
+                for model in Self.repositories.allObjects {
+                    group.addTask { await model.shutdown(reason: "application quit") }
+                }
+                for model in Self.simulators.allObjects {
+                    group.addTask { await model.shutdown(reason: "application quit") }
+                }
+            }
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
     }
 }
 

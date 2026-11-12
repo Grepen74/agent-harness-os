@@ -6,6 +6,7 @@ import Observation
 /// today, a session on a real repo later.
 @MainActor
 public protocol HarnessActions: AnyObject {
+    func stopRun(node: NodeID, run: RunID, by person: String) async
     func addLabel(_ name: String, to key: String) async
     func removeLabel(_ name: String, from key: String) async
     func comment(_ text: String, on key: String) async
@@ -77,6 +78,15 @@ public final class HarnessViewModel {
     public init() {}
 
     public func ticket(_ key: String?) -> Ticket? { tickets.first { $0.key == key } }
+
+    public func canStopRun(node: NodeID, run: RunID) -> Bool {
+        state.nodes[node]?.activeRun?.run == run
+    }
+
+    public func stopRun(node: NodeID, run: RunID) async {
+        guard canStopRun(node: node, run: run) else { return }
+        await actions?.stopRun(node: node, run: run, by: you)
+    }
 
     func addLabel(_ name: String, to key: String) async { await actions?.addLabel(name, to: key) }
     func removeLabel(_ name: String, from key: String) async { await actions?.removeLabel(name, from: key) }

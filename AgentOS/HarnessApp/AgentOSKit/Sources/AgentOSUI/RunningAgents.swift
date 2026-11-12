@@ -63,6 +63,7 @@ struct RunRow: View {
     @Binding var shown: RunningAgents.Shown?
     @State private var worktree: URL?
     @State private var log: URL?
+    @State private var isStopping = false
 
     var body: some View {
         let title = "\(node.displayName) · \(run.role.rawValue) · \(run.run)"
@@ -77,6 +78,15 @@ struct RunRow: View {
             Text(node.spec.title).lineLimit(1).foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading).layoutPriority(-1)
             Group {
+                Button(isStopping ? "Stopping..." : "Stop") {
+                    isStopping = true
+                    Task {
+                        await model.stopRun(node: node.id, run: run.run)
+                        isStopping = false
+                    }
+                }
+                .disabled(isStopping || !model.canStopRun(node: node.id, run: run.run))
+                .help("Stop this run and its child processes; add harness:retry to resume")
                 Button("Log") { if let log { shown = .log(title, log) } }
                     .disabled(log == nil)
                     .help(log == nil ? "This run writes no log (checks record theirs as evidence when done)" : "Follow the agent's output live")

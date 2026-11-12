@@ -81,6 +81,13 @@ folder. Proven work lands on `agentos/main`; review, merge and push it yourself.
 models offered to agents and a default per role; a repo may choose among them in `agents.models`. From the
 terminal: `swift run agentos work <path> --ticket "<title>" --criterion "<criterion>" --go`.
 
+**Pause** stops new rounds, not work already running. Each agent or check in **Running now** has a
+**Stop** button: it waits for the run and its child processes to end, records who stopped it, and leaves
+the node waiting for `harness:retry` without adding a failed attempt. Closing the repository window or
+quitting also waits for running work to stop. Opening a repo abandons leftover runs from a previous
+app session even if readiness blockers prevent agents from starting. Checks that produce no output
+for 10 minutes are reported as hung, with their log retained.
+
 ## Try this in the app
 
 1. **⚙︎ → Load demo tickets.** Press **Step** or **Run**: nothing happens. Tickets need a deliberate signal (doc 05).

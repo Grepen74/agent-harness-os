@@ -31,6 +31,7 @@ final class RepositoryModel: HarnessActions {
     @ObservationIgnored private var trackerMadeFor: (choice: TrackerChoice, account: String?)?
     @ObservationIgnored private var session: RepositorySession?
     @ObservationIgnored private var recovered = false
+    @ObservationIgnored private var isClosed = false
     @ObservationIgnored private var runTask: Task<Void, Never>?
     @ObservationIgnored private let scanner = ReadinessScanner()
     @ObservationIgnored private let follower = LedgerFollower()
@@ -39,12 +40,14 @@ final class RepositoryModel: HarnessActions {
         self.url = url
         view.actions = self
         view.you = NSUserName()
+        HarnessLifecycle.repositories.add(self)
     }
 
     var name: String { (root ?? url).lastPathComponent }
     private var human: Participant { .human(view.you.isEmpty ? NSUserName() : view.you) }
 
     func rescan() async {
+        guard !isClosed else { return }
         guard !view.isScanning else {
             rescanAgain = true
             return
@@ -74,6 +77,11 @@ final class RepositoryModel: HarnessActions {
         root = location.root
         do {
             let ledger = try openLedger(location.identity)
+            if !recovered {
+                let notes = try await RepositorySession.recoverInterruptedRuns(in: ledger)
+                recovered = true
+                view.activity.insert(contentsOf: notes, at: 0)
+            }
             let result = await scanner.scan(location, harness: harness, baseline: await ledger.workingState().baseline)
             show(result)
             useTracker(result.tracker)
@@ -92,6 +100,7 @@ final class RepositoryModel: HarnessActions {
         let wasRunning = isRunning
         await stopAndWait()
         session = nil
+        guard !isClosed else { return }
         guard let storage else { return }
         var blockers = RepositorySession.blockers(result.scan)
         let copilot = CopilotCLI.locate()
@@ -108,11 +117,6 @@ final class RepositoryModel: HarnessActions {
         } catch {
             startBlockers = ["Couldn't prepare the workspace: \(error)"]
             return
-        }
-        if !recovered, let session {
-            recovered = true
-            let notes = await session.reconciler.recoverAfterRestart()
-            if !notes.isEmpty { view.activity.insert(contentsOf: notes, at: 0) }
         }
         if wasRunning { setRunning(true) }
     }
@@ -153,9 +157,24 @@ final class RepositoryModel: HarnessActions {
     }
 
     /// The window closed: stop Run and stop following the ledger.
-    func close() {
-        setRunning(false)
+    func close() async {
+        await shutdown(reason: "repository window closed")
         follower.stop()
+    }
+
+    func shutdown(reason: String) async {
+        isClosed = true
+        setRunning(false)
+        await session?.reconciler.shutdown(reason: reason)
+        await stopAndWait()
+        await refresh()
+    }
+
+    func stopRun(node: NodeID, run: RunID, by person: String) async {
+        guard let session, await session.ledger.workingState().nodes[node]?.activeRun?.run == run else { return }
+        do { try await session.reconciler.stopRun(run, by: person) }
+        catch { log("Couldn't stop \(run): \(error)") }
+        await refresh()
     }
 
     /// Stops Run and waits for a round already under way.
