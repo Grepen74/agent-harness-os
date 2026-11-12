@@ -66,6 +66,17 @@ and policy: no restart needed, and agents continue with the new config after the
 `main`. It writes into your checkout only when you ask it to, never commits, and agents never edit the files
 that steer the harness (the config, AGENTS.md, CONTRIBUTING, CODEOWNERS): otherwise they could raise their own limits.
 
+Use **Override in repo config…** in the Policy pane to choose a permitted value and copy its full-path
+JSON fragment. Use exact config tokens: **assume and report** is `assume-and-report`. Merge the fragment
+into the existing config, preserving sibling fields; model choices come from harness Settings, and
+`signals.disable` supports multiple signals. See the [complete config reference and override workflow](docs/real-repo-mode.md#repo-config-reference).
+
+When there is no config, the draft includes selected overrides alongside guessed commands. Selecting
+or copying does not write anything: only explicit **Create .agentos/config.json** writes the draft into
+your checkout (an existing file is opened, not overwritten). An incomplete draft still needs the required
+`test.command` before it can load; agents also need `leafTests`. Finish it, commit on the default branch,
+then **Rescan** to activate the config without restarting.
+
 With a config, **Run baseline** runs its checks on a clean export of `main`, outside your checkout, and
 records the result and log in the ledger. Agents may only start once the baseline passes at `main`'s
 current commit. To try a config before committing it: `swift run agentos baseline <path> --config <file>`.

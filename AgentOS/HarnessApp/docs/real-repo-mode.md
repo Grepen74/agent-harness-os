@@ -58,7 +58,7 @@ Following doc 04 §8, the app's own **harness settings** (the Settings window) s
 repo's **`.agentos/config.json`** may only choose within them or make them stricter. The repo config is
 read from `main` only.
 
-| Setting | Harness default (limit) | Repo may |
+| Setting | Built-in harness default | Repo may |
 |---|---|---|
 | Landing target | Local branch `agentos/main` | Choose another *local* branch name |
 | Push / open pull requests | Never (phase 9: an opt-in setting; only the harness pushes, never agents) | Switch it off |
@@ -106,6 +106,122 @@ acceptance tests go; missing = blocker) and should have `test.only` (missing = w
 all tests). Checks run in order (prepare, build, test, then `checks`) with `/bin/sh -c`
 from the repo's top folder, and stop at the first failure. `{suite}` in `test.only` is replaced with a
 leaf's suite, so a leaf runs only its own tests; the extra checks run at landing.
+
+### Repo config reference
+
+These are the supported `.agentos/config.json` paths, including container objects. Defaults below
+distinguish **built-in** defaults from the **current harness settings** in Settings: changing Settings
+changes the limits a repo may choose. Omitted agent models inherit per role; when no concrete model
+is configured, Copilot CLI chooses its own default. Display titles are not config tokens:
+**assume and report** must be written as `assume-and-report`.
+
+| Config path | Accepted type / values | Omission default / required status | Harness restriction |
+|---|---|---|---|
+| `build` | Object containing optional prepare and build commands | No build steps | None beyond command safety below |
+| `build.prepare` | String: shell command to prepare or generate the project | No prepare command | Runs before build, test and checks; failure stops the check run |
+| `build.command` | String: shell command to build the repo | No separate build command | Runs after prepare, before test; failure stops the check run |
+| `test` | Object containing the test command and optional suite selector | Required | Must supply `test.command` |
+| `test.command` | String: shell command to run the full test suite | Required, including for the baseline | Must succeed; cannot replace required harness safety checks |
+| `test.only` | String: suffix appended to the test command, with `{suite}` replaced by the leaf suite name | All tests run for each leaf; missing selector produces a warning | Full tests still run at landing |
+| `checks` | Array of check objects, each with a name and command | Empty list; no extra checks | Adds required landing checks; does not replace tests or harness safety checks |
+| `checks[].name` | String: human-readable check name | Required for each check object | None; identifies the check in evidence |
+| `checks[].command` | String: shell command for the check | Required for each check object | Runs after tests, in array order; failure stops the check run |
+| `leafTests` | Object naming the existing acceptance-test target and folder | Missing is a blocker for agents; not required for baseline alone | Agents need an existing test target; the harness does not restructure the repo |
+| `leafTests.target` | String: existing acceptance-test target name | Required when `leafTests` is present | Must identify the target leaves add their tests to |
+| `leafTests.folder` | String: repository-relative path to the acceptance-test folder | Required when `leafTests` is present | Each leaf writes only its own suite subfolder; approved tests are protected |
+| `components` | Array of strings naming source components or repository paths for touch sets | Empty component list | None; declares existing components available to breakdown |
+| `landing` | Object containing a local landing branch | Inherit the harness landing branch | Must keep proven work separate from the default branch |
+| `landing.branch` | String: valid local branch name | Inherit harness setting; built-in `agentos/main` | Cannot be the default branch, a remote/ref name, `agentos`, or an `agentos/leaf/` branch |
+| `signals` | Object containing disabled signal tokens | Inherit the harness's offered signals | May only disable signals, not enable ones the harness switched off |
+| `signals.disable` | Array of signal-token strings, such as `go` or `harness:go`; multiple tokens allowed | Empty list; inherit harness signals | Only removes signals from the harness's offered set; unknown tokens produce a warning |
+| `limits` | Object containing optional integer limits | Inherit current harness limits | Repo limits may only tighten the harness settings |
+| `limits.maxAttempts` | Integer: maximum attempts per leaf | Inherit harness setting; built-in 3 | At least 1 and at most the current harness setting |
+| `limits.maxReworks` | Integer: maximum reworks per leaf | Inherit harness setting; built-in 3 | At least 1 and at most the current harness setting |
+| `limits.maxParallelAgents` | Integer: maximum concurrent harness-started agents | Inherit harness setting; built-in 2 | At least 1 and at most the current harness setting; does not count agents' sub-agents |
+| `agents` | Object containing agent policy and context options | Inherit harness agent policy and default context | May only tighten policy; provider remains Copilot CLI |
+| `agents.deny` | Array of strings naming additional denied tools or commands | No additions to the harness deny list | Additive union with harness denials; cannot remove them |
+| `agents.models` | Object with optional role-specific model identifiers | Inherit each role's harness model, otherwise the CLI default | Only the role's configured model and offered alternatives are eligible |
+| `agents.models.decomposer` | String: exact model identifier for the breakdown role | Inherit harness breakdown model; otherwise CLI default | Choose the current role model or an alternative offered in Settings |
+| `agents.models.testAuthor` | String: exact model identifier for the acceptance-test role | Inherit harness test-author model; otherwise CLI default | Choose the current role model or an alternative offered in Settings |
+| `agents.models.implementer` | String: exact model identifier for the implementation role | Inherit harness implementer model; otherwise CLI default | Choose the current role model or an alternative offered in Settings |
+| `agents.guesswork` | String: `ask`, `assume-and-report`, or `autonomous` | Inherit harness setting; built-in `assume-and-report` | Same or stricter than current harness setting; strictest to loosest: `ask`, `assume-and-report`, `autonomous` |
+| `agents.context` | Array of repository-relative tracked file paths or globs; only tracked matches are read | `["README.md", "AGENTS.md"]` | None beyond tracked-file selection; explicit list replaces default context, and an empty list selects none |
+| `protectedPaths` | Array of strings: additional protected file paths, folder prefixes or globs | No additions to harness protected paths | Additive union; cannot remove harness protection or approved leaf-test protection |
+| `tracker` | Object selecting the tracker and optional GitHub project | Local tracker | Supported tracker types only; GitHub requires usable `gh` authentication |
+| `tracker.type` | String: `local` or `github-issues` | Required when `tracker` is present; absent tracker uses `local` | Unknown types block starting |
+| `tracker.repo` | String: GitHub repository in `owner/name` form | Infer from the repo's `origin` remote for GitHub Issues | GitHub Issues needs a resolvable repository; not used by the local tracker |
+| `tracker.project` | Object naming a GitHub Projects board and status mapping | No board; status is an `agentos:` issue label | GitHub Issues only; unreadable board or missing options warns and falls back to labels |
+| `tracker.project.owner` | String: user or organization owner of the board | Required when `tracker.project` is present | Must identify an accessible board owner |
+| `tracker.project.number` | Integer: GitHub project number | Required when `tracker.project` is present | Must identify an accessible project for that owner |
+| `tracker.project.statusField` | String: name of the board's single-select status field | `Status` | Field and mapped options must exist for board status updates |
+| `tracker.project.statusMap` | Object/map from harness status strings to board option-name strings; `""` (empty string) skips updates for that status and leaves the board unchanged | Unspecified statuses use defaults: Backlog, Ready, In progress, In review, Done | Nonempty mapped options must exist; not an exhaustive fixed list of option names |
+| `review` | Object containing review level, area rules, instructions, round limit and model | Inherit harness review policy; default round limit 2 | May tighten review levels and choose an offered reviewer model |
+| `review.level` | String: `none`, `agent`, or `agent+human` | Inherit current harness level; built-in `agent` | Same or stricter than harness level; strictest is `agent+human` |
+| `review.areas` | Object/map from area names, path prefixes or globs to review-level strings: `none`, `agent`, `agent+human` | No additional area rules | Each level must be at least as strict as the effective overall level; strictest matching declared or changed area applies |
+| `review.instructions` | String: repository-relative path to a review instructions file | No additional instructions file | Adds repository review context; does not replace the built-in checklist |
+| `review.maxRounds` | Integer: reviews with findings allowed at each review stage before escalation | 2 | Must be positive; `harness:retry` resets the limit |
+| `review.model` | String: exact reviewer model identifier | Inherit the harness reviewer selection; default reviewer uses a different explicit model from the implementer | Must be in the review-specific offered models in Settings, not merely the agent model list |
+
+Commands are run with `/bin/sh -c` from the repo's top folder, not from the config's folder.
+The order is prepare, build, test, then additional checks; the first failure stops the run.
+Command strings are repo-specific shell commands, not a finite list of supported command names.
+Agent tool denials and protected paths still apply; config commands do not remove harness safety checks.
+
+Context paths and globs select tracked files on the scanned default branch. An unmatched context entry
+produces a warning; correct the path/glob, track the document, or remove that entry. These selectors
+do not read untracked files. Protected paths and denied tools, unlike context, only extend the harness's
+lists. The harness always denies agent push/fetch/pull/remote/config/stash operations, `gh` and network
+installs, and protects its steering files and approved acceptance tests.
+
+### Choosing and activating repo overrides
+
+In the Policy pane, use **Override in repo config…** for an overridable setting. Copy the JSON fragment,
+using the exact config token rather than its display title (for example, assume and report is
+`assume-and-report`). Choices follow the current harness settings: limits cannot increase, guesswork
+cannot loosen, and model alternatives must be offered. CLI default inheritance is not a literal model
+identifier to paste; if no concrete model is offered, leave that role unset.
+
+Merge fragments into the existing `.agentos/config.json` object, preserving sibling keys and nested
+fields; do not replace the whole file or paste a second top-level JSON object. For example, merge
+`agents.guesswork` alongside existing `agents.context`, `agents.deny` and `agents.models`.
+These fragments are partial config objects, not standalone runnable configs:
+
+```json
+{ "agents": { "guesswork": "ask" } }
+```
+
+```json
+{ "limits": { "maxAttempts": 1, "maxReworks": 1, "maxParallelAgents": 1 } }
+```
+
+For a model override, copy the exact offered identifier from the action. The identifier below is a
+placeholder to replace with that choice, not a model the harness necessarily offers:
+
+```json
+{ "agents": { "models": { "implementer": "model-offered-in-settings" } } }
+```
+
+The signals action supports multiple selections in `signals.disable`, not just one signal. Existing
+disabled tokens are preserved by the fragment. When merging by hand, arrays replace arrays: retain
+existing disables as well as newly selected ones. For example, disable both fast-track go and preview:
+
+```json
+{ "signals": { "disable": ["go", "preview"] } }
+```
+
+When no config is loaded, the draft includes the commands guessed by the scan and chosen overrides.
+Selecting or copying an override does not write a file. Review the draft, then explicitly choose
+**Create .agentos/config.json** to write it into your checkout and open it. An existing checkout file
+is opened, not overwritten. The harness never commits the file for you.
+
+If commands cannot be guessed, an override-only draft can be incomplete: `test.command` is required.
+Such an incomplete draft is not a valid runnable config and cannot load until you supply the missing
+test command; agents also need `leafTests`. Creating a draft does not bypass these requirements.
+
+Commit the completed config on the repo's **default branch** (`main` in these examples), then choose
+**Rescan**. Rescan reloads the committed config and applies the policy without a restart; an agent round
+already under way finishes before agents use the new config. Editing or creating the checkout file alone
+does not activate it. Run the baseline for the default branch's new commit before starting agents.
 
 ### Review before implementation and landing
 
