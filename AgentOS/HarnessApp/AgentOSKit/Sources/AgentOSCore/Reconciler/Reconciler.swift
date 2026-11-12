@@ -439,7 +439,9 @@ public actor Reconciler {
         let regex = try NSRegularExpression(pattern: pattern, options: .caseInsensitive)
         let text = reply as NSString
         let matches = regex.matches(in: reply, range: NSRange(location: 0, length: text.length))
-        guard !matches.isEmpty else {
+        let acceptsSuggestions = reply.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() == "ok"
+        if matches.isEmpty && !acceptsSuggestions {
             return [Clarification(questions: questions.map(\.question), answer: reply)]
         }
         var corrections: [Int: String] = [:]
