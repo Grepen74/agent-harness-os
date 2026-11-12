@@ -97,7 +97,8 @@ public actor CatchUpCoordinator {
         }
     }
 
-    func reconcile(force: Bool = false) async -> String? {
+    /// `busy`: nodes with a step in progress. Their worktrees are left alone; landing rebases them later.
+    func reconcile(force: Bool = false, busy: Set<NodeID> = []) async -> String? {
         do {
             try await workspace.prepare()
             let main = try await revision(workspace.defaultBranch)
@@ -107,7 +108,7 @@ public actor CatchUpCoordinator {
             if let conflict = state.catchUpConflict,
                try await isAncestor(conflict.mainSHA, of: landing) {
                 try await setManualMergeAid(files: [], enabled: false)
-                try await recordSuccess(main: conflict.mainSHA, tip: landing, method: .manual)
+                try await recordSuccess(main: conflict.mainSHA, tip: landing, method: .manual, busy: busy)
                 return "Manual catch-up to \(conflict.mainSHA.prefix(8)) recognized"
             }
 
@@ -127,7 +128,7 @@ public actor CatchUpCoordinator {
             switch result {
             case .success(let tip):
                 try await setManualMergeAid(files: [], enabled: false)
-                try await recordSuccess(main: main, tip: tip, method: .automatic)
+                try await recordSuccess(main: main, tip: tip, method: .automatic, busy: busy)
                 return "Caught agentos/main up to \(main.prefix(8))"
             case .conflict(let files):
                 let ticketFiles = try await affectedTickets(for: files, state: state)
@@ -293,6 +294,11 @@ public actor CatchUpCoordinator {
         }
     }
 
+    /// Shows an unresolved conflict on its tickets again, e.g. after a round projected their usual statuses.
+    func projectCurrentConflict() async {
+        await projectConflict(ledger.workingState().catchUpConflict)
+    }
+
     private func projectConflict(_ conflict: CatchUpConflict?) async {
         guard let conflict, let tracker else { return }
         for ticket in conflict.tickets {
@@ -315,13 +321,14 @@ public actor CatchUpCoordinator {
             "Agents keep working on the previous main."
     }
 
-    private func recordSuccess(main: String, tip: String, method: CatchUpMethod) async throws {
+    private func recordSuccess(main: String, tip: String, method: CatchUpMethod, busy: Set<NodeID>) async throws {
         let state = await ledger.workingState()
         let activeLeaves = state.creationOrder.compactMap { id -> NodeID? in
             guard let node = state.nodes[id],
                   node.spec.kind == .leaf,
                   node.testsDigest != nil,
-                  node.phase != .proven else { return nil }
+                  node.phase != .proven,
+                  node.activeRun == nil, !busy.contains(id) else { return nil }
             return id
         }
         let leaves = try await workspace.catchUpActiveLeaves(activeLeaves)

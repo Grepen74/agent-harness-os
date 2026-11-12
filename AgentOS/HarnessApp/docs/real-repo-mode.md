@@ -538,8 +538,11 @@ Each phase is usable on its own.
 8. **Catching up with `main`.** Today `agentos/main` is created from `main` once and never follows it, so
    your later commits never reach the agents. When `main` moves and its baseline passes, the harness
    rebases `agentos/main` onto it (or merges, if rebasing would rewrite landed work you've already
-   merged). Leaves in progress then rebase as usual; conflicts go to rework, as at landing. Nothing is
-   fetched: `main` is whatever your clone has.
+   merged). Leaves in progress then rebase as usual; conflicts go to rework, as at landing. Leaves whose
+   agent is running or about to start are left alone and catch up on a later round. Catch-up runs at the
+   start of every round, so work started or retried in that round begins from the latest `main`; an
+   unresolved catch-up conflict stays the status of its tickets after the round. Nothing is fetched:
+   `main` is whatever your clone has.
 9. **Publishing pull requests.** The way out to the world, and the end state of concept docs 04 and 08 (every
    change a reviewed pull request). One pull request per **requirement** (a top-level ticket, or a
    composite node), opened once all its leaves are proven; single leaves are too small to review on their

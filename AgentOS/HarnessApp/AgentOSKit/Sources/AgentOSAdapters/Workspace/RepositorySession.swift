@@ -94,10 +94,12 @@ public final class RepositorySession: Sendable {
     /// One reconciler round.
     @discardableResult
     public func step() async -> RoundReport {
+        // Catch up first, so signals handled this round (e.g. harness:retry) see the latest main.
+        let caughtUp = await catchUp.reconcile(busy: await reconciler.busyNodes)
         var report = await reconciler.runRound()
-        if let action = await catchUp.reconcile() {
-            report.actions.append(action)
-        }
+        // The round projects every ticket's usual status; a catch-up conflict takes precedence.
+        await catchUp.projectCurrentConflict()
+        if let caughtUp { report.actions.insert(caughtUp, at: 0) }
         return report
     }
 
@@ -114,7 +116,7 @@ public final class RepositorySession: Sendable {
     }
 
     public func retryCatchUp() async {
-        _ = await catchUp.reconcile(force: true)
+        _ = await catchUp.reconcile(force: true, busy: await reconciler.busyNodes)
     }
 
     /// Rounds until nothing more happens without a human (or `maxRounds` is reached).

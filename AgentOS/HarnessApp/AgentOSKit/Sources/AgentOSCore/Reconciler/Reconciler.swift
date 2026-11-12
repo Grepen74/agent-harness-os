@@ -31,6 +31,8 @@ public actor Reconciler {
     private var agentRuns: [RunID: AgentRunSpan] = [:]
     private var clock = 0
     private var tasks: [NodeID: Task<String?, Never>] = [:]
+    /// Nodes with a step reserved or running, including steps that haven't recorded their claim yet.
+    public var busyNodes: Set<NodeID> { Set(tasks.keys) }
     private var completedActions: [String] = []
     private var ownedRuns: [NodeID: RunID] = [:]
     private var stopReasons: [RunID: String] = [:]
