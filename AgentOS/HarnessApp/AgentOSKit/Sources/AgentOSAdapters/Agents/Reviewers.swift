@@ -32,6 +32,10 @@ public struct CopilotReviewer: Reviewer {
         - I/O and allocation per line or loop iteration; avoid repeated file opens and formatter construction.
         - Logic duplicating existing or recently landed code; inspect same-file recent changes.
         - Tests must prove the requirement, not merely restate implementation details.
+        - Tests must not depend on timing: reject fixed sleeps used to make work overlap or finish, and \
+        assumptions about the order or batching of concurrent work that no criterion asks for.
+        - Tests must prove lasting behaviour, not one ticket's scope: reject checksums of files and checks \
+        that unrelated files stay unchanged, since they block every later change to those files.
         For UI changes require snapshot tests and practical evidence windows open and close.
         Human UI review additionally requires before and after screenshots. Do not infer this from logic tests.
         Repository review rules:

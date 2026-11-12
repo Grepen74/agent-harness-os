@@ -52,6 +52,15 @@ New tracker, workspace or agent behaviour starts as a protocol in `AgentOSCore`,
 - Compare JSON by parsing it, never as strings: key order isn't stable.
 - In simulation tests, the last tracker comment is often the harness's reply to a signal. Check
   `comments.contains` rather than `lastComment`.
+- Tests must not depend on timing or on how rounds are scheduled; later tickets change both. Never use a
+  fixed `Task.sleep` to make agents overlap, or to wait for something to happen. Hold fake agents at explicit
+  barriers (continuations) that the test releases, with a timeout so a broken harness fails the test instead
+  of hanging it. Fake agents in one test change different files, so whichever lands first can't leave the
+  others with nothing to do. Say whether a round waits for its agents: `runRound(waitForAgents: true)` or
+  `runUntilIdle()`.
+- Tests prove behaviour that stays true, not the scope of one ticket. Don't pin files by checksum or assert
+  that unrelated files or docs stay unchanged: such a test blocks every later change to them. The harness
+  already enforces what a ticket may touch.
 - If tests fail in ways that make no sense after changing enums such as `EventKind`, run `rm -rf .build`
   in `AgentOSKit` and try again.
 

@@ -24,10 +24,14 @@ struct RepositoryWorkspaceTests {
 
     struct ShellTestAuthor: TestAuthor {
         var alsoEdits: String?
+        /// Each ticket checks a file of its own (`<title>.txt`), so tickets running side by side never make the
+        /// same change: otherwise whichever lands last finds nothing left to do, depending on timing.
+        var filePerTicket = false
         func writeAcceptanceTests(_ task: AgentTask) async throws -> AgentReport {
             let url = task.directory.appending(path: "\(task.testFolder)/check.sh")
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try "grep -q hello app.txt\n".write(to: url, atomically: true, encoding: .utf8)
+            let file = filePerTicket ? "\(task.spec.title).txt" : "app.txt"
+            try "grep -q hello '\(file)'\n".write(to: url, atomically: true, encoding: .utf8)
             if let alsoEdits {
                 try "changed by the test author\n".write(to: task.directory.appending(path: alsoEdits), atomically: true, encoding: .utf8)
             }
@@ -193,28 +197,51 @@ struct RepositoryWorkspaceTests {
         #expect(try await git(["rev-parse", "agentos/main"], in: repo) == git(["rev-parse", "main"], in: repo))
     }
 
-    /// Counts implementers at work, and can tag the repo behind the harness's back.
+    /// Counts implementers at work. Each one waits until as many are at work as the harness may run at once (or
+    /// as are left), so the peak doesn't depend on how long agents take or how rounds are scheduled. If that
+    /// never happens it gives up after a while, so the test fails instead of hanging.
     actor Workbench {
+        let limit: Int
+        let total: Int
         private(set) var busy = 0
         private(set) var peak = 0
-        func start() { busy += 1; peak = max(peak, busy) }
-        func stop() { busy -= 1 }
+        private var finished = 0
+        private var waiters: [CheckedContinuation<Void, Never>] = []
+
+        init(limit: Int, total: Int) { self.limit = limit; self.total = total }
+
+        func start() async {
+            busy += 1
+            peak = max(peak, busy)
+            if releaseIfMet() { return }
+            let timeout = Task { try await Task.sleep(for: .seconds(20)); self.releaseAll() }
+            await withCheckedContinuation { waiters.append($0) }
+            timeout.cancel()
+        }
+
+        func stop() {
+            busy -= 1
+            finished += 1
+            _ = releaseIfMet()
+        }
+
+        private func releaseIfMet() -> Bool {
+            guard busy >= min(limit, total - finished) else { return false }
+            releaseAll()
+            return true
+        }
+
+        private func releaseAll() {
+            for waiter in waiters { waiter.resume() }
+            waiters = []
+        }
     }
 
-    struct SlowImplementer: AgentOSCore.Implementer {
+    struct WorkbenchImplementer: AgentOSCore.Implementer {
         let bench: Workbench
-        var tagsFor: String?
         func implement(_ task: AgentTask) async throws {
             await bench.start()
-            if task.spec.title == tagsFor {
-                // Midway, while the other agents are still at work.
-                try await Task.sleep(for: .milliseconds(150))
-                _ = try await ProcessRunner.run("/usr/bin/env", ["git", "tag", "sneaky"], in: task.directory)
-                try await Task.sleep(for: .milliseconds(250))
-            } else {
-                try await Task.sleep(for: .milliseconds(400))
-            }
-            try "hello\n".write(to: task.directory.appending(path: "app.txt"), atomically: true, encoding: .utf8)
+            try "hello\n".write(to: task.directory.appending(path: "\(task.spec.title).txt"), atomically: true, encoding: .utf8)
             await bench.stop()
         }
     }
@@ -222,10 +249,11 @@ struct RepositoryWorkspaceTests {
     @Test("Leaves are built side by side, up to the max parallel agents", arguments: [1, 2])
     func buildsInParallelUpToTheLimit(limit: Int) async throws {
         let repo = try await makeRepo()
-        let bench = Workbench()
+        let bench = Workbench(limit: limit, total: 3)
         var harness = HarnessSettings()
         harness.maxParallelAgents = limit
-        let team = AgentTeam(name: "Slow", decomposer: Leaf(), testAuthor: ShellTestAuthor(), implementer: SlowImplementer(bench: bench))
+        let team = AgentTeam(name: "Side by side", decomposer: Leaf(), testAuthor: ShellTestAuthor(filePerTicket: true),
+                             implementer: WorkbenchImplementer(bench: bench))
         let session = try await session(repo, team: team, harness: harness)
         let keys = [await ticket(session, title: "One"), await ticket(session, title: "Two"), await ticket(session, title: "Three")]
 
@@ -234,6 +262,41 @@ struct RepositoryWorkspaceTests {
         let state = await session.ledger.workingState()
         for key in keys { #expect(state.node(forTicket: key)?.phase == .proven, "\(reports.flatMap(\.actions))") }
         #expect(await bench.peak == limit)
+    }
+
+    /// Named moments agents wait for, so "while the other agent is still at work" is arranged, not hoped for.
+    /// Waiting gives up after a while, so the test fails instead of hanging.
+    actor Moments {
+        private var reached: Set<String> = []
+        private var waiters: [String: [CheckedContinuation<Void, Never>]] = [:]
+
+        func reach(_ moment: String) {
+            reached.insert(moment)
+            for waiter in waiters.removeValue(forKey: moment) ?? [] { waiter.resume() }
+        }
+
+        func wait(for moment: String) async {
+            guard !reached.contains(moment) else { return }
+            let timeout = Task { try await Task.sleep(for: .seconds(20)); self.reach(moment) }
+            await withCheckedContinuation { waiters[moment, default: []].append($0) }
+            timeout.cancel()
+        }
+    }
+
+    /// "Sneaky" tags the repo behind the harness's back while "Honest" is still at work.
+    struct TaggingImplementer: AgentOSCore.Implementer {
+        let moments: Moments
+        func implement(_ task: AgentTask) async throws {
+            if task.spec.title == "Sneaky" {
+                await moments.wait(for: "honest started")
+                _ = try await ProcessRunner.run("/usr/bin/env", ["git", "tag", "sneaky"], in: task.directory)
+                await moments.reach("tagged")
+            } else {
+                await moments.reach("honest started")
+                await moments.wait(for: "tagged")
+            }
+            try "hello\n".write(to: task.directory.appending(path: "\(task.spec.title).txt"), atomically: true, encoding: .utf8)
+        }
     }
 
     /// Holds an implementer midway until the test lets it go.
@@ -289,8 +352,8 @@ struct RepositoryWorkspaceTests {
     @Test("When your repo changes while agents run side by side, each names the others it ran with")
     func gitStateChangesNameConcurrentAgents() async throws {
         let repo = try await makeRepo()
-        let team = AgentTeam(name: "Slow", decomposer: Leaf(), testAuthor: ShellTestAuthor(),
-                             implementer: SlowImplementer(bench: Workbench(), tagsFor: "Sneaky"))
+        let team = AgentTeam(name: "Tagging", decomposer: Leaf(), testAuthor: ShellTestAuthor(filePerTicket: true),
+                             implementer: TaggingImplementer(moments: Moments()))
         let session = try await session(repo, team: team)
         let honest = await ticket(session, title: "Honest")
         let sneaky = await ticket(session, title: "Sneaky")

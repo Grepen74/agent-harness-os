@@ -2,7 +2,6 @@
 // exposes full RepoConfig paths, accepted types/values, omission defaults and harness restrictions.
 // Copyable JSON uses existing RepoConfig.parse(_:), .json and .knownKeys; no new production API is needed.
 import AgentOSCore
-import CryptoKit
 import Foundation
 import Testing
 
@@ -250,23 +249,6 @@ import Testing
         expectPassage(readme, all: ["commit", "rescan"])
     }
 
-    @Test
-    func conceptAndProtectedDocumentationAndRepoConfigStayByteForByteUnchanged() throws {
-        for (path, expected) in Self.unchangedFiles {
-            let data = try Data(contentsOf: Self.root.appendingPathComponent(path))
-            let actual = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-            #expect(actual == expected, "GH-57 must not change \(path).")
-        }
-        #expect(!FileManager.default.fileExists(
-            atPath: Self.root.appendingPathComponent(".github/copilot-instructions.md").path),
-            "This file was absent before GH-57; do not add it as part of this documentation change.")
-        let configDirectory = Self.root.appendingPathComponent(".agentos")
-        let files = try FileManager.default.subpathsOfDirectory(atPath: configDirectory.path)
-            .filter { !FileManager.default.fileExists(
-                atPath: configDirectory.appendingPathComponent($0).path + "/") }
-        #expect(Set(files) == ["config.json"], "No repository .agentos files may be added or removed.")
-    }
-
     private struct Entry {
         let path: String
         let accepted: String
@@ -458,18 +440,4 @@ import Testing
       }
     }
     """
-
-    private static let unchangedFiles = [
-        "00-overview.md": "e57cff55ef861fc11eb57086c131e27c6b410ada4ad295d0509793da11262f27",
-        "01-repo-local-files.md": "fc8c184b42f32c6140b038e63a79327568d406cce5f78db0833be8c687a9ff57",
-        "02-recursive-v-model.md": "6ddef977b243bb2de09c1cfece4b4c13bb9f92a8e5d4caaafc10a1abeccfdb7c",
-        "03-tracker-adapters.md": "7d0203ba2cc0c8d26104304fee14b76b629859f326a139e1b0c19647b37489ad",
-        "04-where-the-harness-lives.md": "0d6695cb07961301a5c61a78b3479115c6abb30907de9a67afd5c96a764ff58e",
-        "05-starting-and-steering-work.md": "8bf75dbab00c3b7c1d668ee34c6c167596a160a5c5a5da884d9e52eefa02b753",
-        "06-seeing-what-the-harness-is-doing.md": "a98132db54ae1d2449c49de31f001f1cb183a218d0462ecea73c33d7c0b1fea5",
-        "07-the-reconciler.md": "803e86f964632e2f3ef24b8be1e5651f3612fac59c6f3199fa93103be791cb9c",
-        "08-leaves-and-parallel-work.md": "72fb18122a778a50550a5dac1d3de0042c5e97592545e3de144508e15b9c2e39",
-        "AGENTS.md": "60005ff2cbbe68281913c08261d5beb4c95fbfcbeba18914219b5c0257f321f6",
-        ".agentos/config.json": "57bf663188602a6154cf93d8c1f6aad2748566342da7229f5b963084e28c236f",
-    ]
 }

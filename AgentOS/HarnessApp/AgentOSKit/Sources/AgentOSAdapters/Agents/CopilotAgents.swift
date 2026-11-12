@@ -321,7 +321,12 @@ public struct CopilotTestAuthor: TestAuthor {
         an `XCTestCase` subclass named \(suite) if the test target uses XCTest). The code it tests may not exist yet \
         or lack the needed API: your tests define that API, so start the file with a short comment describing it. \
         Read the existing code to reuse what's there. Test behaviour users can observe through that API, \
-        never the source text. Only create or change files under \(task.testFolder)/, plus the report below. \
+        never the source text. Don't depend on timing: no fixed sleeps to make work overlap or finish, and no \
+        assumptions about the order or batching of concurrent work unless a criterion is about it; wait for \
+        explicit signals with a timeout instead. Other work will change timing and scheduling later, and \
+        your tests must still hold. Test lasting behaviour, not this item's scope: never pin files by checksum \
+        or assert that unrelated files stay unchanged, because that blocks every later change to them. \
+        Only create or change files under \(task.testFolder)/, plus the report below. \
         Do not run the tests. The tests must compile once the API they expect exists: other test files share the \
         same test target, so make helper types and functions `private` or nest them in the suite, and qualify a \
         name with its module when more than one imported module declares it (e.g. a type that Testing also has).\(feedback)
