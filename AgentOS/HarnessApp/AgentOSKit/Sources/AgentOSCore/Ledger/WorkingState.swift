@@ -71,6 +71,8 @@ public struct NodeState: Sendable, Identifiable {
     public var evidence: [Evidence] = []
     public var reviews: [ReviewRecord] = []
     public var latestReviewFeedback: String?
+    /// A person answered since the latest change review, so the implementer may now leave its findings unaddressed.
+    public var reviewFeedbackAnswered = false
     public var pendingHumanReview: String?
     public var approvedReviewCommit: String?
     public var awaitingHumanReview: Bool { pendingHumanReview != nil }
@@ -262,6 +264,7 @@ public struct WorkingState: Sendable {
                 node.latestTestFeedback = review.result.findings.joined(separator: "\n")
             }
             if review.stage == .change {
+                node.reviewFeedbackAnswered = false
                 node.latestReviewFeedback = review.result.passed || review.result.findings.isEmpty
                     ? nil : review.result.findings.joined(separator: "\n")
                 if !review.result.passed, let tests = review.result.testFindings, !tests.isEmpty {
@@ -311,6 +314,7 @@ public struct WorkingState: Sendable {
         case .questionsAnswered(let clarification):
             node.clarifications.append(clarification)
             node.openQuestions = []
+            node.reviewFeedbackAnswered = true
         case .attemptFailed(let summary):
             node.latestReviewFeedback = nil
             node.failedAttempts += 1

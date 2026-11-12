@@ -410,6 +410,48 @@ struct GH_28Tests {
     }
 
     @Test
+    func anImplementerThatChangesNothingForReviewFindingsWaitsForAPersonInsteadOfRepeatingTheReview() async throws {
+        let finding = "The test requires B to start before C, though the ticket only bounds concurrency."
+        let fixture = try await Fixture(
+            review: ["maxRounds": 3],
+            changeResults: [.init(passed: false, findings: [finding])],
+            builderReports: [AgentReport(), AgentReport(alreadySatisfied: true), AgentReport()]
+        )
+        defer { fixture.cleanUp() }
+        try await fixture.advanceUntil { await fixture.node()?.flags[.needsInput] != nil }
+        await fixture.rounds(2)
+        #expect(await fixture.builder.tasks.count == 2)
+        #expect(await fixture.reviewer.requests.filter { $0.stage == .change }.count == 1)
+        let stop = try #require(await fixture.tracker.comments.last)
+        #expect(stop.contains(finding) && stop.contains("harness:retest") && stop.contains("harness:retry"))
+
+        // The person says the code should change: the implementer, not the test author, runs again with that answer.
+        let answer = "The finding is right: make the scheduler start whichever node is eligible first."
+        await fixture.tracker.reply(answer, by: "Alice")
+        await fixture.tracker.add(.retry, by: .human("Alice"))
+        try await fixture.advanceUntil { await fixture.workspace.landedCount == 1 }
+        #expect(await fixture.author.tasks.count == 1)
+        let rerun = try #require(await fixture.builder.tasks.last)
+        #expect(rerun.clarifications.contains { $0.answer == answer })
+    }
+
+    @Test
+    func afterARetestOnlyReviewsOfTheNewWorkCountTowardsMaxRounds() async throws {
+        let old = ["The old test pins scheduling order.", "The old test sleeps."]
+        let testFinding = "The new test skips the waiting branch."
+        let fixture = try await Fixture(changeResults: old.map { .init(passed: false, findings: [$0]) }
+            + [.init(passed: false, findings: [], testFindings: [testFinding])])
+        defer { fixture.cleanUp() }
+        try await fixture.advanceUntil { await fixture.node()?.flags[.escalated] != nil }
+        await fixture.tracker.add(.retest, by: .human("Alice"))
+        try await fixture.advanceUntil { await fixture.workspace.landedCount == 1 }
+        #expect(await fixture.author.tasks.count == 3)
+        let comments = await fixture.tracker.comments
+        #expect(comments.contains { $0.contains("sent back to the test author") && $0.contains(testFinding) })
+        #expect(await fixture.node()?.flags[.escalated] == nil)
+    }
+
+    @Test
     func maxRoundsEscalatesWithAllFindingsAndDoesNotStartAnotherAutomaticAttempt() async throws {
         let findings = ["The minimum window size clips the Done button.", "Timestamp logic duplicates landed code."]
         let fixture = try await Fixture(
@@ -639,6 +681,7 @@ private extension GH_28Tests {
             minimum: String = "agent", review: [String: Any] = [:],
             testSource: String = "@Test func windowRemainsUsable() { /* exercise real window */ }",
             testResults: [ReviewResult] = [], changeResults: [ReviewResult] = [],
+            builderReports: [AgentReport] = [],
             ui: Bool = false, evidence: UIReviewEvidence? = nil, checksPass: Bool = true
         ) async throws {
             directory = FileManager.default.temporaryDirectory.appending(path: "agentos-gh28-\(UUID().uuidString)")
@@ -648,7 +691,7 @@ private extension GH_28Tests {
             trace = Trace()
             tracker = Tracker()
             author = Author(source: testSource, trace: trace)
-            builder = Builder(trace: trace)
+            builder = Builder(reports: builderReports, trace: trace)
             workspace = TestWorkspace(directory: directory, ui: ui, evidence: evidence, trace: trace)
             checks = Checks(passed: checksPass, trace: trace)
             reviewer = RecordingReviewer(testResults: testResults, changeResults: changeResults, trace: trace)
@@ -693,6 +736,7 @@ private extension GH_28Tests {
 
     actor Tracker: TrackerAdapter {
         private(set) var comments: [String] = []
+        private var thread: [AgentOSCore.Comment] = []
         private(set) var status = ""
         private var signals: [Signal] = []
         func add(_ command: HarnessCommand, by person: Participant) {
@@ -700,9 +744,12 @@ private extension GH_28Tests {
         }
         func pendingSignals() -> [Signal] { signals }
         func ticket(_ key: String) -> Ticket? {
-            Ticket(key: key, title: Fixture.spec.title, description: Fixture.spec.intent,
-                   acceptanceCriteria: Fixture.spec.acceptanceCriteria, createdBy: .human("Alice"))
+            var ticket = Ticket(key: key, title: Fixture.spec.title, description: Fixture.spec.intent,
+                                acceptanceCriteria: Fixture.spec.acceptanceCriteria, createdBy: .human("Alice"))
+            ticket.comments = thread
+            return ticket
         }
+        func reply(_ text: String, by person: String) { thread.append(AgentOSCore.Comment(author: .human(person), text: text)) }
         func consume(_ signal: Signal, reply: String) {
             signals.removeAll { $0.command == signal.command }
             comments.append(reply)
@@ -710,7 +757,10 @@ private extension GH_28Tests {
         func createChildTicket(parent: String, spec: NodeSpec, by: Participant) throws -> String {
             throw AgentFailure("Leaf fixture must not create children")
         }
-        func comment(on key: String, _ text: String) { comments.append(text) }
+        func comment(on key: String, _ text: String) {
+            comments.append(text)
+            thread.append(AgentOSCore.Comment(author: .reconciler, text: text))
+        }
         func setStatus(of key: String, to status: String) { self.status = status }
     }
 
@@ -730,13 +780,19 @@ private extension GH_28Tests {
     }
 
     actor Builder: Implementer {
+        static let unchangedMarker = ".unchanged"
         let trace: Trace
+        private var reports: [AgentReport]
         private(set) var tasks: [AgentTask] = []
-        init(trace: Trace) { self.trace = trace }
+        init(reports: [AgentReport], trace: Trace) { self.reports = reports; self.trace = trace }
         func implement(_ task: AgentTask) async throws -> AgentReport {
             tasks.append(task)
             await trace.add("implement")
-            return AgentReport()
+            let report = reports.isEmpty ? AgentReport() : reports.removeFirst()
+            if report.alreadySatisfied {
+                try Data().write(to: task.directory.appending(path: Self.unchangedMarker))
+            }
+            return report
         }
     }
 
@@ -796,8 +852,13 @@ private extension GH_28Tests {
         nonisolated func existingComponents() -> [String] { ["Engine", "AgentOSUI"] }
         func prepare() async throws {}
         func createWorktree(for id: NodeID) async throws -> URL { directory }
-        func removeWorktree(for id: NodeID) async throws {}
+        func removeWorktree(for id: NodeID) async throws { implemented = false }
         func commitAll(in directory: URL, message: String, author: String) async throws -> String? {
+            let unchanged = directory.appending(path: Builder.unchangedMarker)
+            if FileManager.default.fileExists(atPath: unchanged.path) {
+                try FileManager.default.removeItem(at: unchanged)
+                return nil
+            }
             if !message.contains("acceptance tests") { implemented = true }
             revision += 1
             return "revision-\(revision)"

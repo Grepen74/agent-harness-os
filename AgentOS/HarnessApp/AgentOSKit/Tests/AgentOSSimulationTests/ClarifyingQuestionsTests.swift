@@ -17,7 +17,7 @@ struct ClarifyingQuestionsTests {
         #expect(waiting.openQuestions == ["Which buttons?"])
         #expect(waiting.children.isEmpty)
         #expect(await sim.lastComment("APP-1").contains("Which buttons?"))
-        await sim.runUntilIdle()
+        await sim.runUntilFinished()
         #expect(await sim.tracker.ticket("APP-1")?.status == "Needs input")
 
         // Retrying without an answer is refused.

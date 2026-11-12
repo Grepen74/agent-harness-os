@@ -452,6 +452,18 @@ public actor Reconciler {
             try await write(node.id, by: .human(person), kinds)
             return "the implementer will try again on the latest landing branch"
         }
+        if await isDisputingReviewFindings(node) {
+            guard let answer = Self.answer(on: ticket) else {
+                throw Rejection(reason: "Comment how to proceed with the review findings first, then add harness:retry " +
+                    "again. If they are about the acceptance tests, add harness:retest instead.")
+            }
+            var kinds: [EventKind] = [
+                .questionsAnswered(Clarification(questions: ["How to proceed with the change review's findings"], answer: answer)),
+                .flagCleared(.needsInput)]
+            if node.flags[.escalated] != nil { kinds += [.flagCleared(.escalated), .attemptsReset] }
+            try await write(node.id, by: .human(person), kinds)
+            return "answer recorded; the implementer will try again with it"
+        }
         guard let answer = Self.answer(on: ticket) else {
             // Stopped by the acceptance-test compile check (tests not yet accepted): the person may have fixed the
             // tests or the harness, so the test author runs again without needing a comment.
@@ -496,6 +508,26 @@ public actor Reconciler {
         }
         return false
     }
+
+    /// Whether the node waits because its implementer made no changes for the change review's findings.
+    private func isDisputingReviewFindings(_ node: NodeState) async -> Bool {
+        guard node.flags[.needsInput] != nil else { return false }
+        let records = await ledger.allRecords().filter { $0.event.node == node.id }
+        guard let flag = records.last(where: {
+            if case .flagSet(.needsInput, _) = $0.event.kind { return true }
+            return false
+        }) else { return false }
+        for record in records.reversed() where record.position < flag.position {
+            switch record.event.kind {
+            case .runFinished(_, let outcome): return outcome == Self.unaddressedFindingsOutcome
+            case .runStarted: return false
+            default: continue
+            }
+        }
+        return false
+    }
+
+    static let unaddressedFindingsOutcome = "made no changes for the review findings"
 
     /// Human comments after the harness's latest "Needs input" comment, or nil when nobody answered yet.
     static func answer(on ticket: Ticket) -> String? {
@@ -1229,6 +1261,9 @@ public actor Reconciler {
                 message: "\(node.spec.id): \(node.spec.title)",
                 author: run
             ) else {
+                if let findings = node.latestReviewFeedback, !node.reviewFeedbackAnswered, !node.landingReworkPending {
+                    return try await disputeReviewFindings(findings, on: node, run: run, author: author)
+                }
                 if report.alreadySatisfied && !node.landingReworkPending {
                     // The tests' own commit is the candidate; the verifier decides whether they really pass.
                     let head = try await workspace.head(of: directory)
@@ -1264,6 +1299,27 @@ public actor Reconciler {
                 .runFinished(run: run, outcome: "failed: \(error)"), .attemptFailed(summary: "\(error)"), .phaseChanged(to: .ready)])
             return try await escalateIfNeeded(node.id) ?? "\(node.displayName) implementer failed (\(error)); will retry"
         }
+    }
+
+    /// The implementer changed nothing for the change review's findings. Submitting the same branch again would only
+    /// repeat that review, so a person decides: the findings may be about the tests, or simply wrong.
+    private func disputeReviewFindings(
+        _ findings: String, on node: NodeState, run: RunID, author: Participant
+    ) async throws -> String {
+        let reason = """
+            The implementer made no changes for the change review's findings:
+            \(findings)
+            Next: if they are about this ticket's acceptance tests, comment how to change them, then add \
+            harness:retest. If the code should change, comment how, then add harness:retry. If the findings are \
+            wrong, say so in a comment, then add harness:retry.
+            """
+        try await write(node.id, by: author, [
+            .runFinished(run: run, outcome: Self.unaddressedFindingsOutcome),
+            .phaseChanged(to: .ready),
+            .flagSet(.needsInput, reason: reason),
+        ])
+        await tracker.comment(on: node.ticket, "\(Self.needsInputMarker): \(reason)")
+        return "\(node.displayName) made no changes for the review findings → waiting for a person"
     }
 
     private func routeBrokenTest(
@@ -1886,7 +1942,15 @@ public actor Reconciler {
     private func returnReviewFindings(_ result: ReviewResult, stage: ReviewStage,
                                      node: NodeState, run: RunID, directory: URL? = nil) async throws -> String {
         let records = await ledger.allRecords().filter { $0.event.node == node.id }
-        let reset = records.lastIndex { if case .attemptsReset = $0.event.kind { return true }; return false }
+        // Rounds start over when a person resets attempts or has the tests rewritten (harness:retest): reviews of
+        // discarded work no longer count.
+        let reset = records.lastIndex {
+            switch $0.event.kind {
+            case .attemptsReset: return true
+            case .phaseChanged(to: .specified): return $0.event.by.isHuman
+            default: return false
+            }
+        }
         let failures = records.dropFirst(reset.map { $0 + 1 } ?? 0).compactMap { record -> ReviewRecord? in
             guard case .reviewRecorded(let review) = record.event.kind,
                   review.stage == stage, !review.result.passed else { return nil }

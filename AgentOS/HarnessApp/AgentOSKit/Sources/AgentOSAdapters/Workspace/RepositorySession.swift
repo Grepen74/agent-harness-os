@@ -94,9 +94,15 @@ public final class RepositorySession: Sendable {
     /// One reconciler round.
     @discardableResult
     public func step() async -> RoundReport {
+        await step(waitForAgents: true)
+    }
+
+    /// One reconciler round; with waiting, it returns once the agents it started have finished.
+    @discardableResult
+    public func step(waitForAgents: Bool) async -> RoundReport {
         // Catch up first, so signals handled this round (e.g. harness:retry) see the latest main.
         let caughtUp = await catchUp.reconcile(busy: await reconciler.busyNodes)
-        var report = await reconciler.runRound()
+        var report = await reconciler.runRound(waitForAgents: waitForAgents)
         // The round projects every ticket's usual status; a catch-up conflict takes precedence.
         await catchUp.projectCurrentConflict()
         if let caughtUp { report.actions.insert(caughtUp, at: 0) }
@@ -127,6 +133,19 @@ public final class RepositorySession: Sendable {
             let report = await step()
             reports.append(report)
             onRound?(report)
+            if report.isIdle || report.safeStop != nil { break }
+        }
+        return reports
+    }
+
+    /// Rounds that each wait for the agents they start, until nothing more happens without a human (or `maxRounds`
+    /// is reached): unlike `runUntilIdle`, all started work has finished when this returns.
+    @discardableResult
+    public func runUntilFinished(maxRounds: Int = 50) async -> [RoundReport] {
+        var reports: [RoundReport] = []
+        for _ in 0..<maxRounds {
+            let report = await step(waitForAgents: true)
+            reports.append(report)
             if report.isIdle || report.safeStop != nil { break }
         }
         return reports

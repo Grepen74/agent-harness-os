@@ -247,8 +247,12 @@ allocation, duplicated logic, and tests that fail to prove the requirement. Reje
 the implementer without unlocking the acceptance tests. Since the implementer may not change them, the
 reviewer lists problems in the ticket's own acceptance tests separately (`testFindings`): those send the
 ticket back to the test author, keeping only its tests commit, and the implementer then builds again with
-the remaining findings. After `maxRounds` reviews with findings at
-either stage (default 2), work escalates; a human `harness:retry` resets the limit.
+the remaining findings. If the implementer changes nothing for a review's findings (it may think they are
+wrong, or about the tests), the harness doesn't submit the same branch for another review: it stops with
+"Needs input". `harness:retest` then sends the ticket to the test author; a comment plus `harness:retry`
+sends the answer to the implementer. After `maxRounds` reviews with findings at
+either stage (default 2), work escalates; a human `harness:retry` resets the limit, and so does
+`harness:retest`, since reviews of the discarded tests and code no longer count.
 
 UI changes must include snapshot evidence and confirmation that windows actually open and close.
 The implementer supplies `.agentos-ui-evidence.json` with `snapshotPaths`, `windowsOpened`,

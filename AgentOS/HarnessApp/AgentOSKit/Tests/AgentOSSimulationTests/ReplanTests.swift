@@ -25,7 +25,7 @@ struct ReplanTests {
         let tests = await sim.ledger.workingState().nodes.values.filter { $0.spec.parent == "wn-APP-1" }.map(\.testsDigest)
         #expect(old.count == 3)
         await sim.external.deliver("BACKEND-42")
-        await sim.runUntilIdle()
+        await sim.runUntilFinished()
 
         await sim.tracker.edit("APP-1", title: "Weather widget", description: "At a glance",
                                acceptanceCriteria: [celsius, icon, forecast], blockedBy: ["BACKEND-42", "APP-3"])
@@ -36,7 +36,7 @@ struct ReplanTests {
         #expect(await sim.lastComment("APP-1").contains("are paused"))
         // Only what's still missing: BACKEND-42 has been delivered.
         #expect(await sim.lastComment("APP-1").contains("Waits for: APP-3."))
-        await sim.runUntilIdle()
+        await sim.runUntilFinished()
         #expect(await sim.tracker.ticket("APP-1")?.status == "Replanned")
         #expect(await sim.tracker.ticket(old[0])?.status == "Paused")
 
@@ -109,7 +109,7 @@ struct ReplanTests {
         await sim.tracker.createTicket(title: "Greetings", description: "Say hi and bye",
                                        acceptanceCriteria: ["Says hello", "Says goodbye"], by: alice)
         await sim.signal(.go, "APP-1")
-        await sim.runUntilIdle()
+        await sim.runUntilFinished()
         #expect(await sim.node("APP-1")?.phase == .proven)
         let children = await childTickets(of: "APP-1", in: sim)
         #expect(!children.isEmpty)
@@ -125,7 +125,7 @@ struct ReplanTests {
         #expect(await sim.node("APP-2")?.flags[.blocked] == "Waiting for APP-1")
 
         await sim.signal(.go, "APP-1")
-        await sim.runUntilIdle()
+        await sim.runUntilFinished()
         #expect(await sim.node("APP-1")?.phase == .proven)
         #expect(await sim.node("APP-2")?.phase == .proven)
     }

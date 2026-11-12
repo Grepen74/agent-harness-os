@@ -74,7 +74,7 @@ let alice = Participant.human("Alice")
 extension Simulation {
     func signal(_ command: HarnessCommand, _ key: String, by who: Participant = alice) async {
         await tracker.addLabel(command.label, to: key, by: who)
-        await runUntilIdle()
+        await runUntilFinished()
     }
 
     func node(_ key: String) async -> NodeState? { await ledger.workingState().node(forTicket: key) }

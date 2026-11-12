@@ -86,7 +86,7 @@ struct RepositoryWorkspaceTests {
         let session = try await session(repo, team: team())
         let key = await ticket(session)
 
-        let reports = await session.runUntilIdle()
+        let reports = await session.runUntilFinished()
 
         let node = try #require(await session.ledger.workingState().node(forTicket: key))
         #expect(node.phase == .proven, "\(reports.flatMap(\.actions))")
@@ -108,7 +108,7 @@ struct RepositoryWorkspaceTests {
             name: "Fake", decomposer: SnapshotReader(seen: seen), testAuthor: ShellTestAuthor(), implementer: Implementer()))
         let key = await ticket(session)
 
-        await session.runUntilIdle()
+        await session.runUntilFinished()
 
         let snapshot = try #require(await seen.codebase)
         #expect(await seen.instructions?.isEmpty == false)
@@ -141,7 +141,7 @@ struct RepositoryWorkspaceTests {
         let session = try await session(repo, team: team(alsoEdits: "AGENTS.md"))
         let key = await ticket(session)
 
-        await session.runUntilIdle()
+        await session.runUntilFinished()
 
         let node = try #require(await session.ledger.workingState().node(forTicket: key))
         #expect(node.phase != .proven)
@@ -156,7 +156,7 @@ struct RepositoryWorkspaceTests {
         let session = try await session(repo, team: team(renames: "AGENTS.md"))
         let key = await ticket(session)
 
-        await session.runUntilIdle()
+        await session.runUntilFinished()
 
         let node = try #require(await session.ledger.workingState().node(forTicket: key))
         #expect(node.phase != .proven)
@@ -170,7 +170,7 @@ struct RepositoryWorkspaceTests {
         let session = try await session(repo, team: team(authorAlsoEdits: "app.txt"))
         let key = await ticket(session)
 
-        await session.runUntilIdle()
+        await session.runUntilFinished()
 
         let node = try #require(await session.ledger.workingState().node(forTicket: key))
         #expect(node.phase != .proven)
@@ -188,7 +188,7 @@ struct RepositoryWorkspaceTests {
         let session = try await session(repo, team: team(runsGit: command))
         let key = await ticket(session)
 
-        await session.runUntilIdle()
+        await session.runUntilFinished()
 
         let node = try #require(await session.ledger.workingState().node(forTicket: key))
         #expect(node.phase != .proven)
@@ -257,7 +257,7 @@ struct RepositoryWorkspaceTests {
         let session = try await session(repo, team: team, harness: harness)
         let keys = [await ticket(session, title: "One"), await ticket(session, title: "Two"), await ticket(session, title: "Three")]
 
-        let reports = await session.runUntilIdle()
+        let reports = await session.runUntilFinished()
 
         let state = await session.ledger.workingState()
         for key in keys { #expect(state.node(forTicket: key)?.phase == .proven, "\(reports.flatMap(\.actions))") }
@@ -329,7 +329,7 @@ struct RepositoryWorkspaceTests {
         let session = try await session(repo, team: AgentTeam(
             name: "Halfway", decomposer: Leaf(), testAuthor: ShellTestAuthor(), implementer: HalfwayImplementer(pause: pause)))
         let key = await ticket(session)
-        let work = Task { await session.runUntilIdle() }
+        let work = Task { await session.runUntilFinished() }
         while await !pause.reached { try await Task.sleep(for: .milliseconds(20)) }
 
         let node = try #require(await session.ledger.workingState().running.first)
@@ -358,7 +358,7 @@ struct RepositoryWorkspaceTests {
         let honest = await ticket(session, title: "Honest")
         let sneaky = await ticket(session, title: "Sneaky")
 
-        await session.runUntilIdle()
+        await session.runUntilFinished()
 
         let state = await session.ledger.workingState()
         let honestFlag = try #require(state.node(forTicket: honest)?.flags[.escalated])

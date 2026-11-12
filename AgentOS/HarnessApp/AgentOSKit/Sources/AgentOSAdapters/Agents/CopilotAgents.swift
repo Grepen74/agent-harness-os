@@ -305,8 +305,11 @@ public struct CopilotDecomposer: Decomposer {
         Each child's tests become permanent and other children may not change them, so make the children fit \
         together:
         - If the work changes behaviour that existing code or tests rely on (a signature, whether a call waits, \
-        a status or value it returns), make the first child move the existing callers and tests over to the new \
-        contract, name those tests in its criteria, and list it in "after" of the children that need it.
+        a status or value it returns), prefer keeping that behaviour and adding the new one beside it (a new \
+        function or option) so existing tests stay valid. No child may change tests outside its own folder, so \
+        never write criteria that need existing tests changed. If existing tests must change anyway, don't break \
+        the work down yet: ask a question naming those tests and the new contract, suggesting a person moves \
+        them over on the default branch first, in a form that passes both before and after the change.
         - When several children depend on the same rule, write the rule out in full, in the same words, in each \
         of them. Never refer to "the existing rule", "as agreed" or another child instead.
         - Check every pair of children: their criteria must never contradict each other. Children touching the \
@@ -436,7 +439,9 @@ public struct CopilotImplementer: Implementer {
         {"testName": string, "reason": string}}. Name the test as Suite.testName (for example FlowTests.someTest), \
         so the harness can tell this item's tests from other work's. If the tests already pass without any change \
         (for example because other work delivered it), change nothing and write {"alreadySatisfied": true}; \
-        the verifier then checks the branch as it is. Otherwise the report may be omitted.
+        the verifier then checks the branch as it is. If the previous failure is a review finding about the \
+        acceptance tests, report the broken test instead: you cannot fix it, and changing nothing stops the item \
+        until a person looks. Otherwise the report may be omitted.
 
         \(CopilotCLI.dataBlock(task.spec))
         \(CopilotCLI.contextBlock(task.agentContext, includeComments: false))

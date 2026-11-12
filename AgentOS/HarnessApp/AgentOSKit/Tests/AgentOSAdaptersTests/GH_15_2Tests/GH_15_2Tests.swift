@@ -139,7 +139,7 @@ private extension GH_15_2Tests {
         }
 
         func run() async {
-            await session.runUntilIdle()
+            await session.runUntilFinished()
         }
 
         func node() async -> NodeState? {

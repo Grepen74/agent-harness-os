@@ -9,7 +9,7 @@ struct FlowTests {
     @Test func nothingHappensWithoutASignal() async throws {
         let sim = try makeSimulation()
         await sim.loadDemo()
-        await sim.runUntilIdle()
+        await sim.runUntilFinished()
         #expect(await sim.ledger.allRecords().isEmpty)
     }
 
@@ -100,7 +100,7 @@ struct FlowTests {
         #expect(await sim.node("APP-1")?.phase == .split)
 
         await sim.external.deliver("BACKEND-42")
-        await sim.runUntilIdle()
+        await sim.runUntilFinished()
 
         let state = await sim.ledger.workingState()
         #expect(state.nodes.count == 4) // the epic and its three leaves
@@ -153,7 +153,7 @@ struct FlowTests {
         let sim = try Simulation(directory: temporaryDirectory(), team: .scripted, checks: checks)
         await sim.tracker.createTicket(title: "Greeting", description: "Say hi", acceptanceCriteria: ["Says hello"], by: alice)
         await sim.tracker.addLabel(HarnessCommand.go.label, to: "APP-1", by: alice)
-        let running = Task { await sim.runUntilIdle() }
+        let running = Task { await sim.runUntilFinished() }
 
         await checks.landingStarted()
         #expect(await sim.tracker.ticket("APP-1")?.status == "Landing")

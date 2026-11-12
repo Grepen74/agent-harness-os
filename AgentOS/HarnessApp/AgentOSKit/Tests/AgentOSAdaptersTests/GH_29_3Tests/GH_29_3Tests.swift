@@ -108,7 +108,7 @@ struct GH_29_3Tests {
         )!.key
         await session.tracker.addLabel("harness:go", to: ticket, by: .human("Alice"))
 
-        _ = await session.runUntilIdle()
+        _ = await session.runUntilFinished()
 
         let node = try #require(await session.ledger.workingState().node(forTicket: ticket))
         #expect(node.phase == .proven)

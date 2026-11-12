@@ -54,7 +54,7 @@ struct GH_4_3Tests {
         let fixture = try await conflictingFixture()
         let tipBeforeCatchUp = fixture.agentosTip
 
-        let reports = await fixture.session.runUntilIdle()
+        let reports = await fixture.session.runUntilFinished()
 
         #expect(try await git(["rev-parse", "agentos/main"], in: fixture.repo) == tipBeforeCatchUp)
         #expect(reports.allSatisfy { $0.safeStop == nil })
@@ -64,7 +64,7 @@ struct GH_4_3Tests {
         #expect(Set(conflict.tickets) == [fixture.aTicket, fixture.packageTicket])
 
         let laterTicket = await createTicket("Safe work", in: fixture.session)
-        await fixture.session.runUntilIdle()
+        await fixture.session.runUntilFinished()
         let laterNode = try #require(await fixture.session.ledger.workingState().node(forTicket: laterTicket))
         #expect(laterNode.phase == .proven)
         #expect(try await git(["merge-base", "--is-ancestor", tipBeforeCatchUp, "agentos/main"], in: fixture.repo).isEmpty)
@@ -156,11 +156,11 @@ struct GH_4_3Tests {
         let fixture = try await conflictedFixture()
         let initialCount = catchUpConflicts(in: await fixture.session.ledger.allRecords()).count
 
-        await fixture.session.runUntilIdle()
+        await fixture.session.runUntilFinished()
         #expect(catchUpConflicts(in: await fixture.session.ledger.allRecords()).count == initialCount)
 
         await fixture.session.retryCatchUp()
-        await fixture.session.runUntilIdle()
+        await fixture.session.runUntilFinished()
         #expect(catchUpConflicts(in: await fixture.session.ledger.allRecords()).count == initialCount + 1)
 
         try "another main change\n".write(
@@ -170,7 +170,7 @@ struct GH_4_3Tests {
         )
         try await commit("main moves again", in: fixture.repo)
         let laterMain = try await git(["rev-parse", "main"], in: fixture.repo)
-        await fixture.session.runUntilIdle()
+        await fixture.session.runUntilFinished()
         let conflicts = catchUpConflicts(in: await fixture.session.ledger.allRecords())
         #expect(conflicts.count == initialCount + 2)
         #expect(conflicts.last?.main == laterMain)
@@ -192,7 +192,7 @@ struct GH_4_3Tests {
         let resolvedTip = try await git(["rev-parse", "HEAD"], in: resolution)
         _ = try await git(["worktree", "remove", resolution.path], in: fixture.repo)
 
-        await fixture.session.runUntilIdle()
+        await fixture.session.runUntilFinished()
 
         let status = await fixture.session.catchUpStatus()
         #expect(status.lastSuccess?.mainSHA == fixture.mainSHA)
@@ -214,9 +214,9 @@ struct GH_4_3Tests {
         let repo = try await makeRepo()
         let session = try await makeSession(repo)
         let aTicket = await createTicket("A work", in: session)
-        await session.runUntilIdle()
+        await session.runUntilFinished()
         let packageTicket = await createTicket("Package work", in: session)
-        await session.runUntilIdle()
+        await session.runUntilFinished()
         let agentosTip = try await git(["rev-parse", "agentos/main"], in: repo)
 
         try "developer A\n".write(to: repo.appending(path: "Sources/A.swift"), atomically: true, encoding: .utf8)
@@ -235,7 +235,7 @@ struct GH_4_3Tests {
 
     private func conflictedFixture() async throws -> Fixture {
         let fixture = try await conflictingFixture()
-        await fixture.session.runUntilIdle()
+        await fixture.session.runUntilFinished()
         return fixture
     }
 

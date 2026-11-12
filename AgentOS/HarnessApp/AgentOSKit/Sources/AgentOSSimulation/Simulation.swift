@@ -50,6 +50,19 @@ public final class Simulation: Sendable {
     @discardableResult
     public func step() async -> RoundReport { await reconciler.runRound() }
 
+    /// Rounds that each wait for the agents they start, until nothing more happens without a human (or `maxRounds`
+    /// is reached): unlike `runUntilIdle`, all started work has finished when this returns.
+    @discardableResult
+    public func runUntilFinished(maxRounds: Int = 50) async -> [RoundReport] {
+        var reports: [RoundReport] = []
+        for _ in 0..<maxRounds {
+            let report = await reconciler.runRound(waitForAgents: true)
+            reports.append(report)
+            if report.isIdle || report.safeStop != nil { break }
+        }
+        return reports
+    }
+
     /// Rounds until nothing more happens without a human (or `maxRounds` is reached).
     @discardableResult
     public func runUntilIdle(maxRounds: Int = 50, onRound: (@Sendable (RoundReport) -> Void)? = nil) async -> [RoundReport] {
