@@ -72,6 +72,18 @@ struct GH_15_2Tests {
         #expect(await fixture.checks.fullCheckCount == 0)
         #expect(node.recentFailures.contains { $0.contains("submitted no changes") })
     }
+
+    @Test
+    func anImplementerReportingTheTestsAlreadyPassGetsTheUnchangedBranchVerifiedAndLanded() async throws {
+        let fixture = try await Fixture(landingResults: [], implementer: AlreadySatisfiedImplementer())
+
+        await fixture.run()
+
+        let node = try #require(await fixture.node())
+        #expect(node.phase == .proven)
+        #expect(node.failedAttempts == 0)
+        #expect(await fixture.checks.fullCheckCount == 1)
+    }
 }
 
 private extension GH_15_2Tests {
@@ -243,5 +255,9 @@ private extension GH_15_2Tests {
 
     struct NoChangeImplementer: AgentOSCore.Implementer {
         func implement(_ task: AgentTask) async throws {}
+    }
+
+    struct AlreadySatisfiedImplementer: AgentOSCore.Implementer {
+        func implement(_ task: AgentTask) async throws -> AgentReport { AgentReport(alreadySatisfied: true) }
     }
 }

@@ -864,6 +864,14 @@ public actor Reconciler {
                 message: "\(node.spec.id): \(node.spec.title)",
                 author: run
             ) else {
+                if report.alreadySatisfied && !node.landingReworkPending {
+                    // The tests' own commit is the candidate; the verifier decides whether they really pass.
+                    let head = try await workspace.head(of: directory)
+                    try await write(node.id, by: author, [
+                        .runFinished(run: run, outcome: "already satisfied; submitted the branch unchanged"),
+                        .changeSubmitted(run: run, commit: head), .phaseChanged(to: .checking)])
+                    return "\(node.ticket) already satisfied (\(run)) → Checking"
+                }
                 guard node.landingReworkPending else { throw AgentFailure("submitted no changes") }
                 try await write(node.id, by: author, [
                     .runFinished(run: run, outcome: "submitted no changes; rerunning landing check"),
