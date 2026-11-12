@@ -155,7 +155,7 @@ public actor Reconciler {
                 await tracker.comment(on: ticket.key, """
                     \(Self.previewQuestionsMarker):
                     \(Self.numbered(questions))
-                    Answer them in a comment (or edit the ticket), then preview again.
+                    \(Self.questionReplyInstructions(then: .preview))
                     """)
                 return "questions posted above; no preview recorded"
             }
@@ -885,9 +885,7 @@ public actor Reconciler {
         await tracker.comment(on: node.ticket, """
             \(Self.needsInputMarker): the \(role.title) can't go on without answers.
             \(Self.numbered(questions))
-            \(questions.contains { $0.suggestion != nil }
-                ? "Accept or correct the suggested answers in a comment, then add harness:retry."
-                : "Answer in a comment, then add harness:retry.")
+            \(Self.questionReplyInstructions(then: .retry))
             """)
         return "\(node.displayName) needs input: \(questions.count) \(plural) from the \(role.title)"
     }
@@ -897,6 +895,13 @@ public actor Reconciler {
             let suggestion = item.suggestion.map { "\n   Suggested answer: \($0)" } ?? ""
             return "\(index + 1). \(item.question)\(suggestion)"
         }.joined(separator: "\n")
+    }
+
+    private static func questionReplyInstructions(then command: HarnessCommand) -> String {
+        "Answer them in a comment: reply `ok` to accept all suggested answers, or use " +
+            "`1. Answer: <answer text>, 2. Answer: <answer text>` to correct selected answers " +
+            "while accepting the remaining suggestions. Questions without suggestions must be answered in writing. " +
+            "Then add \(command.label)."
     }
 
     private func postProceedingOnSuggestions(_ questions: [AgentQuestion], on ticket: String) async {
