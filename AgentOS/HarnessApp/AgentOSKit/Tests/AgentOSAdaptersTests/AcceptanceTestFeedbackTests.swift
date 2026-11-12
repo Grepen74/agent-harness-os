@@ -37,6 +37,25 @@ struct AcceptanceTestFeedbackTests {
         #expect(result.diagnostics.allSatisfy { $0.classification == .testAuthorMistake })
     }
 
+    @Test func aMissingMemberIsExpectedEvenWhenTheTestsHaveALocalOfThatName() throws {
+        let root = try tempRoot()
+        let folder = root.appending(path: "Tests/GH_1Tests")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try "struct Fixture { let reviewer: Int }\nfunc f() { let reviews = 1 }\n"
+            .write(to: folder.appending(path: "GH_1Tests.swift"), atomically: true, encoding: .utf8)
+        let file = folder.appending(path: "GH_1Tests.swift").path
+        let log = [
+            "\(file):5:9: error: value of type 'Settings' has no member 'reviewer'",
+            "\(file):6:9: error: value of type 'NodeState' has no member 'reviews'",
+            "\(file):7:9: error: value of type 'Fixture' has no member 'missing'",
+        ].joined(separator: "\n")
+
+        let result = SwiftAcceptanceTestPreflight.classify(log: log, in: root, testFolder: "Tests/GH_1Tests",
+                                                           expectedAPI: ["Settings.reviewer: Int"])
+
+        #expect(result.diagnostics.map(\.classification) == [.expected, .expected, .testAuthorMistake])
+    }
+
     @Test func theTestAuthorIsToldWhyItsTestsCameBack() {
         let directory = URL(filePath: "/worktrees/wn-GH-1", directoryHint: .isDirectory)
         let spec = NodeSpec(id: "wn-GH-1", parent: nil, kind: .leaf, title: "Greeting", intent: "Say hi",

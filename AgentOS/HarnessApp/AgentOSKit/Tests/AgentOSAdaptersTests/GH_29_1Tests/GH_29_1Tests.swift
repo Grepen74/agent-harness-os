@@ -217,6 +217,30 @@ struct GH_29_1Tests {
     }
 
     @Test
+    func aPlainRetryAfterTheLimitRestartsTheTestAuthorWithoutAComment() async throws {
+        let mistake = CompilerDiagnostic(
+            file: "Tests/AgentOSAdaptersTests/GH_29_1Tests/GH_29_1Tests.swift",
+            line: 7,
+            message: "syntax error",
+            classification: .testAuthorMistake
+        )
+        let fixture = try await Fixture(
+            preflight: .init(outcomes: [.diagnostics([mistake], fullLog: "log"), .diagnostics([mistake], fullLog: "log"), .compiled]),
+            maxAttempts: 2
+        )
+        _ = await fixture.reconciler.runRound()
+        _ = await fixture.reconciler.runRound()
+        #expect(try await fixture.node().flags[.needsInput] != nil)
+
+        await fixture.tracker.send(.retry)
+        _ = await fixture.reconciler.runRound()
+
+        #expect(await fixture.tracker.replies.last?.hasPrefix("✅") == true)
+        #expect(try await fixture.node().flags[.needsInput] == nil)
+        #expect(await fixture.testAuthor.tasks.count == 3)
+    }
+
+    @Test
     func theTestAuthorIsToldAboutTheNewestCompileErrorsNotAnOlderBrokenTestReport() async throws {
         let clash = CompilerDiagnostic(
             file: "Tests/AgentOSAdaptersTests/GH_15_4Tests/GH_15_4Tests.swift",
@@ -375,8 +399,12 @@ private actor RecordingImplementer: Implementer {
 
 private actor RecordingTracker: TrackerAdapter {
     private(set) var comments: [String] = []
+    private(set) var replies: [String] = []
+    private var signal: Signal?
 
-    func pendingSignals() -> [Signal] { [] }
+    func send(_ command: HarnessCommand) { signal = Signal(ticket: "GH-29.1", command: command, setBy: .human("Alice")) }
+
+    func pendingSignals() -> [Signal] { signal.map { [$0] } ?? [] }
 
     func ticket(_ key: String) -> Ticket? {
         Ticket(
@@ -388,7 +416,10 @@ private actor RecordingTracker: TrackerAdapter {
         )
     }
 
-    func consume(_ signal: Signal, reply: String) {}
+    func consume(_ signal: Signal, reply: String) {
+        self.signal = nil
+        replies.append(reply)
+    }
     func createChildTicket(parent: String, spec: NodeSpec, by: Participant) throws -> String { "unused" }
     func comment(on key: String, _ text: String) { comments.append(text) }
     func setStatus(of key: String, to status: String) {}
