@@ -82,12 +82,16 @@ public struct EffectivePolicy: Sendable, Equatable {
     public var agentModels = AgentModels()
     /// The repo config tried to loosen a limit or set something invalid; the harness's value applies instead.
     public var problems: [Finding] = []
+    var overrideHarness = HarnessSettings()
+    var repoDisabledTokens: [String] = []
 
     /// - `defaultBranch`: the repo's main branch. Landing there directly would skip your review.
     public static func resolve(harness: HarnessSettings, repo: RepoConfig?, defaultBranch: String?) -> EffectivePolicy {
         var result = EffectivePolicy(landingBranch: harness.landingBranch, deniedTools: HarnessSettings.deniedTools,
                                      protectedPaths: HarnessSettings.protectedPaths)
         result.maxParallelAgents = harness.maxParallelAgents
+        result.overrideHarness = harness
+        result.repoDisabledTokens = repo?.signals?.disable ?? []
 
         func refuse(_ title: String, _ detail: String) {
             result.problems.append(Finding(check: "config.policy", severity: .blocker, title: title, detail: detail,
@@ -163,18 +167,18 @@ public struct EffectivePolicy: Sendable, Equatable {
         var signals = harness.offeredSignals
         var unknown: [String] = []
         for name in repo?.signals?.disable ?? [] {
-            let raw = name.hasPrefix("harness:") ? String(name.dropFirst("harness:".count)) : name
-            if let command = HarnessCommand(rawValue: raw) { signals.remove(command) } else { unknown.append(name) }
+            if let command = RepoOverrideDefinitions.signal(for: name) { signals.remove(command) } else { unknown.append(name) }
         }
         if !unknown.isEmpty {
             result.problems.append(Finding(
                 check: "config.policy", severity: .warning, title: "Repo config disables unknown signals: \(unknown.joined(separator: ", "))",
-                detail: "Known signals: \(HarnessCommand.allCases.map(\.rawValue).joined(separator: ", "))."))
+                detail: "Known signals: \(RepoOverrideDefinitions.knownSignalTokens.joined(separator: ", "))."))
         }
         result.policy.allowedSignals = signals
         let signalNames = HarnessCommand.allCases.filter(signals.contains).map(\.rawValue).joined(separator: ", ")
         result.settings.append(EffectiveSetting(name: "Signals", value: signalNames.isEmpty ? "none" : signalNames,
-                                                source: signals == harness.offeredSignals ? .harness : .repo, note: nil))
+                                                source: repo?.signals != nil && unknown.isEmpty ? .repo
+                                                    : signals == harness.offeredSignals ? .harness : .repo, note: nil))
 
         // Lists the repo may only extend.
         func extend(_ name: String, _ base: [String], with extra: [String]?) -> [String] {
@@ -193,8 +197,8 @@ public struct EffectivePolicy: Sendable, Equatable {
             var model = harness.models[role]
             var source = EffectiveSetting.Source.harness
             var note: String?
-            if let wanted = repo?.agents?.models?[role], wanted != model {
-                if harness.offeredModels.contains(wanted) {
+            if let wanted = repo?.agents?.models?[role] {
+                if RepoOverrideDefinitions.modelChoices(for: role, harness: harness).contains(wanted) {
                     model = wanted
                     source = .repo
                 } else {

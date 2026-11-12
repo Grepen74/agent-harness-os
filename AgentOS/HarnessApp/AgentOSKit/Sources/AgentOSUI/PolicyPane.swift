@@ -15,9 +15,7 @@ public struct PolicyPane: View {
             List {
                 if model.readiness != nil { configFile }
                 if let policy = model.policy {
-                    Section("Effective settings") {
-                        ForEach(policy.settings) { SettingRow(setting: $0) }
-                    }
+                    PolicySettingsView(policy: policy)
                 }
                 if let config = model.config {
                     Section("Checks, in order") {
@@ -90,14 +88,124 @@ public struct PolicyPane: View {
     }
 }
 
+private struct PolicySettingsView: View {
+    let policy: EffectivePolicy
+    @State private var editor: PolicyOverrideEditor
+    @State private var selectedSignals: Set<HarnessCommand> = []
+    @State private var showingSignals = false
+    @State private var error: String?
+
+    init(policy: EffectivePolicy) {
+        self.policy = policy
+        _editor = State(initialValue: PolicyOverrideEditor(policy: policy))
+    }
+
+    var body: some View {
+        Section("Effective settings") {
+            ForEach(policy.settings) { setting in
+                let role = AgentModels.roles.first { "\($0.job) agent" == setting.name }
+                let modelRow = role.flatMap { policy.modelOverride(for: $0) }
+                VStack(alignment: .leading, spacing: 6) {
+                    SettingRow(setting: setting, modelOverride: modelRow,
+                               signalOverride: setting.name == "Signals" ? policy.signalOverride : nil)
+                    if let role, let row = modelRow {
+                        Menu(row.actionTitle) {
+                            ForEach(row.choices, id: \.self) { identifier in
+                                Button(identifier) { perform { try editor.selectModel(identifier, for: role) } }
+                            }
+                            if row.choices.isEmpty {
+                                Text("No concrete models offered. Add models in harness Settings.")
+                            }
+                        }
+                        .fixedSize()
+                        Text(row.keyPath).font(.caption.monospaced()).foregroundStyle(.secondary)
+                    } else if setting.name == "Signals" {
+                        Button(policy.signalOverride.actionTitle) {
+                            perform { try editor.selectSignalsToDisable(selectedSignals) }
+                            showingSignals = true
+                        }
+                        .popover(isPresented: $showingSignals) {
+                            VStack(alignment: .leading) {
+                                Text("Select signals to disable").font(.headline)
+                                Text("Existing signals.disable tokens are preserved.").font(.caption)
+                                ForEach(policy.signalOverride.choices, id: \.self) { command in
+                                    Toggle(command.rawValue, isOn: Binding(
+                                        get: { selectedSignals.contains(command) },
+                                        set: { disabled in
+                                            var selection = selectedSignals
+                                            if disabled { selection.insert(command) } else { selection.remove(command) }
+                                            perform {
+                                                try editor.selectSignalsToDisable(selection)
+                                                selectedSignals = selection
+                                            }
+                                        }))
+                                }
+                                if policy.signalOverride.choices.isEmpty {
+                                    Text("The harness offers no signals. An empty disable array is valid.").font(.caption)
+                                }
+                                Button("Done") { showingSignals = false }
+                            }
+                            .padding()
+                        }
+                    }
+                }
+            }
+        }
+        Section("Repo config override") {
+            if let fragment = editor.fragment {
+                Text(fragment).font(.caption.monospaced()).textSelection(.enabled)
+                Button("Copy") { perform { try editor.copy(to: .general) } }
+                Text("Merge this fragment into \(RepoConfig.path), then commit and rescan. No files are changed here.")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                Text("Choose an override to preview a copyable JSON fragment.").font(.caption).foregroundStyle(.secondary)
+            }
+            if let error {
+                Label(error, systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(.orange)
+            }
+        }
+        .onChange(of: policy) {
+            editor = PolicyOverrideEditor(policy: policy)
+            selectedSignals = []
+            showingSignals = false
+            error = nil
+        }
+    }
+
+    private func perform(_ action: () throws -> Void) {
+        do {
+            try action()
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+}
+
 private struct SettingRow: View {
     let setting: EffectiveSetting
+    var modelOverride: ModelOverride? = nil
+    var signalOverride: SignalOverride? = nil
 
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(setting.name).font(.callout)
-                Text(setting.value).font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
+                if let row = modelOverride {
+                    Text(row.provider).font(.caption).foregroundStyle(.secondary)
+                    if let identifier = row.modelIdentifier {
+                        Text(identifier).font(.caption.monospaced()).textSelection(.enabled)
+                    }
+                    if let explanation = row.inheritanceExplanation {
+                        Text(explanation).font(.caption).foregroundStyle(.secondary)
+                    }
+                } else if let row = signalOverride {
+                    Text("Enabled: \(setting.value)").font(.caption.monospaced()).textSelection(.enabled)
+                    Text("signals.disable: \(row.disabledTokens.isEmpty ? "[]" : row.disabledTokens.joined(separator: ", "))")
+                        .font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
+                } else {
+                    Text(setting.value).font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
+                }
                 if let note = setting.note {
                     Label(note, systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(.orange)
                 }
