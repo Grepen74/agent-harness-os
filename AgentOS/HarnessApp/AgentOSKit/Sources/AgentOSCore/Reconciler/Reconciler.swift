@@ -146,7 +146,7 @@ public actor Reconciler {
             let problems = policy.readinessProblems(ticket)
             guard problems.isEmpty else { throw Rejection(reason: "Not ready yet. Missing: \(problems.joined(separator: ", ")).") }
             let spec = Planner.rootSpec(for: ticket)
-            let answers = (node?.clarifications ?? []) + Self.newPreviewAnswers(on: ticket, for: node)
+            let answers = try (node?.clarifications ?? []) + Self.newPreviewAnswers(on: ticket, for: node)
             let breakdown = try await propose(spec, ticketKey: ticket.key, clarifications: answers, log: nil)
             let questions = policy.questions(in: breakdown.report, role: .decomposer)
             guard questions.isEmpty else {
@@ -389,12 +389,10 @@ public actor Reconciler {
                 "first, then add harness:retry again. To build the tests as they are, add harness:build instead.")
         }
         let isReview = node.openQuestions.isEmpty
-        var kinds: [EventKind] = [
-            .questionsAnswered(Clarification(
-                questions: isReview ? ["Feedback on the acceptance tests"] : node.openQuestions.map(\.question),
-                answer: answer
-            )),
-            .flagCleared(.needsInput)]
+        let answers = try isReview
+            ? [Clarification(questions: ["Feedback on the acceptance tests"], answer: answer)]
+            : Self.resolveAnswers(answer, to: node.openQuestions, signal: .retry)
+        var kinds: [EventKind] = answers.map { .questionsAnswered($0) } + [.flagCleared(.needsInput)]
         if isReview && node.spec.kind == .leaf && node.phase == .ready {
             try? await workspace.removeWorktree(for: node.id)
             kinds.append(.phaseChanged(to: .specified))
@@ -434,34 +432,82 @@ public actor Reconciler {
     static let needsInputMarker = "❓ Needs input"
     static let previewQuestionsMarker = "❓ The decomposer has questions before it can propose a breakdown"
 
+    private static func resolveAnswers(
+        _ reply: String, to questions: [AgentQuestion], signal: HarnessCommand
+    ) throws -> [Clarification] {
+        let pattern = #"(?:^|[,\r\n])\s*(\d+)\.\s*Answer:\s*"#
+        let regex = try NSRegularExpression(pattern: pattern, options: .caseInsensitive)
+        let text = reply as NSString
+        let matches = regex.matches(in: reply, range: NSRange(location: 0, length: text.length))
+        guard !matches.isEmpty else {
+            return [Clarification(questions: questions.map(\.question), answer: reply)]
+        }
+        var corrections: [Int: String] = [:]
+        for (index, match) in matches.enumerated() {
+            guard let number = Int(text.substring(with: match.range(at: 1))),
+                  questions.indices.contains(number - 1) else {
+                throw Rejection(reason: "A correction names an unknown question. Use the original question numbers, then add \(signal.label).")
+            }
+            let start = NSMaxRange(match.range)
+            let end = index + 1 < matches.count ? matches[index + 1].range.location : text.length
+            let answer = text.substring(with: NSRange(location: start, length: end - start))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !answer.isEmpty else {
+                throw Rejection(reason: "Question \(number) needs answer text. Reply '\(number). Answer: <answer>', then add \(signal.label).")
+            }
+            corrections[number] = answer
+        }
+        let unresolved = questions.indices.filter {
+            corrections[$0 + 1] == nil && questions[$0].suggestion == nil
+        }
+        guard unresolved.isEmpty else {
+            let numbers = unresolved.map { String($0 + 1) }.joined(separator: ", ")
+            throw Rejection(reason: "Questions \(numbers) are still open. Reply with the remaining original numbers as 'N. Answer: <answer>', then add \(signal.label).")
+        }
+        return questions.enumerated().compactMap { index, question in
+            (corrections[index + 1] ?? question.suggestion).map {
+                Clarification(questions: [question.question], answer: $0)
+            }
+        }
+    }
+
     /// Answers to a preview's questions: the human comments after each such question comment (up to the next
     /// one), with the questions it asked. Those the node doesn't have yet.
-    static func newPreviewAnswers(on ticket: Ticket, for node: NodeState?) -> [Clarification] {
+    static func newPreviewAnswers(on ticket: Ticket, for node: NodeState?) throws -> [Clarification] {
         var answers: [Clarification] = []
-        var asked: [String]?
+        var asked: [AgentQuestion]?
         var replies: [String] = []
-        func flush() {
-            if let asked, !replies.isEmpty { answers.append(Clarification(questions: asked, answer: replies.joined(separator: "\n\n"))) }
+        func flush() throws {
+            if let asked, !replies.isEmpty {
+                answers += try resolveAnswers(replies.joined(separator: "\n\n"), to: asked, signal: .preview)
+            }
             replies = []
         }
         for comment in ticket.comments {
             if !comment.author.isHuman && comment.text.contains(previewQuestionsMarker) {
-                flush()
-                asked = comment.text.split(separator: "\n").compactMap { line in
-                    line.firstMatch(of: /^\d+\.\s+(.+)$/).map { String($0.output.1) }
+                try flush()
+                var questions: [AgentQuestion] = []
+                for line in comment.text.split(separator: "\n") {
+                    if let match = line.firstMatch(of: /^\d+\.\s+(.+)$/) {
+                        questions.append(AgentQuestion(question: String(match.output.1)))
+                    } else if let last = questions.indices.last,
+                              let range = line.range(of: "   Suggested answer: ") {
+                        questions[last].suggestion = String(line[range.upperBound...])
+                    }
                 }
+                asked = questions
             } else if asked != nil, comment.author.isHuman {
                 let text = comment.text.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !text.isEmpty { replies.append(text) }
             }
         }
-        flush()
+        try flush()
         return answers.filter { !(node?.clarifications.contains($0) ?? false) }
     }
 
     /// Adopting or approving keeps the answers given to previews, for every agent that works on it later.
-    private static func answerEvents(on ticket: Ticket, for node: NodeState?) -> [EventKind] {
-        newPreviewAnswers(on: ticket, for: node).map { .questionsAnswered($0) }
+    private static func answerEvents(on ticket: Ticket, for node: NodeState?) throws -> [EventKind] {
+        try newPreviewAnswers(on: ticket, for: node).map { .questionsAnswered($0) }
     }
 
     /// Leaves below `id` (or `id` itself) whose acceptance tests wait for a person's review before build.
