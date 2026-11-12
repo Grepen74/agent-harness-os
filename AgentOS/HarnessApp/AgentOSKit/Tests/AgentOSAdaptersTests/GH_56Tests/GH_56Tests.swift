@@ -311,15 +311,20 @@ import AgentOSUI
     }
 
     @Test
-    func explicitlyChoosingTheHarnessValueRetainsTheExistingHarnessSourceConvention() throws {
+    func explicitlyChoosingTheHarnessValueShowsRepoForGuessworkAndLimitsAndHarnessForModels() throws {
         var config = try RepoConfig.parse(Self.completeDraft).config
         config.agents?.guesswork = Self.harness.guesswork.rawValue
         config.agents?.models = Self.harness.models
         config.limits = .init(maxAttempts: Self.harness.maxAttempts, maxReworks: Self.harness.maxReworks,
                               maxParallelAgents: Self.harness.maxParallelAgents)
         let policy = EffectivePolicy.resolve(harness: Self.harness, repo: config, defaultBranch: "main")
-        for name in ["Guesswork", "Max attempts per leaf", "Max reworks per leaf", "Max parallel agents",
-                     "Breakdown agent", "Acceptance tests agent", "Implementation agent"] {
+        // An explicit repo value is attributed to the repo even when it equals the harness value (GH-54).
+        for name in ["Guesswork", "Max attempts per leaf", "Max reworks per leaf", "Max parallel agents"] {
+            let row = try #require(policy.settings.first { $0.name == name })
+            #expect(row.source == .repo)
+            #expect(row.note == nil)
+        }
+        for name in ["Breakdown agent", "Acceptance tests agent", "Implementation agent"] {
             let row = try #require(policy.settings.first { $0.name == name })
             #expect(row.source == .harness)
             #expect(row.note == nil)

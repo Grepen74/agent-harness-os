@@ -30,8 +30,8 @@ struct PolicyTests {
         #expect(!policy.policy.allowedSignals.contains(.go))
         let attempts = try #require(policy.settings.first { $0.name == "Max attempts per leaf" })
         #expect(attempts.source == .repo)
-        // Same value as the harness: nothing was changed by the repo.
-        #expect(policy.settings.first { $0.name == "Max parallel agents" }?.source == .harness)
+        // Explicitly set by the repo, even though it equals the harness value (GH-54).
+        #expect(policy.settings.first { $0.name == "Max parallel agents" }?.source == .repo)
     }
 
     @Test func aRepoCannotLoosenLimitsOrLandOnItsDefaultBranch() {

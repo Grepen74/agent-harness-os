@@ -136,7 +136,7 @@ public struct EffectivePolicy: Sendable, Equatable {
                                                         note: "repo asked for \(repo): invalid"))
                 return harness
             }
-            result.settings.append(EffectiveSetting(name: name, value: "\(repo)", source: repo == harness ? .harness : .repo, note: nil))
+            result.settings.append(EffectiveSetting(name: name, value: "\(repo)", source: .repo, note: nil))
             return repo
         }
         result.policy.maxAttempts = limit("Max attempts per leaf", harness: harness.maxAttempts, repo: repo?.limits?.maxAttempts)
@@ -146,10 +146,12 @@ public struct EffectivePolicy: Sendable, Equatable {
         // Guesswork: the repo may only choose a stricter level.
         var guesswork = harness.guesswork
         var guessworkNote: String?
+        var guessworkFromRepo = false
         if let wanted = repo?.agents?.guesswork {
             let levels = Guesswork.allCases.map(\.rawValue).joined(separator: ", ")
             if let level = Guesswork(rawValue: wanted), level <= harness.guesswork {
                 guesswork = level
+                guessworkFromRepo = true
             } else if let level = Guesswork(rawValue: wanted) {
                 refuse("Repo config loosens guesswork from \(harness.guesswork.rawValue) to \(level.rawValue)",
                        "The harness allows at most \(harness.guesswork.rawValue).")
@@ -161,7 +163,7 @@ public struct EffectivePolicy: Sendable, Equatable {
         }
         result.policy.guesswork = guesswork
         result.settings.append(EffectiveSetting(name: "Guesswork", value: guesswork.title,
-                                                source: guesswork == harness.guesswork ? .harness : .repo, note: guessworkNote))
+                                                source: guessworkFromRepo ? .repo : .harness, note: guessworkNote))
 
         // Signals: the repo may only switch off what the harness offers.
         var signals = harness.offeredSignals
