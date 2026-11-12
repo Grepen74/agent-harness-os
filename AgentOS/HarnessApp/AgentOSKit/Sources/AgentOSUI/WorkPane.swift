@@ -6,7 +6,7 @@ import SwiftUI
 public struct WorkPane: View {
     @Environment(HarnessViewModel.self) private var model
     @State private var selection: NodeID?
-    @State private var showProvenNodes: Bool = true
+    @State private var showDoneNodes: Bool = true
 
     public init() {}
 
@@ -18,13 +18,13 @@ public struct WorkPane: View {
                 RunningAgents()
                 List(selection: $selection) {
                     OutlineGroup(model.state.roots.filter({
-                        guard showProvenNodes == false else { return true }
+                        guard showDoneNodes == false else { return true }
                         return $0.phase != .proven
                     }).map { TreeItem($0, in: model.state) }, children: \.children) { item in
                         NodeRow(node: item.node, status: model.state.status(of: item.node)).tag(item.node.id)
                     }
                 }
-                Toggle("Show proven items", isOn: $showProvenNodes)
+                Toggle("Show Done items", isOn: $showDoneNodes)
                     .padding()
             }
             .frame(minHeight: 260, maxHeight: .infinity)

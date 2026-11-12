@@ -106,11 +106,14 @@ public struct SwiftAcceptanceTestPreflight: AcceptanceTestPreflight {
         if isSyntaxError(message) || isOwnNamingMistake(message) { return .testAuthorMistake }
 
         let quoted = quotedSymbols(in: message)
-        if quoted.contains(where: { isDeclared($0, under: root.appending(path: testFolder)) }) {
+        let member = memberReference(in: message)
+        // For a missing member only its type can be the tests' own: tests often name locals after the member.
+        let ownCandidates = member.map { [$0.type] } ?? quoted
+        if ownCandidates.contains(where: { isDeclared($0, under: root.appending(path: testFolder)) }) {
             return .testAuthorMistake
         }
 
-        if let member = memberReference(in: message) {
+        if let member {
             if expectedAPI.contains(where: { api in
                 api.contains(member.type) && api.contains(member.member)
             }) {

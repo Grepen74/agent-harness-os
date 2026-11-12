@@ -405,6 +405,14 @@ public actor Reconciler {
             return "the implementer will try again on the latest landing branch"
         }
         guard let answer = Self.answer(on: ticket) else {
+            // Stopped by the acceptance-test compile check (tests not yet accepted): the person may have fixed the
+            // tests or the harness, so the test author runs again without needing a comment.
+            if node.openQuestions.isEmpty && node.spec.kind == .leaf && node.phase == .specified {
+                var kinds: [EventKind] = [.flagCleared(.needsInput)]
+                if node.flags[.escalated] != nil { kinds += [.flagCleared(.escalated), .attemptsReset] }
+                try await write(node.id, by: .human(person), kinds)
+                return "the test author will write the acceptance tests again"
+            }
             throw Rejection(reason: "Answer \(node.openQuestions.isEmpty ? "the review request" : "the questions") above in a comment " +
                 "first, then add harness:retry again. To build the tests as they are, add harness:build instead.")
         }

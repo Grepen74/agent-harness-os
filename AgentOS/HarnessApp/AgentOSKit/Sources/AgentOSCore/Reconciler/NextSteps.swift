@@ -24,7 +24,10 @@ extension Reconciler {
                 "if it still contains it unchanged, or closes it"))
         } else if node.flags[.needsInput] != nil {
             steps.append(step(.retest, "\(HarnessCommand.retest.label) to discard the current tests and restart the test author"))
-            if node.openQuestions.isEmpty {
+            if node.openQuestions.isEmpty && node.spec.kind == .leaf && node.phase == .specified {
+                steps.append(step(.retry, "\(HarnessCommand.retry.label) to have the test author write them again " +
+                    "(comment guidance first if you like)"))
+            } else if node.openQuestions.isEmpty {
                 steps.append(step(.build, "\(HarnessCommand.build.label) to approve the acceptance tests as they are"))
                 steps.append(step(.retry, "or comment with feedback on them, then \(HarnessCommand.retry.label)"))
             } else {
