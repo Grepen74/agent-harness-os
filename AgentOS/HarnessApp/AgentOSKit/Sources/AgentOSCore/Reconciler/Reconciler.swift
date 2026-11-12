@@ -4,7 +4,8 @@ public struct RoundReport: Sendable {
     public var actions: [String] = []
     /// Set when the reconciler refused to act (e.g. the ledger failed its integrity check).
     public var safeStop: String?
-    public var isIdle: Bool { actions.isEmpty }
+    public var hasRunningAgents = false
+    public var isIdle: Bool { actions.isEmpty && !hasRunningAgents }
 }
 
 /// The harness loop (doc 07). Each round: look at what should be true and what is proven, take the
@@ -26,10 +27,11 @@ public actor Reconciler {
     let acceptanceTestPreflight: any AcceptanceTestPreflight
     public nonisolated let policy: Policy
     public private(set) var team: AgentTeam
-    /// When each agent of the current round started and finished, in steps of `clock`.
+    /// Watched intervals, including finished intervals still needed by an overlapping watch.
     private var agentRuns: [RunID: AgentRunSpan] = [:]
     private var clock = 0
     private var tasks: [NodeID: Task<String?, Never>] = [:]
+    private var completedActions: [String] = []
     private var ownedRuns: [NodeID: RunID] = [:]
     private var stopReasons: [RunID: String] = [:]
     private var shutdownReason: String?
@@ -75,6 +77,11 @@ public actor Reconciler {
     // MARK: The loop
 
     public func runRound() async -> RoundReport {
+        await runRound(waitForAgents: true)
+    }
+
+    /// With waiting disabled, node steps remain owned by the reconciler across rounds.
+    public func runRound(waitForAgents: Bool) async -> RoundReport {
         var report = RoundReport()
         guard shutdownReason == nil, !Task.isCancelled else { return report }
         let chain = await ledger.verifyChain()
@@ -92,7 +99,12 @@ public actor Reconciler {
         await intakeSignals(&report)
         await intakeExternal(&report)
 
-        await advanceAll(&report)
+        if waitForAgents {
+            await self.waitForAgents()
+            await advanceAll(&report)
+        } else {
+            await scheduleAvailableSteps()
+        }
 
         // The landing queue: the only place where work happens strictly one at a time (doc 08 §4).
         for node in await ledger.workingState().landingQueue {
@@ -100,8 +112,20 @@ public actor Reconciler {
         }
 
         await projectStatuses()
+        report.actions += completedActions
+        completedActions.removeAll()
+        report.hasRunningAgents = !tasks.isEmpty
         report.safeStop = lifecycleFailure
         return report
+    }
+
+    /// Drains owned steps through their final fingerprint comparisons and durable effects.
+    /// Waiting never schedules another step.
+    public func waitForAgents() async {
+        while !tasks.isEmpty {
+            let pending = Array(tasks.values)
+            for task in pending { _ = await task.value }
+        }
     }
 
     /// After a restart: runs that were started but never finished are treated as expired claims.
@@ -604,7 +628,6 @@ public actor Reconciler {
     /// (for an agent, a check, git): each node has its own branch and working copy, and every claim is a
     /// compare-and-swap on the node's version. Actions are reported in node order, whatever finished first.
     private func advanceAll(_ report: inout RoundReport) async {
-        agentRuns.removeAll()
         let state = await ledger.workingState()
         let order = state.creationOrder.filter { id in
             guard let parent = state.nodes[id]?.spec.parent else { return true }
@@ -629,13 +652,32 @@ public actor Reconciler {
         report.actions += actions.keys.sorted().compactMap { actions[$0] }
     }
 
+    private func scheduleAvailableSteps() async {
+        let state = await ledger.workingState()
+        for id in state.creationOrder {
+            guard shutdownReason == nil, !Task.isCancelled,
+                  tasks.count < max(1, policy.maxParallelAgents) else { break }
+            guard tasks[id] == nil, let node = state.nodes[id], canAdvance(node, in: state) else { continue }
+            startStep(id, reportCompletion: true)
+        }
+    }
+
+    @discardableResult
+    private func startStep(_ id: NodeID, landing: Bool = false,
+                           reportCompletion: Bool = false) -> Task<String?, Never> {
+        let task = Task {
+            let result = await self.performStep(id, landing: landing)
+            if reportCompletion, let result { self.completedActions.append(result) }
+            self.tasks[id] = nil
+            return result
+        }
+        tasks[id] = task
+        return task
+    }
+
     private func step(_ id: NodeID, landing: Bool = false) async -> String? {
         guard shutdownReason == nil, !Task.isCancelled, tasks[id] == nil else { return nil }
-        let task = Task { await self.performStep(id, landing: landing) }
-        tasks[id] = task
-        let result = await task.value
-        tasks[id] = nil
-        return result
+        return await startStep(id, landing: landing).value
     }
 
     private func performStep(_ id: NodeID, landing: Bool) async -> String? {
@@ -688,30 +730,46 @@ public actor Reconciler {
         return result
     }
 
-    private func advance(_ node: NodeState, in state: WorkingState) async throws -> String? {
-        guard node.flags[.escalated] == nil, node.flags[.needsInput] == nil, node.activeRun == nil else { return nil }
+    private func canAdvance(_ node: NodeState, in state: WorkingState) -> Bool {
+        guard node.flags[.escalated] == nil, node.flags[.needsInput] == nil, node.activeRun == nil else { return false }
         // The parent was replanned: its children wait for its new breakdown.
-        if let parent = node.spec.parent.flatMap({ state.nodes[$0] }), parent.phase != .split { return nil }
+        if let parent = node.spec.parent.flatMap({ state.nodes[$0] }), parent.phase != .split { return false }
 
         switch (node.spec.kind, node.phase) {
         case (.composite, .specified):
-            guard state.hasGate(.breakdown, at: node.id) else { return nil }
+            return state.hasGate(.breakdown, at: node.id)
+        case (.composite, .split):
+            let children = node.children.compactMap { state.nodes[$0] }
+            return !children.isEmpty && children.allSatisfy { $0.phase == .proven }
+        case (.leaf, .specified):
+            return state.hasGate(.breakdown, at: node.id) || state.hasGate(.build, at: node.id)
+        case (.leaf, .ready):
+            return state.hasGate(.build, at: node.id) &&
+                (node.flags[.blocked] == nil || unresolvedDependencies(of: node, in: state).isEmpty)
+        case (.leaf, .checking):
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func advance(_ node: NodeState, in state: WorkingState) async throws -> String? {
+        guard canAdvance(node, in: state) else { return nil }
+
+        switch (node.spec.kind, node.phase) {
+        case (.composite, .specified):
             return try await breakDown(node, in: state)
 
         case (.composite, .split):
-            let children = node.children.compactMap { state.nodes[$0] }
-            guard !children.isEmpty, children.allSatisfy({ $0.phase == .proven }) else { return nil }
             // Up the V: every child has landed with all tests passing on main, so the whole is proven.
             try await write(node.id, by: .reconciler, [.phaseChanged(to: .proven)], expecting: node.version)
             await tracker.comment(on: node.ticket, "✅ Proven: every child has landed with all tests passing on main.")
             return "\(node.displayName) proven (all children proven)"
 
         case (.leaf, .specified):
-            guard state.hasGate(.breakdown, at: node.id) || state.hasGate(.build, at: node.id) else { return nil }
             return try await authorTests(node)
 
         case (.leaf, .ready):
-            guard state.hasGate(.build, at: node.id) else { return nil }
             let missing = unresolvedDependencies(of: node, in: state)
             guard missing.isEmpty else {
                 guard node.flags[.blocked] == nil else { return nil }
@@ -1693,6 +1751,7 @@ public actor Reconciler {
         defer {
             clock += 1
             agentRuns[run]?.end = clock
+            pruneAgentRuns()
         }
         let before = try await workspace.userGitState()
         let result = try await agent()
@@ -1703,6 +1762,17 @@ public actor Reconciler {
         let alongside = agentRuns.filter { $0.key != run && $0.value.start <= clock && ($0.value.end ?? .max) > mine.start }
             .map(\.value.ticket)
         throw UserGitStateChanged(names: Array(Set(changed)).sorted(), alongside: Array(Set(alongside)).sorted())
+    }
+
+    private func pruneAgentRuns() {
+        guard let oldestWatch = agentRuns.values.filter({ $0.end == nil }).map(\.start).min() else {
+            agentRuns.removeAll()
+            return
+        }
+        agentRuns = agentRuns.filter { _, span in
+            guard let end = span.end else { return true }
+            return end > oldestWatch
+        }
     }
 
     private struct AgentRunSpan {
