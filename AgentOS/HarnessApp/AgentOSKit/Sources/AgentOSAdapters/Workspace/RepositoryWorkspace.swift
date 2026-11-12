@@ -335,8 +335,10 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
 
     @discardableResult
     private func git(_ arguments: [String], in directory: URL) async throws -> String {
-        let result = try await ProcessRunner.run(
-            "/usr/bin/env", ["git", "-c", "core.excludesFile=\(excludeFile.path)"] + arguments, in: directory, timeout: .seconds(120))
+        let result = try await GitLocks.retryingAfterStaleLock {
+            try await ProcessRunner.run(
+                "/usr/bin/env", ["git", "-c", "core.excludesFile=\(excludeFile.path)"] + arguments, in: directory, timeout: .seconds(120))
+        }
         guard result.status == 0 else {
             throw AgentFailure("git \(arguments.first ?? "") failed: \(result.output.suffix(300))")
         }
