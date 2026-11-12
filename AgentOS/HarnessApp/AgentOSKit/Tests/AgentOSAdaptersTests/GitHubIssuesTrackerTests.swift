@@ -173,6 +173,13 @@ private actor FakeGitHub: GitHubTransport {
         #expect(filled.criteria == ["The total shows below the list", "Zero shows as \"—\""])
         #expect(filled.blockedBy == ["GH-12", "BACKEND-4"])
 
+        let worded = GitHubIssuesTracker.parse(body: """
+            ### Blocked by
+
+            item #4, BACKEND-4
+            """)
+        #expect(worded.blockedBy == ["GH-4", "BACKEND-4"])
+
         let empty = GitHubIssuesTracker.parse(body: "### Description\n\nDo it.\n\n### Acceptance criteria\n\n- [ ] A\n\n### Blocked by\n\n_No response_")
         #expect(empty == .init(description: "Do it.", criteria: ["A"], blockedBy: [], parent: nil, summary: nil, byHarness: false))
     }

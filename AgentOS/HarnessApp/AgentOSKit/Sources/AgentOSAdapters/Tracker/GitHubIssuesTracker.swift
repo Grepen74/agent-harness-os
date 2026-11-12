@@ -302,8 +302,11 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
         var inCriteria = false
         var blockedByNext = false
         func blockers(_ list: Substring) -> [String] {
+            // An entry may wrap the reference in words, e.g. "item #4".
             list.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.map { item in
-                if item.hasPrefix("#"), let number = Int(item.dropFirst()) { return key(number) }
+                if let match = item.firstMatch(of: /(?:^|[\s(\[])#(\d+)\b/), let number = Int(match.1) {
+                    return key(number)
+                }
                 return item
             }
         }
