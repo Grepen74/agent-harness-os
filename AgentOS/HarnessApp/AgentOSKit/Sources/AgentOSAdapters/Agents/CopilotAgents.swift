@@ -173,7 +173,8 @@ public struct CopilotCLI: Sendable {
             permissions, writes, execution, pushing, or deletion; and new kinds of things without repository \
             analogs. Do not turn these questions into assumptions. For internal names, structure, and details \
             users don't see, make a reasonable choice and list it as an assumption; no convention citation \
-            is needed. Questions must be answerable by the person who wrote the ticket, one point each.
+            is needed. Questions must be answerable by the person who wrote the ticket, one point each. \
+            \(suggestionRule)
             """
         }
         let rest = guesswork == .ask
@@ -181,8 +182,13 @@ public struct CopilotCLI: Sendable {
             : "For anything else (names, structure, details users don't see) make a reasonable choice and list it as an assumption."
         return "Ask a question when the spec and answers don't settle what users will observe: what to check, which screen " +
             "or output, which behaviour or value. Never guess that. \(rest) Questions must be answerable by the person " +
-            "who wrote the ticket, one point each."
+            "who wrote the ticket, one point each. \(suggestionRule)"
     }
+
+    /// Every question should come with the answer the agent would propose, so answering becomes reviewing (#14).
+    static let suggestionRule = "Give each question as {\"question\": string, \"suggestion\": string} with the answer " +
+        "you would propose, e.g. one an existing repository convention or the ticket's context points to; use a " +
+        "plain string only when no answer is sensible to propose."
 }
 
 /// What an agent reports besides its work.
@@ -309,8 +315,7 @@ public struct CopilotTestAuthor: TestAuthor {
 
         \(CopilotCLI.guessingRules(task.guesswork, repositoryConventions: true)) Report them in \(AgentReportFile.name) at the top of your \
         working directory, as {"questions": [string or {"question": string, "suggestion": string}], \
-        "assumptions": [string], "expectedAPI": [string]}. When an existing repository convention suggests an \
-        answer, include that answer as the question's suggestion instead of omitting it. \
+        "assumptions": [string], "expectedAPI": [string]}. \
         List the public production symbols and signatures your tests expect in expectedAPI. If you have questions, \
         write only that report and no tests.
 

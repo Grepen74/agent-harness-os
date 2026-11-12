@@ -265,6 +265,55 @@ struct GH_30_5Tests {
         #expect(response.contains("harness:retry"))
     }
 
+    @Test(arguments: [AgentRole.decomposer, .testAuthor])
+    func correctionsAcceptTheQuestionCommentFormAndSeveralLines(role: AgentRole) async throws {
+        let fixture = try await Fixture(role: role)
+        try await fixture.advance()
+        await fixture.tracker.correct("1. Answer: Use a grid\n2. Show all matching results")
+
+        try await fixture.advance()
+
+        let answers = try #require(await fixture.node()).clarifications
+        #expect(answers.contains { $0.questions == [Fixture.questions[0].question] && $0.answer == "Use a grid" })
+        #expect(answers.contains {
+            $0.questions == [Fixture.questions[1].question] && $0.answer == "Show all matching results"
+        })
+        #expect(try #require(await fixture.tracker.replies().last).hasPrefix("✅"))
+    }
+
+    @Test
+    func aPlainRetryOfAnEscalatedNodeWithOldSuggestionsClearsTheEscalation() async throws {
+        let fixture = try await Fixture(role: .testAuthor)
+        try await fixture.advance()
+        try await fixture.record(Fixture.id, [.flagSet(.escalated, reason: "Couldn't write acceptance tests")])
+        await fixture.tracker.correct("Please try again")
+
+        try await fixture.advance()
+
+        let node = try #require(await fixture.node())
+        #expect(node.flags[.escalated] == nil)
+        #expect(node.clarifications.isEmpty)
+        let response = try #require(await fixture.tracker.replies().last)
+        #expect(response.hasPrefix("✅"))
+        #expect(response.contains("escalation cleared"))
+    }
+
+    @Test
+    func aNumberedCorrectionOfAnEscalatedNodeStillCorrectsTheSuggestion() async throws {
+        let fixture = try await Fixture(role: .testAuthor)
+        try await fixture.advance()
+        try await fixture.record(Fixture.id, [.flagSet(.escalated, reason: "Couldn't write acceptance tests")])
+        await fixture.tracker.correct("2: Show all matching results")
+
+        try await fixture.advance()
+
+        let node = try #require(await fixture.node())
+        #expect(node.clarifications.contains {
+            $0.questions == [Fixture.questions[1].question] && $0.answer == "Show all matching results"
+        })
+        #expect(try #require(await fixture.tracker.replies().last).hasPrefix("✅"))
+    }
+
     private static func hasWorkLink(_ response: String, ticket: String, node: NodeID) -> Bool {
         let expression = #/\[[^\]]+\]\([^)]+\)/#
         return response.matches(of: expression).contains {

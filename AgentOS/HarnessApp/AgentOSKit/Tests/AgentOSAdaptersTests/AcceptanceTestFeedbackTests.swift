@@ -53,4 +53,9 @@ struct AcceptanceTestFeedbackTests {
         #expect(prompt.contains("'Comment' is ambiguous between AgentOSCore.Comment and Testing.Comment"))
         #expect(prompt.contains("`private`"))
     }
+
+    @Test(arguments: Guesswork.allCases)
+    func questionsAreAskedWithSuggestedAnswersAtEveryLevel(guesswork: Guesswork) {
+        #expect(CopilotCLI.guessingRules(guesswork, repositoryConventions: true).contains("\"suggestion\""))
+    }
 }
