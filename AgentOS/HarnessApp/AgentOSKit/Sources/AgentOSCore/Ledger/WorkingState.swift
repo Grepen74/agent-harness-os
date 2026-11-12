@@ -262,7 +262,11 @@ public struct WorkingState: Sendable {
                 node.latestTestFeedback = review.result.findings.joined(separator: "\n")
             }
             if review.stage == .change {
-                node.latestReviewFeedback = review.result.passed ? nil : review.result.findings.joined(separator: "\n")
+                node.latestReviewFeedback = review.result.passed || review.result.findings.isEmpty
+                    ? nil : review.result.findings.joined(separator: "\n")
+                if !review.result.passed, let tests = review.result.testFindings, !tests.isEmpty {
+                    node.latestTestFeedback = tests.joined(separator: "\n")
+                }
             }
         case .humanReviewRequested(let commit):
             node.pendingHumanReview = commit

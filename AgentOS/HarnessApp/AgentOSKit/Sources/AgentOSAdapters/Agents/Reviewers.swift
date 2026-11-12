@@ -7,21 +7,29 @@ public struct CopilotReviewer: Reviewer {
     public init(cli: CopilotCLI) { self.cli = cli }
 
     public func review(_ request: ReviewRequest) async throws -> ReviewResult {
-        let output = try await cli.run(Self.prompt(for: request), in: request.directory)
-        return try Self.result(from: output)
+        let run = try await cli.runFallingBack(Self.prompt(for: request), in: request.directory)
+        var result = try Self.result(from: run.output)
+        result.model = run.model
+        result.unavailableModels = run.unavailableModels.isEmpty ? nil : run.unavailableModels
+        return result
     }
 
     static func result(from output: String) throws -> ReviewResult {
         guard let start = output.firstIndex(of: "{"), let end = output.lastIndex(of: "}") else {
             throw AgentFailure("Reviewer did not return a JSON review result.")
         }
-        return try JSONDecoder().decode(ReviewResult.self, from: Data(output[start...end].utf8))
+        let reported = try JSONDecoder().decode(ReviewResult.self, from: Data(output[start...end].utf8))
+        let tests = reported.testFindings?.isEmpty == false ? reported.testFindings : nil
+        return ReviewResult(passed: reported.passed && tests == nil, findings: reported.findings, testFindings: tests)
     }
 
     public static func prompt(for request: ReviewRequest) -> String {
         """
         Independently review the \(request.stage.rawValue). Read only; never edit files or run git.
-        Return only JSON: {"passed": Bool, "findings": [String]}. Each finding must explain the problem.
+        Return only JSON: {"passed": Bool, "findings": [String], "testFindings": [String]}. Each finding must explain the problem.
+        At the change stage the implementer may not edit the acceptance tests listed below: put problems in those \
+        tests in testFindings (they go to the test author) and everything else in findings (they go to the \
+        implementer). At the acceptanceTests stage leave testFindings empty. passed is false if either has a finding.
         Reject acceptance tests that only check constants or types, use made-up APIs instead of real behavior,
         or pass without the requirement being met. Check the tests against every ticket criterion.
         At the acceptanceTests stage, production APIs may not exist yet: evaluate the proposed test contract,

@@ -59,7 +59,7 @@ public final class RepositorySession: Sendable {
             team.reviewer = CommandReviewer(command: command)
         } else {
             team.reviewer = CopilotReviewer(cli: CopilotCLI(
-                executable: executable, model: selection.model,
+                executable: executable, model: selection.model, fallbackModels: policy.policy.review.reviewerFallbacks,
                 deniedTools: policy.deniedTools + ["write", "git"], protectedPaths: policy.protectedPaths))
         }
         return team

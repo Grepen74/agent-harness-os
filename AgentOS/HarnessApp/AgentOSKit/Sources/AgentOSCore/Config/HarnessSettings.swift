@@ -297,6 +297,10 @@ public struct EffectivePolicy: Sendable, Equatable {
                     || ((selection.model?.isEmpty != false) == (selection.command?.isEmpty != false)) {
             refuse("Invalid reviewer selection", "Choose default, or specific with exactly one model or command.")
         }
+        if review.reviewer.command == nil, let chosen = review.reviewer.model {
+            let implementer = result.agentModels[.implementer]
+            review.reviewerFallbacks = harness.review.offeredModels.filter { $0 != chosen && $0 != implementer } + [nil]
+        }
         result.policy.review = review
         result.settings.append(EffectiveSetting(name: "Review level", value: review.level.rawValue,
                                                 source: levelSource, note: levelNote))

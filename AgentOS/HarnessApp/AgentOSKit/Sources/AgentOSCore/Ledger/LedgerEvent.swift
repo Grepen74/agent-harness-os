@@ -201,7 +201,10 @@ extension EventKind {
         case .attemptsReset: "attempts reset"
         case .testsFixed(let digest): "acceptance tests fixed (\(digest.prefix(8)))"
         case .reviewRecorded(let review):
-            "\(review.stage.rawValue) review \(review.result.passed ? "passed" : "failed"): \(review.result.findings.joined(separator: "\n"))"
+            "\(review.stage.rawValue) review \(review.result.passed ? "passed" : "failed")"
+                + (review.result.unavailableModels.map { " (\($0.joined(separator: ", ")) not available; reviewed with "
+                    + "\(review.result.model ?? "the CLI's default model"))" } ?? "")
+                + ": \(review.result.findings.joined(separator: "\n"))"
         case .humanReviewRequested(let commit): "human review requested for \(commit)"
         case .humanReviewApproved(let commit): "human review approved for \(commit)"
         case .expectedAPIReported(let api): "acceptance-test API: \(api.joined(separator: ", "))"

@@ -126,10 +126,40 @@ struct GH_28Tests {
     }
 
     @Test
-    func aModelTheAccountDoesntOfferIsNamedInTheFailure() {
-        let output = "\nExecution failed: Model \"claude-sonnet-4.5\" is not available.\n"
-        #expect(CopilotCLI.unavailableModel(in: output) == "claude-sonnet-4.5")
-        #expect(CopilotCLI.unavailableModel(in: "Execution failed: timeout") == nil)
+    func theReviewerFallsBackToOtherOfferedModelsThenTheCLIsDefault() throws {
+        var configured = try settings(minimum: "agent")
+        configured.models[.implementer] = "model-a"
+        configured.review.offeredModels = ["model-a", "model-b", "model-c"]
+        let policy = EffectivePolicy.resolve(harness: configured, repo: nil, defaultBranch: "main")
+        let team = RepositorySession.copilotTeam(executable: "/not-executed/copilot", policy: policy)
+        let reviewer = try #require(team.reviewer as? CopilotReviewer)
+        #expect(reviewer.cli.model == "model-b")
+        #expect(reviewer.cli.fallbackModels == ["model-c", nil])
+    }
+
+    @Test
+    func aModelTheAccountDoesntOfferIsSkippedForTheNextOne() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "gh28-models-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let copilot = directory.appending(path: "copilot")
+        try """
+        #!/bin/sh
+        model=default
+        while [ $# -gt 0 ]; do [ "$1" = --model ] && model=$2; shift; done
+        case $model in gone|also-gone) echo "Execution failed: Model \\"$model\\" is not available."; exit 1;; esac
+        echo "ran with $model"
+        """.write(to: copilot, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: copilot.path)
+
+        let cli = CopilotCLI(executable: copilot.path, model: "gone", fallbackModels: ["also-gone", "working", nil])
+        let run = try await cli.runFallingBack("review", in: directory)
+        #expect(run.output.contains("ran with working"))
+        #expect(run.model == "working")
+        #expect(run.unavailableModels == ["gone", "also-gone"])
+
+        let none = CopilotCLI(executable: copilot.path, model: "gone", fallbackModels: ["also-gone"])
+        await #expect(throws: AgentFailure.self) { try await none.runFallingBack("review", in: directory) }
     }
 
     @Test
@@ -349,6 +379,34 @@ struct GH_28Tests {
         try #require(reviews.count == 2)
         #expect(reviews[0].context.commit != reviews[1].context.commit)
         #expect(await fixture.workspace.landedCommit == reviews[1].context.commit)
+    }
+
+    @Test
+    func aReviewWithTestFindingsFailsEvenIfTheReviewerSaidPassed() throws {
+        let clean = try CopilotReviewer.result(from: #"{"passed": true, "findings": [], "testFindings": []}"#)
+        #expect(clean.passed && clean.testFindings == nil)
+        let tests = try CopilotReviewer.result(from: #"{"passed": true, "findings": [], "testFindings": ["Order-dependent."]}"#)
+        #expect(!tests.passed && tests.testFindings == ["Order-dependent."])
+    }
+
+    @Test
+    func changeReviewFindingsInTheTicketsOwnTestsGoToTheTestAuthorNotTheImplementer() async throws {
+        let testFinding = "The test requires B to start before C, though the ticket only bounds concurrency."
+        let changeFinding = "Package.swift: the test target doesn't declare the module it imports."
+        let fixture = try await Fixture(changeResults: [
+            .init(passed: false, findings: [changeFinding], testFindings: [testFinding]), .init(passed: true, findings: []),
+        ])
+        defer { fixture.cleanUp() }
+        try await fixture.advanceUntil { await fixture.author.tasks.count == 2 }
+        let rewrite = try #require(await fixture.author.tasks.last)
+        #expect(rewrite.previousFailure?.contains(testFinding) == true)
+        #expect(await fixture.node()?.flags[.escalated] == nil)
+        try await fixture.advanceUntil { await fixture.builder.tasks.count == 2 }
+        let rebuild = try #require(await fixture.builder.tasks.last)
+        #expect(rebuild.previousFailure?.contains(changeFinding) == true)
+        #expect(rebuild.previousFailure?.contains(testFinding) != true)
+        try await fixture.advanceUntil { await fixture.workspace.landedCount == 1 }
+        #expect(await fixture.tracker.comments.contains { $0.contains("sent back to the test author") && $0.contains(testFinding) })
     }
 
     @Test

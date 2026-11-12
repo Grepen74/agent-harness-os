@@ -1532,7 +1532,7 @@ public actor Reconciler {
                     }
                     if !result.passed {
                         try await write(node.id, by: checker, [.evidenceRecorded(evidence)])
-                        return try await returnReviewFindings(result, stage: .change, node: node, run: run)
+                        return try await returnReviewFindings(result, stage: .change, node: node, run: run, directory: directory)
                     }
                     if level == .agentAndHuman, current.approvedReviewCommit != context.commit {
                         try await write(node.id, by: checker, [
@@ -1872,7 +1872,10 @@ public actor Reconciler {
                         missing.append("An after screenshot is required for human UI review.")
                     }
                 }
-                if !missing.isEmpty { result = ReviewResult(passed: false, findings: result.findings + missing) }
+                if !missing.isEmpty {
+                    result = ReviewResult(passed: false, findings: result.findings + missing, testFindings: result.testFindings,
+                                          model: result.model, unavailableModels: result.unavailableModels)
+                }
             }
         }
         try await write(node.id, by: .reconciler, [.reviewRecorded(ReviewRecord(
@@ -1881,7 +1884,7 @@ public actor Reconciler {
     }
 
     private func returnReviewFindings(_ result: ReviewResult, stage: ReviewStage,
-                                     node: NodeState, run: RunID) async throws -> String {
+                                     node: NodeState, run: RunID, directory: URL? = nil) async throws -> String {
         let records = await ledger.allRecords().filter { $0.event.node == node.id }
         let reset = records.lastIndex { if case .attemptsReset = $0.event.kind { return true }; return false }
         let failures = records.dropFirst(reset.map { $0 + 1 } ?? 0).compactMap { record -> ReviewRecord? in
@@ -1890,16 +1893,24 @@ public actor Reconciler {
             return review
         }
         let escalated = failures.count >= policy.review.maxRounds
-        let findings = (escalated ? failures.flatMap(\.result.findings) : result.findings).joined(separator: "\n")
+        let findings = (escalated ? failures.flatMap(\.result.allFindings) : result.allFindings).joined(separator: "\n")
         let reason = "\(stage.rawValue) review findings:\n\(findings)\nComment with guidance, then add harness:retry."
+        // The implementer may not change the ticket's acceptance tests: problems in them go to the test author.
+        let toTestAuthor = stage == .acceptanceTests || (result.testFindings != nil && !escalated)
+        if stage == .change, toTestAuthor, let directory { try await workspace.resetForRework(directory) }
         var kinds: [EventKind] = [
             .runFinished(run: run, outcome: "review findings"),
-            .phaseChanged(to: stage == .acceptanceTests ? .specified : .ready),
+            .phaseChanged(to: toTestAuthor ? .specified : .ready),
         ]
         if escalated { kinds.append(.flagSet(.escalated, reason: reason)) }
         try await write(node.id, by: .reconciler, kinds)
-        await tracker.comment(on: node.ticket, reason)
-        return "\(node.displayName) review findings → \(escalated ? "Needs human" : stage == .acceptanceTests ? "test author" : "implementer")"
+        if stage == .change, toTestAuthor {
+            await tracker.comment(on: node.ticket, "🔁 Change review found problems in this ticket's acceptance tests, "
+                + "sent back to the test author:\n\(findings)")
+        } else {
+            await tracker.comment(on: node.ticket, reason)
+        }
+        return "\(node.displayName) review findings → \(escalated ? "Needs human" : toTestAuthor ? "test author" : "implementer")"
     }
 
     private func makeTask(_ node: NodeState, run: RunID, in directory: URL, log: URL?,

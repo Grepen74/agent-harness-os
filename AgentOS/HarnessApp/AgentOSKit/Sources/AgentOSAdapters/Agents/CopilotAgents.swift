@@ -12,15 +12,18 @@ import Foundation
 public struct CopilotCLI: Sendable {
     public var executable: String
     public var model: String?
+    /// Tried in order when the CLI says `model` isn't available to the account (nil: the CLI's default model).
+    public var fallbackModels: [String?]
     public var timeout: Duration
     /// Policy names ("git push", "network installs") or Copilot patterns ("shell(rm)", "write(.env)").
     public var deniedTools: [String]
     public var protectedPaths: [String]
 
-    public init(executable: String, model: String? = nil, timeout: Duration = .seconds(1200),
+    public init(executable: String, model: String? = nil, fallbackModels: [String?] = [], timeout: Duration = .seconds(1200),
                 deniedTools: [String] = HarnessSettings.deniedTools, protectedPaths: [String] = []) {
         self.executable = executable
         self.model = model
+        self.fallbackModels = fallbackModels
         self.timeout = timeout
         self.deniedTools = deniedTools
         self.protectedPaths = protectedPaths
@@ -65,9 +68,49 @@ public struct CopilotCLI: Sendable {
 
     func run(_ prompt: String, in directory: URL, log: URL? = nil, silent: Bool = true,
              agentContext: AgentContext = AgentContext(), includeComments: Bool = true) async throws -> String {
+        try await runFallingBack(prompt, in: directory, log: log, silent: silent,
+                                 agentContext: agentContext, includeComments: includeComments).output
+    }
+
+    struct Run: Sendable {
+        let output: String
+        /// The model that ran (nil: the CLI's default).
+        let model: String?
+        /// Models tried before it that the account can't use.
+        let unavailableModels: [String]
+    }
+
+    /// Runs with `model`, then each of `fallbackModels` in turn while the CLI says the model isn't available.
+    func runFallingBack(_ prompt: String, in directory: URL, log: URL? = nil, silent: Bool = true,
+                        agentContext: AgentContext = AgentContext(), includeComments: Bool = true) async throws -> Run {
+        var candidates: [String?] = []
+        for candidate in [model] + fallbackModels where !candidates.contains(candidate) { candidates.append(candidate) }
+        var unavailable: [String] = []
+        for candidate in candidates {
+            var attempt = self
+            attempt.model = candidate
+            let note = unavailable.isEmpty ? "" : "Model \(unavailable.map { "\"\($0)\"" }.joined(separator: ", ")) not "
+                + "available; running with \(candidate.map { "\"\($0)\"" } ?? "the CLI's default model") instead.\n"
+            do {
+                let output = try await attempt.runOnce(prompt, in: directory, log: log, silent: silent, note: note,
+                                                       agentContext: agentContext, includeComments: includeComments)
+                return Run(output: output, model: candidate, unavailableModels: unavailable)
+            } catch let failure as UnavailableModel {
+                unavailable.append(failure.model)
+            }
+        }
+        let names = unavailable.map { "\"\($0)\"" }.joined(separator: ", ")
+        throw AgentFailure("Model \(names) \(unavailable.count == 1 ? "isn't" : "aren't") available to your Copilot account. "
+            + "Choose another one in Settings (Agent models, or Review → Reviewer and offered reviewer models) or in the repo config")
+    }
+
+    private struct UnavailableModel: Error { let model: String }
+
+    private func runOnce(_ prompt: String, in directory: URL, log: URL?, silent: Bool, note: String,
+                         agentContext: AgentContext, includeComments: Bool) async throws -> String {
         let count = includeComments ? agentContext.ticketComments.count + (agentContext.parent?.comments.count ?? 0) : 0
         let inventory = """
-        Context inventory: comments: \(count)
+        \(note)Context inventory: comments: \(count)
         Linked issues: \(agentContext.linkedIssues.map(\.key).joined(separator: ", "))
         Parent: \(agentContext.parent?.key ?? "none")
         Design documents: \(agentContext.designDocumentPaths.joined(separator: ", "))
@@ -76,10 +119,7 @@ public struct CopilotCLI: Sendable {
         let result = try await ProcessRunner.run(executable, arguments(prompt: prompt, in: directory, silent: silent), in: directory,
                                                  timeout: timeout, log: log, timeZone: .current, logPreamble: inventory)
         guard result.status == 0 else {
-            if let unavailable = Self.unavailableModel(in: result.output) {
-                throw AgentFailure("Model \"\(unavailable)\" isn't available to your Copilot account. Choose another one in "
-                    + "Settings (Agent models, or Review → Reviewer and offered reviewer models) or in the repo config")
-            }
+            if let unavailable = Self.unavailableModel(in: result.output) { throw UnavailableModel(model: unavailable) }
             throw AgentFailure("copilot exited with \(result.status): \(result.output.suffix(300))")
         }
         return result.output
@@ -417,6 +457,8 @@ extension AgentTeam {
         func forRole(_ role: AgentRole) -> CopilotCLI {
             var configured = cli
             configured.model = models[role] ?? cli.model
+            // A configured model your account has lost: work on with the CLI's default rather than stop.
+            if configured.model != nil, configured.fallbackModels.isEmpty { configured.fallbackModels = [nil] }
             return configured
         }
         return AgentTeam(

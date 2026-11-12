@@ -43,6 +43,9 @@ public struct ReviewPolicy: Sendable, Equatable {
     public var instructions: String?
     public var maxRounds = 2
     public var reviewer = ReviewerSelection()
+    /// Tried in order when the reviewer's model isn't available: other offered reviewer models that differ from
+    /// the implementer's, then the agent CLI's default (nil).
+    public var reviewerFallbacks: [String?] = []
     public var baseBranch = "agentos/main"
 
     public init() {}
@@ -66,12 +69,26 @@ public enum ReviewStage: String, Codable, Sendable, Equatable {
 
 public struct ReviewResult: Codable, Sendable, Equatable {
     public let passed: Bool
+    /// Findings for whoever wrote what's under review: the test author or, at the change stage, the implementer.
     public let findings: [String]
+    /// Change stage: findings about the ticket's own acceptance tests, which only the test author may change.
+    public var testFindings: [String]?
+    /// The model that reviewed, set by the harness (nil: the agent CLI's default or not a model reviewer).
+    public var model: String?
+    /// Models tried first that the account can't use, so the review fell back to `model`.
+    public var unavailableModels: [String]?
 
-    public init(passed: Bool, findings: [String]) {
+    public init(passed: Bool, findings: [String], testFindings: [String]? = nil,
+                model: String? = nil, unavailableModels: [String]? = nil) {
         self.passed = passed
         self.findings = findings
+        self.testFindings = testFindings?.isEmpty == true ? nil : testFindings
+        self.model = model
+        self.unavailableModels = unavailableModels
     }
+
+    /// Every finding, test findings included.
+    public var allFindings: [String] { findings + (testFindings ?? []) }
 }
 
 public struct UIReviewEvidence: Codable, Sendable, Equatable {

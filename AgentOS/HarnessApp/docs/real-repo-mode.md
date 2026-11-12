@@ -229,9 +229,12 @@ Harness settings save review as `{"level":"agent","reviewer":{"type":"default"},
 Older saved settings retain the agent minimum. A specific reviewer uses
 `{"type":"specific","model":"model-name"}` or `{"type":"specific","command":"local-review --stdin"}`.
 Commands receive the complete review prompt on stdin and must return
-`{"passed":true,"findings":[]}` (nonzero exit or invalid JSON stops work for a person).
+`{"passed":true,"findings":[]}`, optionally with `"testFindings":[…]` at the change stage (nonzero exit or invalid JSON stops work for a person).
 A repo can set `review.model` only to a model in the review-specific offered list.
-
+When the CLI says a model isn't available to your account, a Copilot reviewer tries the other offered
+reviewer models that differ from the implementer's, then the agent CLI's default; the review event in
+the ledger names the models skipped and the one that reviewed. An agent role whose configured model
+isn't available runs with the CLI's default. The run's log starts with a note of the switch.
 The strictest level among the overall policy and every declared or actually changed area applies.
 A lower repo level, including an area below the overall level, is a start blocker. The effective
 Review level and Reviewer rows each retain their own harness/repo source.
@@ -241,7 +244,10 @@ tests return to their author with findings. After all landing checks pass, the r
 ticket, complete diff against the landing branch, recent same-file history, and configured repository
 rules. The built-in checklist covers regressions and loosened constraints, per-line/loop I/O and
 allocation, duplicated logic, and tests that fail to prove the requirement. Rejected changes return to
-the implementer without unlocking the acceptance tests. After `maxRounds` reviews with findings at
+the implementer without unlocking the acceptance tests. Since the implementer may not change them, the
+reviewer lists problems in the ticket's own acceptance tests separately (`testFindings`): those send the
+ticket back to the test author, keeping only its tests commit, and the implementer then builds again with
+the remaining findings. After `maxRounds` reviews with findings at
 either stage (default 2), work escalates; a human `harness:retry` resets the limit.
 
 UI changes must include snapshot evidence and confirmation that windows actually open and close.
@@ -376,6 +382,9 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
 - **Run cleanup.** Pause prevents new rounds but lets the current work finish. Closing a repository
   window or quitting the app stops and awaits all its active agents and checks, recording why they
   ended. Opening a repository durably abandons old runs before readiness blockers are considered.
+  A git command killed mid-write (a timeout, quitting) can leave a lock such as `index.lock` behind.
+  When the harness's own git hits a lock file that no process has open, it removes it and runs the
+  command once more; a lock some process still holds is left alone.
   Post-start errors always finish their run with the diagnostic. Checks that write nothing for
   10 minutes are ended as hung and retain their log; `CommandCheckRunner.idleTimeout` configures this
   limit independently of the 30-minute total timeout. Any output, including partial lines, resets it.
