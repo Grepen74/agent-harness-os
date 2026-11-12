@@ -14,6 +14,18 @@ public struct PolicyPane: View {
             PaneHeader(title: "Policy", subtitle: "Harness settings are the limits; \(RepoConfig.path) may only tighten them.")
             List {
                 if model.readiness != nil { configFile }
+                if let snippet = model.repoConfigOverrideSnippet {
+                    Section("Selected repo override") {
+                        if let instructions = model.repoConfigOverrideInstructions {
+                            Text(instructions).font(.caption).foregroundStyle(.secondary)
+                        }
+                        Text(snippet).font(.caption.monospaced()).textSelection(.enabled)
+                        Button("Copy override") {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(snippet, forType: .string)
+                        }
+                    }
+                }
                 if let policy = model.policy {
                     PolicySettingsView(policy: policy)
                 }
@@ -25,7 +37,13 @@ public struct PolicyPane: View {
                     }
                     Section("Baseline on \(model.readiness?.branch ?? "the default branch")") { baseline }
                 } else if let draft = model.configDraft {
-                    Section("Draft \(RepoConfig.path)") { DraftView(draft: draft) }
+                    Section("Draft \(RepoConfig.path)") {
+                        if let explanation = model.configDraftExplanation {
+                            Label(explanation, systemImage: "exclamationmark.triangle.fill")
+                                .font(.caption).foregroundStyle(.orange)
+                        }
+                        DraftView(draft: draft)
+                    }
                 } else if model.readiness != nil {
                     Section("No config") {
                         Text("Couldn't guess the build and test commands. Write \(RepoConfig.path) by hand.")
@@ -51,6 +69,10 @@ public struct PolicyPane: View {
             }
             Text("Edits the copy in your checkout. The harness reads the one committed on \(branch), so commit your change there.")
                 .font(.caption).foregroundStyle(.secondary)
+            if let error = model.repoConfigFileError {
+                Label(error, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption).foregroundStyle(.red).textSelection(.enabled)
+            }
             if let pending = model.readiness?.findings.first(where: { $0.check == "checkout.config" }) {
                 Label(pending.title + ". " + (pending.suggestion ?? ""), systemImage: "exclamationmark.triangle.fill")
                     .font(.caption).foregroundStyle(.orange)
@@ -224,7 +246,7 @@ private struct DraftView: View {
     let draft: String
 
     var body: some View {
-        Text("Guessed from the scan. Check it, create it in your checkout, then commit it on the default branch yourself: "
+        Text("Includes any commands guessed from the scan and your selected overrides. Check it, create it in your checkout, then commit it on the default branch yourself: "
              + "the harness writes it only when you ask, never commits it, and never edits the files that steer it.")
             .font(.caption).foregroundStyle(.secondary)
         Text(draft).font(.caption.monospaced()).textSelection(.enabled)

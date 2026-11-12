@@ -206,15 +206,18 @@ final class RepositoryModel: HarnessActions {
 
     func openRepoConfig() {
         guard let root else { return }
-        do {
-            let (file, created) = try RepoConfigFile.prepare(in: root, draft: view.configDraft)
+        view.openRepoConfig(prepare: { draft in
+            let (file, created) = try RepoConfigFile.prepare(in: root, draft: draft)
             if created {
-                log("Wrote \(view.configDraft == nil ? "an empty" : "the draft") \(RepoConfig.path) in your checkout. "
+                log("Wrote \(draft == nil ? "an empty" : "the draft") \(RepoConfig.path) in your checkout. "
                     + "Commit it on \(location?.branch ?? "the default branch"), then rescan.")
             }
+            return file
+        }, open: { file in
             NSWorkspace.shared.open(file)
-        } catch {
-            log("⛔️ Couldn't create \(RepoConfig.path): \(error)")
+        })
+        if let error = view.repoConfigFileError {
+            log("⛔️ \(error)")
         }
     }
 

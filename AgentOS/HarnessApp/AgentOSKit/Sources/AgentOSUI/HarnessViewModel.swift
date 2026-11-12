@@ -72,6 +72,31 @@ public final class HarnessViewModel {
     public var policy: EffectivePolicy?
     public var config: RepoConfig?
     public var configDraft: String?
+    public private(set) var repoConfigOverrideSnippet: String?
+    public private(set) var repoConfigFileError: String?
+
+    public var repoConfigOverrideInstructions: String? {
+        guard repoConfigOverrideSnippet != nil else { return nil }
+        let branch = readiness?.branch ?? "the default branch"
+        if config != nil {
+            return "Merge this fragment into \(RepoConfig.path), preserving existing sibling keys. "
+                + "Commit on \(branch), then rescan. The harness does not edit the file."
+        }
+        return "Included in the creation draft below. Choose Create \(RepoConfig.path), check the file, "
+            + "commit on \(branch), then rescan."
+    }
+
+    public var configDraftExplanation: String? {
+        guard config == nil, let configDraft else { return nil }
+        do {
+            _ = try RepoConfig.parse(configDraft)
+            return nil
+        } catch {
+            return "This draft cannot load yet: \(error). A test.command is required before successful loading. "
+                + "Add your repository's test command before committing and rescanning."
+        }
+    }
+
     public var isRunningBaseline = false
     public weak var actions: (any HarnessActions)?
 
@@ -100,10 +125,56 @@ public final class HarnessViewModel {
     func verifyChain() async { await actions?.verifyChain() }
     func tamper() async { await actions?.tamperWithLedger() }
     func restoreLedger() async { await actions?.restoreLedger() }
-    func rescan() async { await actions?.rescan() }
+    public func rescan() async { await actions?.rescan() }
     func runBaseline() async { await actions?.runBaseline() }
     func open(_ path: String) { actions?.open(path) }
-    func openRepoConfig() { actions?.openRepoConfig() }
+    public func openRepoConfig() { actions?.openRepoConfig() }
+
+    /// Updates only the displayed draft or merge snippet, never the loaded config or checkout.
+    public func selectRepoConfigOverride(_ fragment: String) throws {
+        let override = try Self.configObject(fragment)
+        let snippet = try Self.configJSON(override)
+        if config == nil {
+            let draft = try configDraft.map(Self.configObject) ?? [:]
+            configDraft = try Self.configJSON(Self.merging(override, into: draft))
+        }
+        repoConfigOverrideSnippet = snippet
+    }
+
+    /// The explicit create/open boundary. Preparation belongs to the adapter supplied by the app.
+    public func openRepoConfig(prepare: (String?) throws -> URL, open: (URL) -> Void) {
+        do {
+            let file = try prepare(configDraft)
+            repoConfigFileError = nil
+            open(file)
+        } catch {
+            repoConfigFileError = "Couldn't create or open \(RepoConfig.path): \(error)"
+        }
+    }
+
+    private static func configObject(_ text: String) throws -> [String: Any] {
+        guard let object = try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any] else {
+            throw CocoaError(.propertyListReadCorrupt, userInfo: [
+                NSLocalizedDescriptionKey: "Repo config drafts and override fragments must be JSON objects."
+            ])
+        }
+        return object
+    }
+
+    private static func configJSON(_ object: [String: Any]) throws -> String {
+        let data = try JSONSerialization.data(withJSONObject: object,
+                                              options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    private static func merging(_ override: [String: Any], into draft: [String: Any]) -> [String: Any] {
+        draft.merging(override) { existing, selected in
+            if let existing = existing as? [String: Any], let selected = selected as? [String: Any] {
+                return merging(selected, into: existing)
+            }
+            return selected
+        }
+    }
     func worktree(of node: NodeID) -> URL? { actions?.worktree(of: node) }
     func agentLog(of node: NodeID, run: RunID) -> URL? { actions?.agentLog(of: node, run: run) }
     func changes(of node: NodeID) async -> String { await actions?.changes(of: node) ?? "" }
