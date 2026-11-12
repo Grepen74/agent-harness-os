@@ -102,16 +102,34 @@ struct GH_28Tests {
     }
 
     @Test
-    func theDefaultReviewerActuallyUsesADifferentExplicitModelFromTheImplementer() throws {
-        let harness = try settings(minimum: "agent")
-        var configured = harness
-        configured.models[.implementer] = "gpt-5.3-codex"
+    func theDefaultReviewerUsesAnOfferedModelDifferentFromTheImplementers() throws {
+        var configured = try settings(minimum: "agent")
+        configured.models[.implementer] = "model-a"
+        configured.review.offeredModels = ["model-a", "model-b"]
         let policy = EffectivePolicy.resolve(harness: configured, repo: nil, defaultBranch: "main")
         let team = RepositorySession.copilotTeam(executable: "/not-executed/copilot", policy: policy)
         let reviewer = try #require(team.reviewer as? CopilotReviewer)
-        let model = try #require(reviewer.cli.model)
-        #expect(!model.isEmpty)
-        #expect(model != policy.agentModels[.implementer])
+        #expect(reviewer.cli.model == "model-b")
+    }
+
+    @Test
+    func withoutOfferedReviewerModelsTheDefaultReviewerUsesTheCLIsDefaultModelNeverAMadeUpOne() throws {
+        var configured = try settings(minimum: "agent")
+        configured.models[.implementer] = "model-a"
+        let policy = EffectivePolicy.resolve(harness: configured, repo: nil, defaultBranch: "main")
+        let team = RepositorySession.copilotTeam(executable: "/not-executed/copilot", policy: policy)
+        let reviewer = try #require(team.reviewer as? CopilotReviewer)
+        #expect(reviewer.cli.model == nil)
+        let setting = try #require(policy.settings.first { $0.name == "Reviewer" })
+        #expect(setting.value == "CLI default model")
+        #expect(setting.note?.contains("offered reviewer models") == true)
+    }
+
+    @Test
+    func aModelTheAccountDoesntOfferIsNamedInTheFailure() {
+        let output = "\nExecution failed: Model \"claude-sonnet-4.5\" is not available.\n"
+        #expect(CopilotCLI.unavailableModel(in: output) == "claude-sonnet-4.5")
+        #expect(CopilotCLI.unavailableModel(in: "Execution failed: timeout") == nil)
     }
 
     @Test

@@ -9,6 +9,8 @@ struct RepositorySnapshot: Sendable {
     var files: [String]
     /// Contents of the files in `interestingPaths(of:)`.
     var contents: [String: String] = [:]
+    /// Line counts of tracked source files (`sourcePatterns`), vendored folders left out.
+    var sourceLines: [String: Int] = [:]
     var swiftTestingFiles = 0
     var xctestFiles = 0
     /// The branch your own checkout is on, if any.
@@ -37,6 +39,22 @@ struct RepositorySnapshot: Sendable {
             if ["", ".github", "docs"].contains(folder), upper.hasPrefix("CONTRIBUTING") || upper == "CODEOWNERS" { return true }
             return false
         }
+    }
+
+    /// Pathspecs of the source files whose size the scan looks at.
+    static let sourcePatterns = ["swift", "m", "mm", "h", "c", "cc", "cpp", "kt", "java", "ts", "tsx", "js", "jsx", "py",
+                                 "go", "rs", "cs", "rb", "php", "scala", "dart"].map { "*.\($0)" }
+
+    /// `git grep -c -z '' <branch>` output (`<branch>:<path>\0<count>\n` per file) as path → line count.
+    static func lineCounts(fromGitGrep output: String, branch: String) -> [String: Int] {
+        var counts: [String: Int] = [:]
+        for line in output.split(separator: "\n") {
+            let parts = line.split(separator: "\0", maxSplits: 1)
+            guard parts.count == 2, let count = Int(parts[1]) else { continue }
+            let path = parts[0].hasPrefix("\(branch):") ? String(parts[0].dropFirst(branch.count + 1)) : String(parts[0])
+            if !isVendored(path) { counts[path] = count }
+        }
+        return counts
     }
 
     static func isVendored(_ path: String) -> Bool {

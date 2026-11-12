@@ -64,7 +64,7 @@ read from `main` only.
 | Push / open pull requests | Never (phase 9: an opt-in setting; only the harness pushes, never agents) | Switch it off |
 | Agent tools | Copilot CLI, with `git push`/`fetch`/`pull`/`remote`/`config`/`stash`, `gh` and network installs denied | Deny more |
 | Agent models | Offered models, plus a default model per role (breakdown, acceptance tests, implementation); none = the CLI's default | Pick a model per role among the offered ones |
-| Review | `agent`; default reviewer with a different explicit model, or a specific model/command | Tighten to `agent+human`, overall or per area; choose an offered reviewer model |
+| Review | `agent`; default reviewer (the first offered reviewer model that differs from the implementer's, else the agent CLI's default model), or a specific model/command | Tighten to `agent+human`, overall or per area; choose an offered reviewer model |
 | Max attempts / reworks per leaf | 3 / 3 | Lower |
 | Max parallel agents | 2 | Lower |
 | Guesswork | `assume and report`: carry on and post assumptions; a leaf whose work rests on assumptions waits for a person to see its acceptance tests before build, even under `harness:go`. Guesses about what users observe (what to check, which screen, which behaviour) always stop the node; guesses about implementation don't. Other levels: `ask` (assumptions are questions too), `autonomous` (assumptions are posted, nothing waits) | Choose a stricter level (`agents.guesswork`) |
@@ -160,7 +160,7 @@ is configured, Copilot CLI chooses its own default. Display titles are not confi
 | `review.areas` | Object/map from area names, path prefixes or globs to review-level strings: `none`, `agent`, `agent+human` | No additional area rules | Each level must be at least as strict as the effective overall level; strictest matching declared or changed area applies |
 | `review.instructions` | String: repository-relative path to a review instructions file | No additional instructions file | Adds repository review context; does not replace the built-in checklist |
 | `review.maxRounds` | Integer: reviews with findings allowed at each review stage before escalation | 2 | Must be positive; `harness:retry` resets the limit |
-| `review.model` | String: exact reviewer model identifier | Inherit the harness reviewer selection; default reviewer uses a different explicit model from the implementer | Must be in the review-specific offered models in Settings, not merely the agent model list |
+| `review.model` | String: exact reviewer model identifier | Inherit the harness reviewer selection; default reviewer uses the first offered reviewer model that differs from the implementer's, else the agent CLI's default model | Must be in the review-specific offered models in Settings, not merely the agent model list |
 
 Commands are run with `/bin/sh -c` from the repo's top folder, not from the config's folder.
 The order is prepare, build, test, then additional checks; the first failure stops the run.
@@ -272,6 +272,7 @@ harness, so the harness never commits it and agents never edit it (see Safety).
 | AGENTS.md or copilot-instructions exist and say how to build and test | Warning |
 | README explains what this is; CONTRIBUTING has a Definition of Done | Warning |
 | No `project.pbxproj` hotspot (see above). Info if the config's prepare step regenerates the project | Warning |
+| No source file over 1,000 lines: parallel leaves often change the same large file and conflict at landing | Warning |
 | A test target for acceptance tests exists; the test framework is known | Warning |
 | The simulators the config's commands name are installed | Warning |
 | The config has no unknown keys; there's no other `.agentos/config*` file | Warning |

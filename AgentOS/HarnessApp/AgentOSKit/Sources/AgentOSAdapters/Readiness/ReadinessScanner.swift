@@ -121,6 +121,8 @@ public struct ReadinessScanner: Sendable {
         for path in RepositorySnapshot.interestingPaths(of: snapshot.files) {
             snapshot.contents[path] = await git(["show", "\(branch):\(path)"], in: root, trim: false)
         }
+        let lines = await git(["grep", "-c", "-z", "-I", "", branch, "--"] + RepositorySnapshot.sourcePatterns, in: root, trim: false)
+        snapshot.sourceLines = RepositorySnapshot.lineCounts(fromGitGrep: lines ?? "", branch: branch)
         snapshot.swiftTestingFiles = await filesImporting("Testing", on: branch, in: root)
         snapshot.xctestFiles = await filesImporting("XCTest", on: branch, in: root)
         snapshot.checkoutBranch = await git(["symbolic-ref", "--quiet", "--short", "HEAD"], in: root)

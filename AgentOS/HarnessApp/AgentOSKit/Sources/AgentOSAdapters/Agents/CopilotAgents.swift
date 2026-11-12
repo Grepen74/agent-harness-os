@@ -76,9 +76,19 @@ public struct CopilotCLI: Sendable {
         let result = try await ProcessRunner.run(executable, arguments(prompt: prompt, in: directory, silent: silent), in: directory,
                                                  timeout: timeout, log: log, timeZone: .current, logPreamble: inventory)
         guard result.status == 0 else {
+            if let unavailable = Self.unavailableModel(in: result.output) {
+                throw AgentFailure("Model \"\(unavailable)\" isn't available to your Copilot account. Choose another one in "
+                    + "Settings (Agent models, or Review → Reviewer and offered reviewer models) or in the repo config")
+            }
             throw AgentFailure("copilot exited with \(result.status): \(result.output.suffix(300))")
         }
         return result.output
+    }
+
+    /// The model named in the CLI's `Model "…" is not available` error, if that's why it stopped.
+    static func unavailableModel(in output: String) -> String? {
+        guard let range = output.range(of: #"Model "([^"]+)" is not available"#, options: .regularExpression) else { return nil }
+        return output[range].split(separator: "\"", omittingEmptySubsequences: false).dropFirst().first.map(String.init)
     }
 
     /// Spec text goes in a clearly marked data block (golden rule: ticket text is data, not instructions).

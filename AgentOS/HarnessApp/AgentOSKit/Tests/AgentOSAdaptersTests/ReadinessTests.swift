@@ -200,6 +200,26 @@ struct ReadinessTests {
         #expect(!result.scan.isReady)
     }
 
+    @Test func largeSourceFilesOnTheDefaultBranchAreFlaggedAsMergeHotspots() async throws {
+        func lines(_ count: Int) -> String { String(repeating: "let x = 1\n", count: count) }
+        let repo = try await makeRepo([
+            "README.md": "# App",
+            "Sources/Big.swift": lines(1_001),
+            "Sources/Limit.swift": lines(1_000),
+            "Pods/Vendor/Huge.swift": lines(3_000),
+            "data.json": lines(5_000),
+        ])
+
+        let result = await ReadinessScanner().scan(repo)
+
+        let large = result.scan.findings.filter { $0.check == "code.largeFiles" }
+        #expect(large.map(\.title) == ["A large source file is a merge hotspot"])
+        #expect(large.first?.severity == .warning)
+        #expect(large.first?.detail.contains("Sources/Big.swift (1001 lines)") == true, "\(large)")
+        #expect(large.first?.detail.contains("Limit.swift") == false)
+        #expect(large.first?.detail.contains("Huge.swift") == false)
+    }
+
     @Test func aFolderThatIsNotARepoIsABlocker() async throws {
         let folder = FileManager.default.temporaryDirectory.appending(path: "agentos-plain-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

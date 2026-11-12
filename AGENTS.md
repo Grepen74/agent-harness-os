@@ -77,6 +77,10 @@ xcodebuild -project AgentOSHarness.xcodeproj -scheme AgentOSHarness -destination
 
 ## Style
 
+- Keep files small, under about 500 lines. Large files are where work built in parallel collides: most
+  tickets change them, and edits close to each other conflict when they land. Put a new responsibility in a
+  new file or a `Type+Topic.swift` extension instead of growing an existing file; don't add to
+  `Reconciler.swift` what can live in an extension.
 - Follow the surrounding code. Short doc comments on types and non-obvious functions; no comments that
   repeat the code.
 - Keep changes to what the ticket asks for. Don't edit `AGENTS.md`, `CODEOWNERS`,

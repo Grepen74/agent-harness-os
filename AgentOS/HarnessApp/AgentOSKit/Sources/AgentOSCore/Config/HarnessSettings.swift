@@ -285,9 +285,14 @@ public struct EffectivePolicy: Sendable, Equatable {
         }
         let selection = review.reviewer
         if selection.type == "default" {
-            review.reviewer.model = result.agentModels[.implementer] == "claude-sonnet-4.5"
-                ? "gpt-5.3-codex" : "claude-sonnet-4.5"
+            // Only models you listed: which ones exist depends on your Copilot account and changes over time.
+            let implementer = result.agentModels[.implementer]
+            review.reviewer.model = harness.review.offeredModels.first { $0 != implementer }
             review.reviewer.command = nil
+            if review.reviewer.model == nil, reviewerNote == nil {
+                reviewerNote = "the agent CLI's default model; list offered reviewer models to review with a "
+                    + "different model from the implementer's"
+            }
         } else if selection.type != "specific"
                     || ((selection.model?.isEmpty != false) == (selection.command?.isEmpty != false)) {
             refuse("Invalid reviewer selection", "Choose default, or specific with exactly one model or command.")
@@ -296,7 +301,7 @@ public struct EffectivePolicy: Sendable, Equatable {
         result.settings.append(EffectiveSetting(name: "Review level", value: review.level.rawValue,
                                                 source: levelSource, note: levelNote))
         result.settings.append(EffectiveSetting(name: "Reviewer",
-                                                value: review.reviewer.command ?? review.reviewer.model ?? "default",
+                                                value: review.reviewer.command ?? review.reviewer.model ?? "CLI default model",
                                                 source: reviewerSource, note: reviewerNote))
         return result
     }

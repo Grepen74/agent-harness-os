@@ -69,7 +69,7 @@ struct SettingsView: View {
                             model: choice == "model" ? "" : nil,
                             command: choice == "command" ? "" : nil)
                     })) {
-                    Text("Default (different model)").tag("default")
+                    Text("Default").tag("default")
                     Text("Specific model").tag("model")
                     Text("Specific command").tag("command")
                 }
@@ -96,7 +96,7 @@ struct SettingsView: View {
             } header: {
                 Text("Review")
             } footer: {
-                Text("A repo may tighten review or choose an offered reviewer model. Commands receive the review prompt on stdin and return JSON with passed and findings. Separate offered models with commas; press Return to apply.")
+                Text("Default reviews with the first offered reviewer model that differs from the implementer's, or the agent CLI's default model if there's none. A repo may tighten review or choose an offered reviewer model. Commands receive the review prompt on stdin and return JSON with passed and findings. Separate offered models with commas; press Return to apply.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section {

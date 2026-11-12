@@ -48,6 +48,7 @@ enum ReadinessRules {
         findings += instructions(repo)
         findings += docs(repo)
         findings += hotspots(repo, build, config.config)
+        findings += largeFiles(repo)
         findings += tests(repo, build)
         findings += codeowners(repo)
         findings += checkout(repo)
@@ -314,6 +315,26 @@ enum ReadinessRules {
                 detail: "Every new file changes it, so leaves built in parallel will conflict on it.",
                 suggestion: "Convert groups to folders (Xcode 16 or later), or generate the project with XcodeGen or Tuist.")
         }
+    }
+
+    // MARK: Large files
+
+    static let largeFileLines = 1_000
+
+    /// Large source files are where parallel leaves collide: most work changes them, and git can't merge edits
+    /// close to each other.
+    static func largeFiles(_ repo: RepositorySnapshot) -> [Finding] {
+        let large = repo.sourceLines.filter { $0.value > largeFileLines }
+            .sorted { ($0.value, $1.key) > ($1.value, $0.key) }
+        guard !large.isEmpty else { return [] }
+        let listed = large.prefix(5).map { "\($0.key) (\($0.value) lines)" }.joined(separator: ", ")
+        let more = large.count > 5 ? ", and \(large.count - 5) more" : ""
+        return [Finding(
+            check: "code.largeFiles", severity: .warning,
+            title: large.count == 1 ? "A large source file is a merge hotspot" : "\(large.count) large source files are merge hotspots",
+            detail: "Over \(largeFileLines) lines: \(listed)\(more). Leaves built in parallel often change the same large "
+                + "file and then conflict when they land, and agents read and change large files less reliably.",
+            suggestion: "Split them by responsibility (for example into extensions or smaller types), and put new code in new files.")]
     }
 
     // MARK: Tests

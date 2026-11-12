@@ -31,6 +31,8 @@ public struct CopilotReviewer: Reviewer {
         - Regressions and loosened constraints, including smaller minimum window sizes and wider permissions.
         - I/O and allocation per line or loop iteration; avoid repeated file opens and formatter construction.
         - Logic duplicating existing or recently landed code; inspect same-file recent changes.
+        - Growing files that are already large (several hundred lines or more) with a new responsibility: \
+        it belongs in a new file or extension, since large files are where parallel work conflicts.
         - Tests must prove the requirement, not merely restate implementation details.
         - Tests must not depend on timing: reject fixed sleeps used to make work overlap or finish, and \
         assumptions about the order or batching of concurrent work that no criterion asks for.
