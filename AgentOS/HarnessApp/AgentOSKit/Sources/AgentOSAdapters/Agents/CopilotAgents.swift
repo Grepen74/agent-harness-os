@@ -252,6 +252,18 @@ public struct CopilotDecomposer: Decomposer {
         without an earlier child's work, e.g. because it uses an API, test setup or migration that child adds; \
         children without "after" are built at the same time.
 
+        Each child's tests become permanent and other children may not change them, so make the children fit \
+        together:
+        - If the work changes behaviour that existing code or tests rely on (a signature, whether a call waits, \
+        a status or value it returns), make the first child move the existing callers and tests over to the new \
+        contract, name those tests in its criteria, and list it in "after" of the children that need it.
+        - When several children depend on the same rule, write the rule out in full, in the same words, in each \
+        of them. Never refer to "the existing rule", "as agreed" or another child instead.
+        - Check every pair of children: their criteria must never contradict each other. Children touching the \
+        same component or API either use "after" or say in their criteria which part each one owns.
+        - Criteria describe lasting behaviour users can observe, not this item's scope: never "doesn't change \
+        file X". State concurrency as bounds (e.g. "never more than N at once"), not timing.
+
         \(CopilotCLI.dataBlock(request.spec))\(CopilotCLI.answersBlock(request.clarifications))
         \(CopilotCLI.contextBlock(request.agentContext, includeComments: true))
         """
