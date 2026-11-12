@@ -58,4 +58,18 @@ struct AcceptanceTestFeedbackTests {
     func questionsAreAskedWithSuggestedAnswersAtEveryLevel(guesswork: Guesswork) {
         #expect(CopilotCLI.guessingRules(guesswork, repositoryConventions: true).contains("\"suggestion\""))
     }
+
+    @Test(arguments: Guesswork.allCases)
+    func onlyAutonomousAgentsCarryOnWhenEveryQuestionHasASuggestion(guesswork: Guesswork) {
+        let spec = NodeSpec(id: "wn-GH-1", parent: nil, kind: .leaf, title: "Greeting", intent: "Say hi",
+                            acceptanceCriteria: ["Says hello"], touches: [])
+        let directory = URL(filePath: "/worktrees/wn-GH-1", directoryHint: .isDirectory)
+        let task = AgentTask(spec: spec, run: "run-1", directory: directory, testFolder: "Tests/GH_1Tests",
+                             scratchDirectory: directory.appending(path: ".agentos/scratch/run-1"), guesswork: guesswork)
+
+        let prompt = CopilotTestAuthor.prompt(for: task)
+
+        #expect(prompt.contains("write only that report and no tests"))
+        #expect(prompt.contains("don't stop: write the tests") == (guesswork == .autonomous))
+    }
 }

@@ -189,6 +189,14 @@ public struct CopilotCLI: Sendable {
     static let suggestionRule = "Give each question as {\"question\": string, \"suggestion\": string} with the answer " +
         "you would propose, e.g. one an existing repository convention or the ticket's context points to; use a " +
         "plain string only when no answer is sensible to propose."
+
+    /// What to do once there are questions. Autonomous work carries on when every question has a suggestion
+    /// (the harness proceeds on them, #30), so stopping then would leave nothing to proceed with.
+    static func stopRule(_ guesswork: Guesswork, stop: String, proceed: String) -> String {
+        guard guesswork == .autonomous else { return "If you have questions, \(stop)." }
+        return "If every question has a suggestion, don't stop: \(proceed) as if your suggestions were the answers, " +
+            "and still report the questions. If any question has no suggestion, \(stop)."
+    }
 }
 
 /// What an agent reports besides its work.
@@ -224,7 +232,8 @@ public struct CopilotDecomposer: Decomposer {
         The work item is \(request.identity.displayName). \
         First check the work item below is ready: could someone \
         write a test for each acceptance criterion without guessing what users will observe? \
-        \(CopilotCLI.guessingRules(request.guesswork, repositoryConventions: true)) If you have questions, return them and no children.
+        \(CopilotCLI.guessingRules(request.guesswork, repositoryConventions: true)) \
+        \(CopilotCLI.stopRule(request.guesswork, stop: "return them and no children", proceed: "propose the children"))
 
         Otherwise split it into 2–5 leaf work items, or return a single item (the work item itself) if it is \
         already small enough to build and test as one change. Prefer vertical slices: each leaf is one observable \
@@ -316,8 +325,8 @@ public struct CopilotTestAuthor: TestAuthor {
         \(CopilotCLI.guessingRules(task.guesswork, repositoryConventions: true)) Report them in \(AgentReportFile.name) at the top of your \
         working directory, as {"questions": [string or {"question": string, "suggestion": string}], \
         "assumptions": [string], "expectedAPI": [string]}. \
-        List the public production symbols and signatures your tests expect in expectedAPI. If you have questions, \
-        write only that report and no tests.
+        List the public production symbols and signatures your tests expect in expectedAPI. \
+        \(CopilotCLI.stopRule(task.guesswork, stop: "write only that report and no tests", proceed: "write the tests"))
 
         \(CopilotCLI.dataBlock(task.spec))\(CopilotCLI.answersBlock(task.clarifications))
         \(CopilotCLI.contextBlock(task.agentContext, includeComments: true))
