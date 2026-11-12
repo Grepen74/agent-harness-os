@@ -246,7 +246,11 @@ public struct CopilotDecomposer: Decomposer {
         Respond with ONLY a JSON object (no prose, no code fences):
         {"questions": [string or {"question": string, "suggestion": string}], "assumptions": [string], \
         "children": [{"title": string, "acceptanceCriteria": [string], \
-        "touches": [component names], "dependsOn": [keys from the external dependencies list that this leaf needs, else []]}]}
+        "touches": [component names], "dependsOn": [keys from the external dependencies list that this leaf needs, else []], \
+        "after": [numbers (1-based) of earlier children in this list that must land before this one is built, else []]}]}
+        List children in the order they can land. Use "after" when a child can't be built or pass its tests \
+        without an earlier child's work, e.g. because it uses an API, test setup or migration that child adds; \
+        children without "after" are built at the same time.
 
         \(CopilotCLI.dataBlock(request.spec))\(CopilotCLI.answersBlock(request.clarifications))
         \(CopilotCLI.contextBlock(request.agentContext, includeComments: true))
