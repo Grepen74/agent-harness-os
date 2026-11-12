@@ -38,11 +38,13 @@ public struct CommandCheckRunner: CheckRunner {
         return steps
     }
 
-    /// SwiftPM's incremental build sometimes keeps object files from before a type's layout changed, so
-    /// linking fails with undefined symbols although the code is fine. No agent can fix that.
+    /// SwiftPM's incremental build sometimes keeps object files from before a type's layout changed. Linking then
+    /// fails with undefined symbols, or, when the symbols still match, the test process crashes (e.g. signal 11)
+    /// although the code is fine. No agent can fix that; a clean build can.
     public static func isStaleBuildFailure(_ output: String) -> Bool {
-        output.contains("Undefined symbols for architecture")
+        let linkFailed = output.contains("Undefined symbols for architecture")
             && (output.contains("link command failed") || output.contains("linker command failed"))
+        return linkFailed || output.contains("exited with unexpected signal code")
     }
 
     /// Removes every `.build` folder in the checkout, outside `.git`. Returns the ones removed.
@@ -92,7 +94,7 @@ public struct CommandCheckRunner: CheckRunner {
                 if !cleaned && Self.isStaleBuildFailure(result.output) {
                     cleaned = true
                     let removed = Self.removeBuildFolders(in: directory)
-                    log += "Stale build output (undefined symbols at link time): removed \(removed.count) .build folder(s); running \(step.name) again.\n"
+                    log += "Possibly stale build output (link failure or test crash): removed \(removed.count) .build folder(s); running \(step.name) again.\n"
                     pending.insert(step, at: 0)
                     continue
                 }

@@ -245,6 +245,10 @@ struct ReadinessTests {
         let again = await failing.runChecks(in: folder, only: nil)
         #expect(!again.passed)
         #expect(again.log.components(separatedBy: "running test again").count == 2)
+
+        #expect(CommandCheckRunner.isStaleBuildFailure(
+            "error: Process 'swiftpm-testing-helper --test-bundle-path X' exited with unexpected signal code 11"))
+        #expect(!CommandCheckRunner.isStaleBuildFailure("Test greeting() recorded an issue: expected hello"))
     }
 
     @Test func baselineRunsOnTheCommittedBranchOutsideTheCheckout() async throws {
