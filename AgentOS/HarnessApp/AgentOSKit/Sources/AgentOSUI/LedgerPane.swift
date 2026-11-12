@@ -32,7 +32,7 @@ public struct LedgerPane: View {
                 .padding(.horizontal, 12).padding(.bottom, 6)
                 List(model.records.reversed()) { record in
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Text("#\(record.position)").monospaced().foregroundStyle(.secondary).frame(width: 36, alignment: .trailing)
+                        Text("#\(record.position)").monospaced().foregroundStyle(.secondary).frame(width: 48, alignment: .trailing)
                         Image(systemName: record.event.by.icon).frame(width: 14)
                         VStack(alignment: .leading, spacing: 1) {
                             Text(record.event.kind.summary).lineLimit(2)
