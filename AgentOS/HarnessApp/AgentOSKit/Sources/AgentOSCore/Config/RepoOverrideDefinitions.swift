@@ -2,6 +2,14 @@ import Foundation
 
 /// Eligibility shared by repo config resolution and override editors.
 public enum RepoOverrideDefinitions {
+    public static func guessworkChoices(maximum: Guesswork) -> [Guesswork] {
+        Guesswork.allCases.filter { $0 <= maximum }
+    }
+
+    public static func limitRange(maximum: Int) -> ClosedRange<Int>? {
+        maximum >= 1 ? 1...maximum : nil
+    }
+
     public static func modelChoices(for role: AgentRole, harness: HarnessSettings) -> [String] {
         guard AgentModels.roles.contains(role) else { return [] }
         var choices: [String] = []
@@ -22,6 +30,12 @@ public enum RepoOverrideDefinitions {
         guard knownSignalTokens.contains(raw) else { return nil }
         return HarnessCommand(rawValue: raw)
     }
+}
+
+/// A permitted config value and the complete JSON path to merge into the repo config.
+public struct RepoConfigOverride: Sendable, Equatable {
+    public let value: String
+    public let json: String
 }
 
 public struct ModelOverride: Sendable, Equatable {

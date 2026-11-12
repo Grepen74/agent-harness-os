@@ -62,6 +62,19 @@ public struct EffectiveSetting: Sendable, Identifiable, Equatable {
     public let source: Source
     /// E.g. why the repo's value wasn't used.
     public let note: String?
+    public let overrides: [RepoConfigOverride]
+
+    public var overrideActionTitle: String? {
+        overrides.isEmpty ? nil : "Override in repo config…"
+    }
+
+    init(name: String, value: String, source: Source, note: String?, overrides: [RepoConfigOverride] = []) {
+        self.name = name
+        self.value = value
+        self.source = source
+        self.note = note
+        self.overrides = overrides
+    }
 
     public var id: String { name }
 }
@@ -119,37 +132,47 @@ public struct EffectivePolicy: Sendable, Equatable {
         result.settings.append(EffectiveSetting(name: "Push / open pull requests", value: "Never", source: .harness, note: nil))
 
         // Limits: lower is fine, higher is refused.
-        func limit(_ name: String, harness: Int, repo: Int?) -> Int {
+        func limit(_ name: String, key: String, harness: Int, repo: Int?) -> Int {
+            let range = RepoOverrideDefinitions.limitRange(maximum: harness)
+            let choices = range.map { $0.map { value in
+                RepoConfigOverride(value: String(value), json: "{ \"limits\": { \"\(key)\": \(value) } }")
+            } } ?? []
+            func append(_ value: Int, source: EffectiveSetting.Source, note: String? = nil) {
+                result.settings.append(EffectiveSetting(name: name, value: "\(value)", source: source,
+                                                        note: note, overrides: choices))
+            }
             guard let repo else {
-                result.settings.append(EffectiveSetting(name: name, value: "\(harness)", source: .harness, note: nil))
+                append(harness, source: .harness)
                 return harness
             }
             if repo > harness {
                 refuse("Repo config raises \(name.lowercased()) from \(harness) to \(repo)", "The harness allows at most \(harness).")
-                result.settings.append(EffectiveSetting(name: name, value: "\(harness)", source: .harness,
-                                                        note: "repo asked for \(repo): refused"))
+                append(harness, source: .harness, note: "repo asked for \(repo): refused")
                 return harness
             }
-            if repo < 1 {
+            if range?.contains(repo) != true {
                 refuse("Repo config sets \(name.lowercased()) to \(repo)", "It must be at least 1.")
-                result.settings.append(EffectiveSetting(name: name, value: "\(harness)", source: .harness,
-                                                        note: "repo asked for \(repo): invalid"))
+                append(harness, source: .harness, note: "repo asked for \(repo): invalid")
                 return harness
             }
-            result.settings.append(EffectiveSetting(name: name, value: "\(repo)", source: .repo, note: nil))
+            append(repo, source: .repo)
             return repo
         }
-        result.policy.maxAttempts = limit("Max attempts per leaf", harness: harness.maxAttempts, repo: repo?.limits?.maxAttempts)
-        result.policy.maxReworks = limit("Max reworks per leaf", harness: harness.maxReworks, repo: repo?.limits?.maxReworks)
-        result.maxParallelAgents = limit("Max parallel agents", harness: harness.maxParallelAgents, repo: repo?.limits?.maxParallelAgents)
+        result.policy.maxAttempts = limit("Max attempts per leaf", key: "maxAttempts",
+                                          harness: harness.maxAttempts, repo: repo?.limits?.maxAttempts)
+        result.policy.maxReworks = limit("Max reworks per leaf", key: "maxReworks",
+                                         harness: harness.maxReworks, repo: repo?.limits?.maxReworks)
+        result.maxParallelAgents = limit("Max parallel agents", key: "maxParallelAgents",
+                                          harness: harness.maxParallelAgents, repo: repo?.limits?.maxParallelAgents)
 
         // Guesswork: the repo may only choose a stricter level.
         var guesswork = harness.guesswork
         var guessworkNote: String?
         var guessworkFromRepo = false
+        let guessworkChoices = RepoOverrideDefinitions.guessworkChoices(maximum: harness.guesswork)
         if let wanted = repo?.agents?.guesswork {
             let levels = Guesswork.allCases.map(\.rawValue).joined(separator: ", ")
-            if let level = Guesswork(rawValue: wanted), level <= harness.guesswork {
+            if let level = Guesswork(rawValue: wanted), guessworkChoices.contains(level) {
                 guesswork = level
                 guessworkFromRepo = true
             } else if let level = Guesswork(rawValue: wanted) {
@@ -162,8 +185,12 @@ public struct EffectivePolicy: Sendable, Equatable {
             }
         }
         result.policy.guesswork = guesswork
-        result.settings.append(EffectiveSetting(name: "Guesswork", value: guesswork.title,
-                                                source: guessworkFromRepo ? .repo : .harness, note: guessworkNote))
+        result.settings.append(EffectiveSetting(
+            name: "Guesswork", value: "\(guesswork.title) (`\(guesswork.rawValue)`)",
+            source: guessworkFromRepo ? .repo : .harness, note: guessworkNote,
+            overrides: guessworkChoices.map {
+                RepoConfigOverride(value: $0.rawValue, json: "{ \"agents\": { \"guesswork\": \"\($0.rawValue)\" } }")
+            }))
 
         // Signals: the repo may only switch off what the harness offers.
         var signals = harness.offeredSignals

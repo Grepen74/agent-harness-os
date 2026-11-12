@@ -116,6 +116,7 @@ private struct PolicySettingsView: View {
     @State private var selectedSignals: Set<HarnessCommand> = []
     @State private var showingSignals = false
     @State private var error: String?
+    @State private var expandedOverrides: Set<String> = []
 
     init(policy: EffectivePolicy) {
         self.policy = policy
@@ -130,6 +131,14 @@ private struct PolicySettingsView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     SettingRow(setting: setting, modelOverride: modelRow,
                                signalOverride: setting.name == "Signals" ? policy.signalOverride : nil)
+                    if setting.overrideActionTitle != nil {
+                        PolicyOverrideView(setting: setting, expanded: Binding(
+                            get: { expandedOverrides.contains(setting.id) },
+                            set: { if $0 { expandedOverrides.insert(setting.id) } }
+                        ))
+                        .id(setting.overrides.map(\.json))
+                        .frame(height: expandedOverrides.contains(setting.id) ? 160 : 28)
+                    }
                     if let role, let row = modelRow {
                         Menu(row.actionTitle) {
                             ForEach(row.choices, id: \.self) { identifier in
@@ -191,6 +200,7 @@ private struct PolicySettingsView: View {
             selectedSignals = []
             showingSignals = false
             error = nil
+            expandedOverrides = []
         }
     }
 
