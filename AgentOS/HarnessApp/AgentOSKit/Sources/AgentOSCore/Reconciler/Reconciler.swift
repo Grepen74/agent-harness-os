@@ -799,7 +799,9 @@ public actor Reconciler {
             // After the commit, so the check sees everything the author wrote (changes are compared commit to commit).
             let outside = try await workspace.changedFiles(in: directory).filter { !$0.hasPrefix(own) }
             guard outside.isEmpty, changed != nil else {
-                throw AgentFailure(changed == nil ? "no tests written" : "wrote outside its own test folder \(own): \(outside.joined(separator: ", "))")
+                let none = report.questions.isEmpty ? "no tests written"
+                    : "no tests written: it reported questions with suggested answers but didn't write tests on them"
+                throw AgentFailure(changed == nil ? none : "wrote outside its own test folder \(own): \(outside.joined(separator: ", "))")
             }
             testFiles = try await workspace.changedFiles(in: directory).filter { $0.hasPrefix(own) }
         } catch {
