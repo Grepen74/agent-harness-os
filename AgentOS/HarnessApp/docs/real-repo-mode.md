@@ -179,6 +179,11 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
   the run.
 - **Checks** before landing: the leaf's tests are unchanged since they were approved, no other leaf's tests
   changed, and no protected path changed. Then the leaf's tests (`test.only`), then all checks at landing.
+  When only other proven tickets' tests fail, the harness checks latest `agentos/main` without the change
+  and reruns the candidate. A failing baseline is a main/infrastructure problem, with no failed attempt;
+  fix it and add `harness:retry`. If both reruns pass, the harness reports unreliable tests and lands.
+  Only a passing baseline and repeated candidate failure can become a requirements conflict. Reports
+  name the failing tests and include both rerun outcomes.
 - **Landing** is a fast-forward of the landing branch with `git update-ref` (compare-and-swap), so no checkout
   is involved. It's refused while any checkout has the landing branch checked out, because moving it there
   would make that working copy look modified.

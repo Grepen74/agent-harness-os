@@ -1262,6 +1262,67 @@ public actor Reconciler {
                 commit: candidate
             )
         }
+        let state = await ledger.workingState()
+        let provenTargets = Set(state.nodes.values.filter { $0.phase == .proven }.map(\.spec.testTarget))
+        var diagnosis: String?
+        if !output.passed && !output.failingTargets.isEmpty
+            && !output.failingTargets.contains(node.spec.testTarget)
+            && output.failingTargets.isSubset(of: provenTargets) {
+            let initial = output
+            let baseline = await checkLatestMain()
+            var repeated = await checks.runChecks(in: directory, only: nil)
+            if case .runnerCrash = repeated.failureKind {
+                repeated = await checks.runChecks(in: directory, only: nil)
+            }
+            let failures = initial.log.split(separator: "\n").filter { line in
+                initial.failingTargets.contains { line.contains($0) }
+                    || line.localizedCaseInsensitiveContains("fail")
+                    || line.contains("recorded an issue") || line.contains("error:")
+            }.joined(separator: "\n")
+            let report = """
+                Initial landing failure: \(initial.summary)
+                Failing tests:
+                \(failures.isEmpty ? initial.log : failures)
+                Without the change on latest agentos/main: \(baseline.summary)
+                With the change again: \(repeated.summary)
+                """
+            diagnosis = report
+            output = CheckOutput(
+                passed: repeated.passed,
+                summary: report,
+                log: """
+                    Initial landing check:
+                    \(initial.log)
+                    Without the change on latest agentos/main:
+                    \(baseline.log)
+                    With the change again:
+                    \(repeated.log)
+                    """,
+                failingTargets: repeated.failingTargets,
+                failureKind: repeated.failureKind
+            )
+            if !baseline.passed || repeated.failureKind != .reportedFailure {
+                let reason = """
+                    Landing infrastructure problem on agentos/main; no failed attempt counted.
+                    \(report)
+                    Fix the baseline or test runner, then add harness:retry.
+                    """
+                let diagnosticEvidence = try makeEvidence(
+                    node, check: "landing failure diagnosis", output: CheckOutput(
+                        passed: false, summary: reason, log: output.log
+                    ),
+                    builtBy: submission.run, checkedBy: run, commit: candidate,
+                    failureClassification: .landingInfrastructure
+                )
+                try await write(node.id, by: checker, [
+                    .evidenceRecorded(diagnosticEvidence),
+                    .runFinished(run: run, outcome: "landing infrastructure problem"),
+                    .flagSet(.escalated, reason: reason),
+                ])
+                await tracker.comment(on: node.ticket, reason)
+                return "\(node.displayName) landing infrastructure problem → needs human"
+            }
+        }
         var evidence = try makeEvidence(node, check: "all tests on latest main (landing)", output: output,
                                         builtBy: submission.run, checkedBy: run, commit: candidate)
 
@@ -1272,18 +1333,25 @@ public actor Reconciler {
                 .evidenceRecorded(evidence), .landed(commit: main), .runFinished(run: run, outcome: "landed"),
                 .phaseChanged(to: .proven)])
             try? await workspace.removeWorktree(for: node.id)
+            if let diagnosis {
+                await tracker.comment(on: node.ticket, "Unreliable test in the initial landing check; both reruns passed.\n\(diagnosis)")
+            }
             await tracker.comment(on: node.ticket, "🛬 Landed on main at \(main.prefix(8)) with all tests passing.")
             return "\(node.displayName) landed by \(run) → Proven"
         }
 
         // Which node's behaviour broke? Someone else's → two requirements may contradict (doc 08 §5).
-        let state = await ledger.workingState()
         let broken = output.failingTargets.subtracting([node.spec.testTarget])
             .compactMap { target in state.nodes.values.first { $0.spec.testTarget == target && $0.phase == .proven } }
         var kinds: [EventKind] = [.evidenceRecorded(evidence), .runFinished(run: run, outcome: "failed"), .phaseChanged(to: .ready)]
-        if !broken.isEmpty && !output.failingTargets.contains(node.spec.testTarget) {
+        if let diagnosis, !broken.isEmpty && !output.failingTargets.contains(node.spec.testTarget)
+            && output.failingTargets.isSubset(of: provenTargets) {
             let names = broken.map { "\($0.displayName) (\($0.spec.title))" }.joined(separator: ", ")
-            let reason = "Requirements conflict: this change breaks proven behaviour of \(names). A human must decide which requirement wins."
+            let reason = """
+                Requirements conflict: this change breaks proven behaviour of \(names). A human must decide which requirement wins.
+                \(diagnosis)
+                Next: comment with guidance, then add harness:retry.
+                """
             kinds.append(.flagSet(.escalated, reason: reason))
             try await write(node.id, by: checker, kinds)
             await tracker.comment(on: node.ticket, "⚠️ Needs a human: \(reason)")
@@ -1325,6 +1393,30 @@ public actor Reconciler {
     }
 
     // MARK: Helpers
+
+    private func checkLatestMain() async -> CheckOutput {
+        do {
+            guard let snapshot = try await workspace.createSnapshot() else {
+                throw AgentFailure("Workspace cannot create a latest agentos/main snapshot")
+            }
+            do {
+                try await workspace.prepareBuild(in: snapshot)
+            } catch {
+                await workspace.removeSnapshot(snapshot)
+                throw error
+            }
+            var output = await checks.runChecks(in: snapshot, only: nil)
+            if case .runnerCrash = output.failureKind {
+                output = await checks.runChecks(in: snapshot, only: nil)
+            }
+            await workspace.removeSnapshot(snapshot)
+            return output
+        } catch {
+            return CheckOutput(
+                passed: false, summary: "Could not check latest agentos/main: \(error)", log: "\(error)"
+            )
+        }
+    }
 
     private func recordRepeatedRunnerCrash(
         _ node: NodeState,

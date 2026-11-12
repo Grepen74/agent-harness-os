@@ -55,6 +55,17 @@ public struct SimulationWorkspace: Workspace, MainTipRepository {
         try await git(["worktree", "prune"], in: repoDirectory)
     }
 
+    public func createSnapshot() async throws -> URL? {
+        let directory = root.appending(path: "snapshots/\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try await git(["worktree", "add", "-q", "--detach", directory.path, "main"], in: repoDirectory)
+        return directory
+    }
+
+    public func removeSnapshot(_ directory: URL) async {
+        _ = try? await git(["worktree", "remove", "--force", directory.path], in: repoDirectory)
+    }
+
     /// Commits everything in the working copy as the given run. Returns the new commit, or nil if nothing changed.
     @discardableResult
     public func commitAll(in directory: URL, message: String, author: String) async throws -> String? {

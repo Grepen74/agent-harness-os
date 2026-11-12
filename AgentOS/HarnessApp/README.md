@@ -97,7 +97,8 @@ terminal: `swift run agentos work <path> --ticket "<title>" --criterion "<criter
    because it waits for `BACKEND-42`.
 6. **⚙︎ → Add contradicting ticket (Fahrenheit)**, then add `harness:breakdown` and `harness:build` to it.
    Its Fahrenheit leaf merges cleanly, but breaks APP-1's proven Celsius test, so the landing queue
-   escalates a **requirements conflict** instead of merging. Its other leaf lands normally.
+   checks latest main without the change and reruns the candidate. A passing baseline and repeated
+   candidate failure escalate a **requirements conflict** instead of merging. Its other leaf lands normally.
 7. In *Other team's system*, click **Mark delivered**. The leaf unblocks, conflicts once on
    `WeatherService`, is reworked and lands. The epic becomes **Proven** once all its leaves have landed.
 8. Click **Verify chain**, then **Tamper (demo)**. The ledger now fails its check and the harness refuses

@@ -124,6 +124,7 @@ public struct NodeSpec: Codable, Sendable, Hashable, Identifiable {
 public enum FailureClassification: String, Codable, Sendable, Hashable {
     case ownMistake
     case runnerCrash
+    case landingInfrastructure
 }
 
 public struct Evidence: Codable, Sendable, Hashable {

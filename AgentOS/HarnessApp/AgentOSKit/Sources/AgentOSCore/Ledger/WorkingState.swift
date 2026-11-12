@@ -292,7 +292,8 @@ public struct WorkingState: Sendable {
             node.latestTestFeedback = evidence.details ?? evidence.summary
         case .evidenceRecorded(let evidence):
             node.evidence.append(evidence)
-            if !evidence.passed && evidence.failureClassification != .runnerCrash {
+            if !evidence.passed && evidence.failureClassification != .runnerCrash
+                && evidence.failureClassification != .landingInfrastructure {
                 node.failedAttempts += 1
                 node.recentFailures.append(evidence.summary)
             }
