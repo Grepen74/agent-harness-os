@@ -155,7 +155,7 @@ public actor Reconciler {
                 await tracker.comment(on: ticket.key, """
                     \(Self.previewQuestionsMarker):
                     \(Self.numbered(questions))
-                    \(Self.questionReplyInstructions(then: .preview))
+                    \(Self.questionReplyInstructions(for: questions, then: .preview))
                     """)
                 return "questions posted above; no preview recorded"
             }
@@ -203,14 +203,16 @@ public actor Reconciler {
             return "build approved for \(node.spec.id) and everything below it" + (try await approve(reviews, by: person))
 
         case .retry:
-            if let node, !node.suggestedAnswers.isEmpty {
-                return try await correctSuggestion(on: node, ticket: ticket, in: state)
-            }
             if let node, node.flags[.needsInput] != nil {
                 return try await resume(node, answeredOn: ticket, by: person)
             }
-            if let node, let comment = ticket.comments.last, comment.author.isHuman,
-               comment.text.firstMatch(of: /^\s*\d+\s*:/) != nil {
+            // A stopped node with old suggestions is retried as usual unless the person corrects one by number.
+            if let node, !node.suggestedAnswers.isEmpty,
+               node.flags[.escalated] == nil || Self.latestCorrectionComment(on: ticket, for: node) != nil {
+                return try await correctSuggestion(on: node, ticket: ticket, in: state)
+            }
+            if let node, node.flags[.escalated] == nil, let comment = ticket.comments.last, comment.author.isHuman,
+               Self.corrections(in: comment.text) != nil {
                 return try await correctSuggestion(on: node, ticket: ticket, in: state)
             }
             guard let node, node.flags[.escalated] != nil else {
@@ -250,22 +252,39 @@ public actor Reconciler {
         }
     }
 
-    private func correctSuggestion(on node: NodeState, ticket: Ticket, in state: WorkingState) async throws -> String {
-        let guidance = "Identify a current suggestion by number: comment '<number>: <correct answer>', " +
-            "then add harness:retry. Old suggestion numbers cannot correct a replacement run."
-        guard let (role, suggestions) = node.suggestedAnswers.max(by: { $0.value.reportedAt < $1.value.reportedAt }),
-              let comment = ticket.comments.last(where: { $0.author.isHuman && $0.at >= suggestions.reportedAt }) else {
-            throw Rejection(reason: guidance)
+    /// Corrections by number, one per line: `2: answer`, `2. answer` or `2. Answer: answer` (the form question
+    /// comments suggest). Nil when the text isn't a numbered reply at all.
+    static func corrections(in text: String) -> [(number: Int, answer: String)]? {
+        let lines = text.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        let parsed = lines.map { line -> (Int, String)? in
+            guard let match = line.firstMatch(of: /^(\d+)\s*[:.)]\s*(?:[Aa]nswer\s*:)?(.*)$/), let number = Int(match.1) else {
+                return nil
+            }
+            return (number, String(match.2).trimmingCharacters(in: .whitespaces))
         }
-        let parts = comment.text.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
-        guard parts.count == 2,
-              let number = Int(parts[0].trimmingCharacters(in: .whitespacesAndNewlines)),
-              number > 0, number <= suggestions.questions.count else {
-            throw Rejection(reason: guidance)
-        }
-        let answer = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !answer.isEmpty else { throw Rejection(reason: guidance) }
+        guard !parsed.isEmpty, parsed.allSatisfy({ $0 != nil }) else { return nil }
+        return parsed.compactMap { $0 }
+    }
 
+    /// The latest human comment since the newest suggestions, when it's a numbered correction.
+    private static func latestCorrectionComment(on ticket: Ticket, for node: NodeState) -> Comment? {
+        guard let newest = node.suggestedAnswers.values.map(\.reportedAt).max(),
+              let comment = ticket.comments.last(where: { $0.author.isHuman && $0.at >= newest }),
+              corrections(in: comment.text) != nil else { return nil }
+        return comment
+    }
+
+    private func correctSuggestion(on node: NodeState, ticket: Ticket, in state: WorkingState) async throws -> String {
+        let guidance = "To correct a suggested answer, comment with its number from the latest " +
+            "\"Proceeding on suggested answers\" list, one per line, e.g. `2: <correct answer>`, then add harness:retry. " +
+            "If the work stopped for another reason, comment what to change without numbers and add harness:retry."
+        guard let (role, suggestions) = node.suggestedAnswers.max(by: { $0.value.reportedAt < $1.value.reportedAt }),
+              let comment = ticket.comments.last(where: { $0.author.isHuman && $0.at >= suggestions.reportedAt }),
+              let corrections = Self.corrections(in: comment.text),
+              corrections.allSatisfy({ $0.number > 0 && $0.number <= suggestions.questions.count && !$0.answer.isEmpty })
+        else {
+            throw Rejection(reason: guidance)
+        }
         if role == .decomposer, let started = state.subtree(of: node.id).first(where: Self.hasStartedBuilding) {
             throw Rejection(reason: "Building has started on \(workLink(started)), so this breakdown cannot be corrected. " +
                 "Open a follow-up ticket for the corrected work.")
@@ -281,10 +300,9 @@ public actor Reconciler {
         var spec = node.spec
         if role == .decomposer { spec.kind = .composite }
         // Replanning preserves clarifications and children; restore only gates the person already approved.
-        let kinds: [EventKind] = [
-            .questionsAnswered(Clarification(questions: [suggestions.questions[number - 1].question], answer: answer)),
-            .replanned(spec: spec),
-        ] + Gate.allCases.filter(node.gates.contains).map { .gateOpened($0) }
+        let kinds: [EventKind] = corrections.map {
+            .questionsAnswered(Clarification(questions: [suggestions.questions[$0.number - 1].question], answer: $0.answer))
+        } + [.replanned(spec: spec)] + Gate.allCases.filter(node.gates.contains).map { .gateOpened($0) }
         try await write(node.id, by: comment.author, kinds, expecting: node.version)
         return role == .decomposer
             ? "correction recorded; decomposition will rerun, retaining unchanged children and their tests and approvals"
@@ -355,7 +373,9 @@ public actor Reconciler {
         let children = node.children.compactMap { state.nodes[$0]?.ticket }
         let closed = children.isEmpty ? "" : "\nIts child tickets (\(children.joined(separator: ", "))) are paused. The next " +
             "breakdown keeps those it still contains unchanged, with their tests and approvals, and closes the others."
-        let waits = spec.dependsOn.isEmpty ? "" : "\nWaits for: \(spec.dependsOn.joined(separator: ", "))."
+        let replanned = await ledger.workingState()
+        let missing = replanned.nodes[node.id].map { unresolvedDependencies(of: $0, in: replanned) } ?? spec.dependsOn
+        let waits = missing.isEmpty ? "" : "\nWaits for: \(missing.joined(separator: ", "))."
         return "replanned from the ticket as it is now; nothing is approved yet.\(closed)\(waits)\n" +
             "Next: \(HarnessCommand.preview.label) to see the new breakdown first, \(HarnessCommand.breakdown.label) " +
             "to break it down, or \(HarnessCommand.go.label) to break it down and build it."
@@ -933,7 +953,7 @@ public actor Reconciler {
         await tracker.comment(on: node.ticket, """
             \(Self.needsInputMarker): the \(role.title) can't go on without answers.
             \(Self.numbered(questions))
-            \(Self.questionReplyInstructions(then: .retry))
+            \(Self.questionReplyInstructions(for: questions, then: .retry))
             """)
         return "\(node.displayName) needs input: \(questions.count) \(plural) from the \(role.title)"
     }
@@ -945,11 +965,17 @@ public actor Reconciler {
         }.joined(separator: "\n")
     }
 
-    private static func questionReplyInstructions(then command: HarnessCommand) -> String {
-        "Answer them in a comment: reply `ok` to accept all suggested answers, or use " +
+    private static func questionReplyInstructions(for questions: [AgentQuestion], then command: HarnessCommand) -> String {
+        let suggested = questions.filter { $0.suggestion != nil }.count
+        if suggested == 0 {
+            return "Answer them in a comment, e.g. `1. Answer: <answer text>, 2. Answer: <answer text>`. " +
+                "Then add \(command.label)."
+        }
+        let unsuggested = suggested == questions.count ? "" :
+            " Questions without a suggested answer must be answered in writing."
+        return "Answer them in a comment: reply `ok` to accept all suggested answers, or use " +
             "`1. Answer: <answer text>, 2. Answer: <answer text>` to correct selected answers " +
-            "while accepting the remaining suggestions. Questions without suggestions must be answered in writing. " +
-            "Then add \(command.label)."
+            "while accepting the remaining suggestions.\(unsuggested) Then add \(command.label)."
     }
 
     private func postProceedingOnSuggestions(_ questions: [AgentQuestion], on ticket: String) async {

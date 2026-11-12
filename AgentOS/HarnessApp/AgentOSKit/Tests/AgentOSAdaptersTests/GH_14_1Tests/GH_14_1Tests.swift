@@ -58,7 +58,7 @@ struct GH_14_1Tests {
     }
 
     @Test(arguments: PostingContext.allCases, [true, false])
-    func everyQuestionCommentExplainsAcceptAllCorrectionsAndTheNextSignal(
+    func everyQuestionCommentExplainsHowToAnswerAndTheNextSignal(
         context: PostingContext, includesSuggestions: Bool
     ) async throws {
         let questions = includesSuggestions
@@ -69,17 +69,24 @@ struct GH_14_1Tests {
 
         let comment = try await fixture.questionComment()
         let instructions = comment.replacingOccurrences(of: "`", with: "").lowercased()
+        #expect(instructions.contains("1. answer:"))
+        #expect(instructions.contains("2. answer:"))
+        #expect(instructions.contains(context == .preview ? "harness:preview" : "harness:retry"))
+        guard includesSuggestions else {
+            // Nothing to accept: the comment doesn't offer accepting suggestions.
+            #expect(instructions.range(of: #"\bok\b"#, options: .regularExpression) == nil)
+            #expect(!instructions.contains("suggest"))
+            return
+        }
         #expect(instructions.range(of: #"\bok\b"#, options: .regularExpression) != nil)
         #expect(instructions.contains("accept"))
         #expect(instructions.contains("all"))
         #expect(instructions.contains("suggest"))
-        #expect(instructions.contains("1. answer:"))
-        #expect(instructions.contains("2. answer:"))
         #expect(instructions.range(
             of: #"\b(rest|remaining|others|other|uncorrected)\b"#,
             options: .regularExpression
         ) != nil, "Numbered corrections must explain that uncorrected suggestions are accepted.")
-        #expect(instructions.contains(context == .preview ? "harness:preview" : "harness:retry"))
+        #expect(instructions.contains("in writing"), "Questions without a suggestion must be answered in writing.")
     }
 
     @Test
