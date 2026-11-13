@@ -30,12 +30,15 @@ public protocol TrackerAdapter: Sendable {
     func setStatus(of key: String, to status: String) async
     /// A ticket the harness made that's no longer wanted (its parent was replanned): say why, and close it.
     func close(_ key: String, saying text: String) async
+    /// The ticket was closed on the tracker (by a person, outside the harness). False when unsure.
+    func isClosed(_ key: String) async -> Bool
 }
 
 extension TrackerAdapter {
     public var createsChildTickets: Bool { true }
     public func contextTickets() async -> [Ticket] { [] }
     public var contextRepository: String { "" }
+    public func isClosed(_ key: String) async -> Bool { false }
 
     /// Trackers without closing show it as a status.
     public func close(_ key: String, saying text: String) async {

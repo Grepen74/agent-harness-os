@@ -57,6 +57,8 @@ public struct NodeState: Sendable, Identifiable {
     public var version: Int
     public var phase: Phase = .specified
     public var flags: [Flag: String] = [:]
+    /// A person closed the ticket: no more work, and its flags don't ask for attention.
+    public var ticketClosed = false
     public var gates: Set<Gate> = []
     public var links: [TypedLink] = []
     public var children: [NodeID] = []
@@ -126,7 +128,7 @@ public struct WorkingState: Sendable {
 
     /// Leaves waiting to land, first come first served.
     public var landingQueue: [NodeState] {
-        nodes.values.filter { $0.phase == .landing && $0.flags[.escalated] == nil && $0.activeRun == nil }
+        nodes.values.filter { $0.phase == .landing && $0.flags[.escalated] == nil && $0.activeRun == nil && !$0.ticketClosed }
             .sorted { ($0.queuedAt ?? 0) < ($1.queuedAt ?? 0) }
     }
 
@@ -151,7 +153,7 @@ public struct WorkingState: Sendable {
 
     /// Everything that needs a human right now (doc 06): the most important view.
     public var attentionList: [(node: NodeState, flag: Flag, reason: String)] {
-        creationOrder.compactMap { nodes[$0] }.flatMap { node in
+        creationOrder.compactMap { nodes[$0] }.filter { !$0.ticketClosed }.flatMap { node in
             Flag.allCases.compactMap { flag in node.flags[flag].map { (node, flag, $0) } }
         }
     }
@@ -254,6 +256,8 @@ public struct WorkingState: Sendable {
             node.queuedAt = phase == .landing ? record.position : nil
         case .flagSet(let flag, let reason): node.flags[flag] = reason
         case .flagCleared(let flag): node.flags[flag] = nil
+        case .ticketClosed: node.ticketClosed = true
+        case .ticketReopened: node.ticketClosed = false
         case .attemptsReset:
             node.failedAttempts = 0
             node.recentFailures = []

@@ -280,6 +280,37 @@ struct GH_50Tests {
     }
 
     @Test
+    func aClosedTicketNoLongerNeedsAttentionOrGetsWorkUntilItIsReopened() async throws {
+        try await withFixture { f in
+            try await f.seed("closed", phase: .ready)
+            try await f.record("closed", [
+                .gateOpened(.build), .flagSet(.escalated, reason: "Needs a human"),
+            ])
+            try await f.seed("idle")
+            await f.tracker.setClosed("closed", true)
+            await f.tracker.setClosed("idle", true)
+            await f.tracker.setStatus(of: "idle", to: "untouched")
+
+            _ = try await f.roundReturningWhileHeld()
+            _ = try await f.roundReturningWhileHeld()
+
+            let state = await f.ledger.workingState()
+            #expect(state.attentionList.isEmpty)
+            #expect(state.status(of: try #require(state.nodes["closed"])) == "Closed")
+            #expect(await f.tracker.ticket("idle")?.status == "untouched")
+            #expect(await f.runStarts("idle") == 0)
+            #expect(await f.ledger.allRecords().filter {
+                if case .ticketClosed = $0.event.kind { return true }
+                return false
+            }.count == 2)
+
+            await f.tracker.setClosed("closed", false)
+            _ = try await f.roundReturningWhileHeld()
+            #expect(await f.ledger.workingState().attentionList.map(\.node.id).contains("closed"))
+        }
+    }
+
+    @Test
     func aReservedNodeInTheLandingQueueWaitsUntilItsStepCompletes() async throws {
         try await withFixture(reserve: "queued") { f in
             // Only a step started before the node reached the landing queue can still hold its reservation there.
@@ -603,6 +634,9 @@ struct GH_50Tests {
             tickets[key]?.comments.append(Comment(author: .human("Alice"), text: text))
         }
         func setStatus(of key: String, to status: String) { tickets[key]?.status = status }
+        private var closed: Set<String> = []
+        func setClosed(_ key: String, _ value: Bool) { if value { closed.insert(key) } else { closed.remove(key) } }
+        func isClosed(_ key: String) -> Bool { closed.contains(key) }
         func staleStatuses() {
             for key in Array(tickets.keys) { tickets[key]?.status = "stale projection" }
         }

@@ -112,6 +112,10 @@ public enum EventKind: Codable, Sendable {
 
     // Outside world
     case externalDependencyResolved(ref: String)
+    /// A person closed the node's ticket on the tracker: the harness does no more work on it and no longer
+    /// asks for attention. Its flags stay, so reopening the ticket (`ticketReopened`) shows them again.
+    case ticketClosed
+    case ticketReopened
 
     // The repo (doc 01): what the harness knew about it when it started, and whenever that changed.
     case readinessScanned(ReadinessScan)
@@ -227,6 +231,8 @@ extension EventKind {
         case .landingReworkNeeded(let evidence): "landing rework: \(evidence.summary)"
         case .landingRerunRequested(let run): "landing rerun requested after \(run) submitted no changes"
         case .externalDependencyResolved(let ref): "\(ref) delivered"
+        case .ticketClosed: "ticket closed on the tracker: no more work, and no attention needed"
+        case .ticketReopened: "ticket reopened on the tracker"
         case .reworkNeeded(let reason): "rework: \(reason)"
         case .landed(let commit): "landed on main at \(commit.prefix(8))"
         case .questionsRaised(let role, let questions):
