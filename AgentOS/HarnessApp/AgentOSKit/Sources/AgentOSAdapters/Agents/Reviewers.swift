@@ -43,6 +43,20 @@ public struct CopilotReviewer: Reviewer {
         """
     }
 
+    /// Passing tests alone don't prove a ticket whose criteria the tests can't show (a refactor, say), so a change
+    /// with no production edits gets checked against the current source instead of an empty diff.
+    static func unchangedProduction(in request: ReviewRequest) -> String {
+        guard request.stage == .change,
+              request.context.changedFiles.allSatisfy({ request.acceptanceTests[$0] != nil }) else { return "" }
+        return """
+        The implementer changed no production files, claiming the code already meets this ticket. Passing \
+        tests don't prove that. Check every acceptance criterion against the current source in this directory, \
+        including file layout, sizes and anything else only source text shows; for each one it doesn't meet, \
+        make a finding.
+
+        """
+    }
+
     public static func prompt(for request: ReviewRequest) -> String {
         """
         Independently review the \(request.stage.rawValue). Read only; never edit files or run git.
@@ -55,7 +69,7 @@ public struct CopilotReviewer: Reviewer {
         must deliver. Put improvements, problems outside the ticket's scope and touched areas, and problems that \
         were there before this change in followUps: a person files those as new tickets, and they never fail \
         the review.
-        \(earlierRounds(of: request))
+        \(earlierRounds(of: request))\(unchangedProduction(in: request))
         Reject acceptance tests that only check constants or types, use made-up APIs instead of real behavior,
         or pass without the requirement being met. Check the tests against every ticket criterion
         they can prove.

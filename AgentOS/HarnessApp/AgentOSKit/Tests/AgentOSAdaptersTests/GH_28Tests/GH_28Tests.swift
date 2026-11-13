@@ -314,6 +314,18 @@ struct GH_28Tests {
     }
 
     @Test
+    func aChangeWithOnlyTestFilesIsReviewedAgainstTheCurrentSourceNotTheEmptyDiff() {
+        func prompt(changing files: [String]) -> String {
+            CopilotReviewer.prompt(for: ReviewRequest(
+                stage: .change, spec: Fixture.spec, acceptanceTests: [Fixture.testFile: "tests"],
+                context: ReviewContext(baseBranch: "agentos/main", commit: "abc", fullDiff: "", changedFiles: files,
+                                       recentChanges: [], uiEvidence: nil)))
+        }
+        #expect(prompt(changing: [Fixture.testFile]).contains("changed no production files"))
+        #expect(!prompt(changing: [Fixture.testFile, Fixture.productionFile]).contains("changed no production files"))
+    }
+
+    @Test
     func aFailedCheckCannotBeBypassedByAPassingReviewer() async throws {
         let fixture = try await Fixture(checksPass: false)
         defer { fixture.cleanUp() }

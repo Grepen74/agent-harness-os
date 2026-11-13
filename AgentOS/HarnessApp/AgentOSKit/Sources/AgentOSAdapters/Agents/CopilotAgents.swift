@@ -457,9 +457,11 @@ public struct CopilotImplementer: Implementer {
         acceptance test instead of changing it or working around it. Write \(AgentReportFile.name) as \
         {"questions": [], "assumptions": [], "brokenTest": \
         {"testName": string, "reason": string}}. Name the test as Suite.testName (for example FlowTests.someTest), \
-        so the harness can tell this item's tests from other work's. If the tests already pass without any change \
-        (for example because other work delivered it), change nothing and write {"alreadySatisfied": true}; \
-        the verifier then checks the branch as it is. If the previous failure is a review finding about the \
+        so the harness can tell this item's tests from other work's. Only if the code already meets every \
+        acceptance criterion without any change (for example because other work delivered it), change nothing \
+        and write {"alreadySatisfied": true}; the verifier then checks the branch as it is. Passing tests are \
+        not enough: a refactor's tests pass before the work too, and criteria such as file layout or size \
+        still need the change. If the previous failure is a review finding about the \
         acceptance tests, report the broken test instead: you cannot fix it, and changing nothing stops the item \
         until a person looks. Otherwise the report may be omitted.
 
