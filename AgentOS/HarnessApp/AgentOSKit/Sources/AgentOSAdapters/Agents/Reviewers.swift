@@ -57,7 +57,14 @@ public struct CopilotReviewer: Reviewer {
         the review.
         \(earlierRounds(of: request))
         Reject acceptance tests that only check constants or types, use made-up APIs instead of real behavior,
-        or pass without the requirement being met. Check the tests against every ticket criterion.
+        or pass without the requirement being met. Check the tests against every ticket criterion
+        they can prove.
+        The test author may only test behaviour through APIs, never source text, and may only change files in
+        its test folder: no new test targets, package manifests or build settings. Criteria that only source
+        text or build setup can show (file layout, code moved unchanged, file sizes, access levels, build or
+        target settings) are checked at the change stage against the diff, never at the acceptanceTests stage:
+        don't make findings at the acceptanceTests stage for tests missing them. At the change stage, check
+        those criteria against the diff yourself.
         At the acceptanceTests stage, production APIs may not exist yet: evaluate the proposed test contract,
         rejecting fake substitutes for product behavior, not legitimate APIs the implementer must provide.
         Runtime UI evidence is required at the change stage, not before implementation.

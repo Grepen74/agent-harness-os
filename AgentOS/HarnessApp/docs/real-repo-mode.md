@@ -240,7 +240,9 @@ A lower repo level, including an area below the overall level, is a start blocke
 Review level and Reviewer rows each retain their own harness/repo source.
 
 The reviewer checks authored acceptance tests against the ticket before implementation starts. Weak
-tests return to their author with findings. After all landing checks pass, the reviewer receives the
+tests return to their author with findings. Criteria that behavioural tests in the test folder can't
+prove (file layout, code moved unchanged, access levels, build settings) aren't held against the tests;
+the change review checks them against the diff. After all landing checks pass, the reviewer receives the
 ticket, complete diff against the landing branch, recent same-file history, and configured repository
 rules. The built-in checklist covers regressions and loosened constraints, per-line/loop I/O and
 allocation, duplicated logic, and tests that fail to prove the requirement. Rejected changes return to
@@ -545,6 +547,10 @@ Each phase is usable on its own.
    - Polling, kept small: open issues at most every 10 seconds and after the harness's own changes;
      comments and label events only when an issue changed. Failed requests show in the activity log.
    - A tracker that refuses a child ticket escalates the breakdown; `harness:retry` creates the rest.
+   - **Closing an issue** stops the harness's work on it: no new steps, no landing, no status updates, and
+     it leaves *Needs attention* (status *Closed*, unless already proven). A running agent finishes but its
+     next step doesn't start. Its flags stay in the ledger, so **reopening** the issue brings them back. An
+     issue missing from the open list is read once to confirm it's closed.
    - **`harness:replan`** redoes an adopted ticket's plan from the ticket as it is now, e.g. after you
      changed its criteria or added a forgotten `Blocked by`. It works on the top ticket (not on its children)
      until building starts below it. The ticket keeps the answers given to questions; nothing is approved

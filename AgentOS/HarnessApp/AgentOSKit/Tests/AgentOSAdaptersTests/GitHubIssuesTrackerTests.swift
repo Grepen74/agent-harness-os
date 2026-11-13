@@ -132,6 +132,27 @@ private actor FakeGitHub: GitHubTransport {
         GitHubIssuesTracker(repo: "o/r", transport: github, listInterval: .zero)
     }
 
+    @Test func anIssueClosedOnGitHubIsReportedClosedUntilItIsReopened() async {
+        let github = FakeGitHub()
+        await github.add(issue: 7, body: "Work")
+        await github.add(issue: 8, body: "Other")
+        let tracker = tracker(github)
+        #expect(await tracker.isClosed("GH-7") == false)
+        _ = await tracker.contextTickets()
+        #expect(await tracker.isClosed("GH-7") == false)
+
+        _ = try? await github.request("PATCH", "repos/o/r/issues/7", body: Data(#"{"state":"closed"}"#.utf8))
+        _ = await tracker.contextTickets()
+        #expect(await tracker.isClosed("GH-7"))
+        #expect(await tracker.isClosed("GH-7"))
+        #expect(await github.paths("GET").filter { $0 == "repos/o/r/issues/7" }.count == 1)
+        #expect(await tracker.isClosed("GH-8") == false)
+
+        _ = try? await github.request("PATCH", "repos/o/r/issues/7", body: Data(#"{"state":"open"}"#.utf8))
+        _ = await tracker.contextTickets()
+        #expect(await tracker.isClosed("GH-7") == false)
+    }
+
     @Test func readsAHandWrittenIssueAsATicket() async {
         let github = FakeGitHub()
         await github.add(issue: 7, title: "Show totals", body: """

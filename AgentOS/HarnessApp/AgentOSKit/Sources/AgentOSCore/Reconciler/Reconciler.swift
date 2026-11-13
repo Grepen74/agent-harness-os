@@ -699,6 +699,12 @@ public actor Reconciler {
                 report.actions.append("\(node.displayName) unblocked")
             }
         }
+        for node in updated.nodes.values {
+            let closed = await tracker.isClosed(node.ticket)
+            guard closed != node.ticketClosed else { continue }
+            try? await write(node.id, by: .adapter("tracker"), [closed ? .ticketClosed : .ticketReopened])
+            report.actions.append("\(node.displayName) \(closed ? "closed on the tracker: no more work on it" : "reopened")")
+        }
     }
 
     // MARK: Controllers: one step per node per round
@@ -816,7 +822,8 @@ public actor Reconciler {
     }
 
     private func canAdvance(_ node: NodeState, in state: WorkingState) -> Bool {
-        guard node.flags[.escalated] == nil, node.flags[.needsInput] == nil, node.activeRun == nil else { return false }
+        guard node.flags[.escalated] == nil, node.flags[.needsInput] == nil, node.activeRun == nil,
+              !node.ticketClosed else { return false }
         // The parent was replanned: its children wait for its new breakdown.
         if let parent = node.spec.parent.flatMap({ state.nodes[$0] }), parent.phase != .split { return false }
 
@@ -2107,7 +2114,7 @@ public actor Reconciler {
 
     private func projectStatuses() async {
         let state = await ledger.workingState()
-        for node in state.nodes.values {
+        for node in state.nodes.values where !node.ticketClosed {
             await tracker.setStatus(of: node.ticket, to: state.status(of: node))
         }
     }
@@ -2118,7 +2125,7 @@ public actor Reconciler {
     private func projectStatus(of id: NodeID) async {
         let state = await ledger.workingState()
         guard let node = state.nodes[id] else { return }
-        for affected in [node] + node.children.compactMap({ state.nodes[$0] }) {
+        for affected in [node] + node.children.compactMap({ state.nodes[$0] }) where !affected.ticketClosed {
             await tracker.setStatus(of: affected.ticket, to: state.status(of: affected))
         }
     }

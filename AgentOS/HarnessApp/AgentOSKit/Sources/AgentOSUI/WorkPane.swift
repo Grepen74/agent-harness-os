@@ -19,12 +19,12 @@ public struct WorkPane: View {
                 List(selection: $selection) {
                     OutlineGroup(model.state.roots.filter({
                         guard showDoneNodes == false else { return true }
-                        return $0.phase != .proven
+                        return $0.phase != .proven && !$0.ticketClosed
                     }).map { TreeItem($0, in: model.state) }, children: \.children) { item in
                         NodeRow(node: item.node, status: model.state.status(of: item.node)).tag(item.node.id)
                     }
                 }
-                Toggle("Show Done items", isOn: $showDoneNodes)
+                Toggle("Show Done and closed items", isOn: $showDoneNodes)
                     .padding()
             }
             .frame(minHeight: 260, maxHeight: .infinity)
@@ -58,17 +58,21 @@ struct NodeRow: View {
     /// The same words as on the ticket; the phase is in the detail pane.
     let status: String
 
+    /// Closed on the tracker and not finished: greyed out, its flags kept in the ledger but not shown.
+    private var closed: Bool { node.ticketClosed && node.phase != .proven }
+    private var color: Color { closed ? .secondary : node.phase.color }
+
     var body: some View {
         HStack(spacing: 6) {
-            Circle().fill(node.phase.color).frame(width: 9, height: 9)
+            Circle().fill(color).frame(width: 9, height: 9)
             Text(node.displayName).monospaced().foregroundStyle(.secondary)
-            Text(node.spec.title).lineLimit(1)
+            Text(node.spec.title).lineLimit(1).foregroundStyle(closed ? .secondary : .primary)
             Spacer()
-            ForEach(Flag.allCases.filter { node.flags[$0] != nil }, id: \.self) { flag in
+            ForEach(Flag.allCases.filter { !closed && node.flags[$0] != nil }, id: \.self) { flag in
                 Image(systemName: flag.symbol).foregroundStyle(flag.color).help(node.flags[flag] ?? "")
             }
             if let run = node.activeRun { Label(run.role.rawValue, systemImage: "cpu").font(.caption).foregroundStyle(.orange) }
-            Text(status).font(.caption).foregroundStyle(node.phase.color).help("Phase: \(node.phase.rawValue)")
+            Text(status).font(.caption).foregroundStyle(color).help("Phase: \(node.phase.rawValue)")
         }
     }
 }

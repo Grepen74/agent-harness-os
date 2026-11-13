@@ -88,6 +88,8 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
     private var labelSetters: [String: Participant] = [:]
     /// Statuses the harness set: the listed labels can be older.
     private var statuses: [Int: String] = [:]
+    /// Issues confirmed closed; see `isClosed`.
+    private var closedIssues: Set<Int> = []
     private var labelsCreated = false
     private var problems: [String] = []
 
@@ -168,6 +170,23 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
     public func comment(on key: String, _ text: String) async {
         guard let number = Self.number(key) else { return }
         await post(comment: text, on: number, byHarness: true)
+    }
+
+    /// From the list of open issues: an issue missing from a list that just succeeded is read once to confirm
+    /// it's closed (not deleted or unreadable), and stays closed until it's listed as open again.
+    public func isClosed(_ key: String) async -> Bool {
+        guard let number = Self.number(key) else { return false }
+        let open = await listOpenIssues()
+        guard listedAt != nil else { return false }
+        if open.contains(where: { $0.number == number }) {
+            closedIssues.remove(number)
+            return false
+        }
+        if closedIssues.contains(number) { return true }
+        guard let issue = await attempt("Reading \(key)", { try await self.get(Issue.self, "repos/\(self.repo)/issues/\(number)") }),
+              issue.state == "closed" else { return false }
+        closedIssues.insert(number)
+        return true
     }
 
     /// Closed as "not planned", so it drops out of the open issues the harness reads.

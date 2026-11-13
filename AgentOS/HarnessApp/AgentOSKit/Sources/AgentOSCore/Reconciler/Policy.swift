@@ -148,6 +148,7 @@ extension WorkingState {
     /// ledger, never the source (doc 03 §5). The phase is the
     /// ledger's own word for where it is in the V; this also says whether it waits for someone.
     public func status(of node: NodeState) -> String {
+        if node.ticketClosed && node.phase != .proven { return "Closed" }
         if node.flags[.escalated] != nil { return "Needs human" }
         if node.awaitingHumanReview { return "In review" }
         if node.flags[.needsInput] != nil { return "Needs input" }
