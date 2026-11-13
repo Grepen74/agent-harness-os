@@ -276,6 +276,9 @@ struct GH_28Tests {
         for alternatives in [["constant"], ["type"], ["made-up", "invented", "fabricated"], ["requirement"]] {
             #expect(alternatives.contains { prompt.contains($0) })
         }
+        // Criteria the test author can't test (source layout, build settings) go to the change review instead.
+        #expect(prompt.contains("source text") && prompt.contains("build settings")
+                && prompt.contains("checked at the change stage"))
         try await fixture.advanceUntil { await fixture.author.tasks.count == 2 }
         let rewrite = try #require(await fixture.author.tasks.last)
         #expect(rewrite.previousFailure?.contains(example.1) == true)

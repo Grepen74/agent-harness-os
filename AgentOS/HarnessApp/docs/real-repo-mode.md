@@ -240,7 +240,9 @@ A lower repo level, including an area below the overall level, is a start blocke
 Review level and Reviewer rows each retain their own harness/repo source.
 
 The reviewer checks authored acceptance tests against the ticket before implementation starts. Weak
-tests return to their author with findings. After all landing checks pass, the reviewer receives the
+tests return to their author with findings. Criteria that behavioural tests in the test folder can't
+prove (file layout, code moved unchanged, access levels, build settings) aren't held against the tests;
+the change review checks them against the diff. After all landing checks pass, the reviewer receives the
 ticket, complete diff against the landing branch, recent same-file history, and configured repository
 rules. The built-in checklist covers regressions and loosened constraints, per-line/loop I/O and
 allocation, duplicated logic, and tests that fail to prove the requirement. Rejected changes return to
