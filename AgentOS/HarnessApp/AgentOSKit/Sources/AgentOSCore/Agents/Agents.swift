@@ -165,10 +165,12 @@ public struct BreakdownRequest: Sendable {
     /// A read-only snapshot of the latest code to look at (see `Workspace.createSnapshot`); nil when there's none.
     public let codebase: URL?
     public let agentContext: AgentContext
+    public let checkerFeedback: [BreakdownCheckFeedback]
 
     public init(spec: NodeSpec, existingComponents: [String] = [], clarifications: [Clarification] = [],
                 guesswork: Guesswork = .assumeAndReport, log: URL? = nil, codebase: URL? = nil,
-                ticketKey: String? = nil, agentContext: AgentContext = AgentContext()) {
+                ticketKey: String? = nil, agentContext: AgentContext = AgentContext(),
+                checkerFeedback: [BreakdownCheckFeedback] = []) {
         self.spec = spec
         let inferredTicket = spec.id.hasPrefix("wn-") ? String(spec.id.dropFirst(3)) : spec.id
         self.identity = NodeIdentity(ticketKey: ticketKey ?? inferredTicket, nodeID: spec.id)
@@ -178,6 +180,7 @@ public struct BreakdownRequest: Sendable {
         self.log = log
         self.codebase = codebase
         self.agentContext = agentContext
+        self.checkerFeedback = checkerFeedback
     }
 }
 

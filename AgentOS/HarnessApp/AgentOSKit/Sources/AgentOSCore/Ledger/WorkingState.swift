@@ -20,6 +20,7 @@ public struct Preview: Sendable, Hashable {
     public let number: Int
     public let specHash: String
     public let proposal: [NodeSpec]
+    public var breakdownWarnings: [BreakdownFinding] = []
 }
 
 public struct CatchUpConflict: Sendable, Hashable {
@@ -109,6 +110,7 @@ public struct WorkingState: Sendable {
     public private(set) var creationOrder: [NodeID] = []
     /// Latest preview per ticket.
     public private(set) var previews: [String: Preview] = [:]
+    private var pendingBreakdownWarnings: [String: [BreakdownFinding]] = [:]
     public private(set) var resolvedExternal: Set<String> = []
     /// The latest recorded readiness scan of the repo.
     public private(set) var readiness: ReadinessScan?
@@ -225,8 +227,11 @@ public struct WorkingState: Sendable {
         }
 
         switch event.kind {
+        case .breakdownChecked(let ticket, let check):
+            pendingBreakdownWarnings[ticket] = check.findings
         case .previewRecorded(let ticket, let number, let specHash, let proposal):
-            previews[ticket] = Preview(number: number, specHash: specHash, proposal: proposal)
+            previews[ticket] = Preview(number: number, specHash: specHash, proposal: proposal,
+                                      breakdownWarnings: pendingBreakdownWarnings.removeValue(forKey: ticket) ?? [])
         case .externalDependencyResolved(let ref):
             resolvedExternal.insert(ref)
         case .readinessScanned(let scan):

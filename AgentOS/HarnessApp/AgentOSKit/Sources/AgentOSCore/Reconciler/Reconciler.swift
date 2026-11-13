@@ -1842,7 +1842,7 @@ public actor Reconciler {
             guesswork: policy.guesswork, log: log, codebase: codebase, ticketKey: ticketKey,
             agentContext: await makeAgentContext(ticketKey))
         do {
-            let breakdown = try await team.decomposer.proposeChildren(request)
+            let breakdown = try await checkedBreakdown(request)
             if let codebase { await workspace.removeSnapshot(codebase) }
             return breakdown
         } catch {

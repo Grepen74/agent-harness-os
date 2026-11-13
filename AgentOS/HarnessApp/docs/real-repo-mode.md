@@ -513,6 +513,22 @@ Each phase is usable on its own.
    - The decomposer runs in a read-only snapshot of `agentos/main` (a detached worktree, removed afterwards),
      so it reads the code and the repo's `AGENTS.md` when it splits the work. Anything it writes there is
      thrown away. If the snapshot can't be made, it splits from the ticket alone.
+   - **Checked breakdowns:** after readiness and question handling, every fresh proposal is checked for
+     vague rule references (such as "existing rule", "as agreed" or "see child"), path-based scope criteria
+     (such as "Sources/Reader.swift is unchanged"), and siblings touching the same component without direct
+     or transitive `after` ordering. Findings trigger exactly one decomposer retry with the prior proposal
+     and structured findings, separate from human answers. A clean first proposal needs no retry.
+     The second eligible proposal is used even if findings remain; there is never a third checker-driven call.
+     Ownership wording does not suppress overlap findings: they remain advisory, so a person can accept
+     a stated division of responsibility. Warnings do not open or revoke gates, stop already-authorized
+     work, or become questions or assumptions.
+   - Initial findings, the retry, and the second check's outcome (including a clean result) appear on the
+     ticket and in ticket-keyed ledger events, even before adoption. Remaining warnings survive ledger
+     replay with the preview. Adopting a matching preview creates its stored proposal without calling
+     the decomposer or checker again and keeps the warning evidence. Each fresh preview or replan gets
+     its own one-retry budget. Approve anyway with `harness:go`; for an adopted ticket, comment with
+     corrections and add `harness:replan`. For an unadopted preview, comment or edit the ticket and add
+     `harness:preview` instead. Previously stored previews without checker evidence remain readable.
    - The decomposer and test author return questions and assumptions with their result. Questions write
      `questionsRaised` and the `needs input` flag, and post a "❓ Needs input" comment with them. Tests
      written on a guess are thrown away. You answer in comments, then add `harness:retry`; without a

@@ -48,6 +48,8 @@ public enum EventKind: Codable, Sendable {
     case signalRejected(ticket: String, command: HarnessCommand, reason: String)
     /// A dry-run breakdown. Nothing is created; accepting it later creates exactly this.
     case previewRecorded(ticket: String, number: Int, specHash: String, proposal: [NodeSpec])
+    case breakdownChecked(ticket: String, check: BreakdownCheckFeedback)
+    case breakdownRetryRequested(ticket: String, feedback: BreakdownCheckFeedback)
 
     // Structure (doc 02 §1–2)
     case nodeCreated(spec: NodeSpec, ticket: String)
@@ -191,6 +193,11 @@ extension EventKind {
         case .signalAccepted(let ticket, let command, _): "\(command.label) on \(ticket) accepted"
         case .signalRejected(let ticket, let command, let reason): "\(command.label) on \(ticket) rejected: \(reason)"
         case .previewRecorded(let ticket, let number, _, let proposal): "preview #\(number) of \(ticket): \(proposal.count) nodes"
+        case .breakdownChecked(let ticket, let check):
+            "breakdown check on \(ticket): " + (check.findings.isEmpty ? "no findings" :
+                check.findings.map(\.explanation).joined(separator: "\n"))
+        case .breakdownRetryRequested(let ticket, let feedback):
+            "breakdown retry on \(ticket): correcting \(feedback.findings.count) findings"
         case .nodeCreated(let spec, let ticket): "created \(spec.kind.rawValue) \(spec.id) (\(ticket)): \(spec.title)"
         case .linkAdded(let link): "link \(link.from) \(link.type.rawValue) \(link.to)"
         case .becameLeaf(let touches): "leaf check passed: built as one leaf (touches \(touches.joined(separator: ", ")))"

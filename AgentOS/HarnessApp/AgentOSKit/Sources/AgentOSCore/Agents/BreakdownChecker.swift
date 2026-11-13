@@ -1,5 +1,5 @@
 /// Advisory problems in a proposed breakdown, with 1-based proposal and criterion positions.
-public enum BreakdownFinding: Equatable, Sendable {
+public enum BreakdownFinding: Codable, Hashable, Sendable {
     case vagueReference(childPosition: Int, childTitle: String,
                         criterionPosition: Int, criterionText: String)
     case scopeCriterion(childPosition: Int, childTitle: String,
