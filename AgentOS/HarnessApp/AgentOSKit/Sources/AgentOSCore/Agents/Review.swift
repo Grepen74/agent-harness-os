@@ -73,16 +73,20 @@ public struct ReviewResult: Codable, Sendable, Equatable {
     public let findings: [String]
     /// Change stage: findings about the ticket's own acceptance tests, which only the test author may change.
     public var testFindings: [String]?
+    /// Worth doing but not blocking this ticket: improvements, problems outside what it touches, or problems that
+    /// were there before it. Posted on the ticket for a person to file; they don't fail the review.
+    public var followUps: [String]?
     /// The model that reviewed, set by the harness (nil: the agent CLI's default or not a model reviewer).
     public var model: String?
     /// Models tried first that the account can't use, so the review fell back to `model`.
     public var unavailableModels: [String]?
 
-    public init(passed: Bool, findings: [String], testFindings: [String]? = nil,
+    public init(passed: Bool, findings: [String], testFindings: [String]? = nil, followUps: [String]? = nil,
                 model: String? = nil, unavailableModels: [String]? = nil) {
         self.passed = passed
         self.findings = findings
         self.testFindings = testFindings?.isEmpty == true ? nil : testFindings
+        self.followUps = followUps?.isEmpty == true ? nil : followUps
         self.model = model
         self.unavailableModels = unavailableModels
     }
@@ -134,16 +138,24 @@ public struct ReviewRequest: Sendable {
     public let context: ReviewContext
     public let instructions: String
     public let directory: URL
+    /// The blocking findings of this stage's earlier failed rounds for the same work, oldest first: a later round
+    /// checks those were fixed without regressions, rather than reviewing from scratch.
+    public let earlierFindings: [[String]]
 
     public init(stage: ReviewStage, spec: NodeSpec, acceptanceTests: [String: String],
-                context: ReviewContext, instructions: String = "", directory: URL = URL(filePath: ".")) {
+                context: ReviewContext, instructions: String = "", directory: URL = URL(filePath: "."),
+                earlierFindings: [[String]] = []) {
         self.stage = stage
         self.spec = spec
         self.acceptanceTests = acceptanceTests
         self.context = context
         self.instructions = instructions
         self.directory = directory
+        self.earlierFindings = earlierFindings
     }
+
+    /// 1 for the first review of this work at this stage.
+    public var round: Int { earlierFindings.count + 1 }
 }
 
 public protocol Reviewer: Sendable {

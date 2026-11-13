@@ -46,9 +46,9 @@ public final class Simulation: Sendable {
         return try await ledger.exclusively { try store.restoreAfterTamperDemo() }
     }
 
-    /// One reconciler round.
+    /// One reconciler round that waits for the steps it starts, so every step has finished when it returns.
     @discardableResult
-    public func step() async -> RoundReport { await reconciler.runRound() }
+    public func step() async -> RoundReport { await reconciler.runRound(waitForAgents: true) }
 
     /// Rounds that each wait for the agents they start, until nothing more happens without a human (or `maxRounds`
     /// is reached): unlike `runUntilIdle`, all started work has finished when this returns.
@@ -63,15 +63,19 @@ public final class Simulation: Sendable {
         return reports
     }
 
-    /// Rounds until nothing more happens without a human (or `maxRounds` is reached).
+    /// Rounds that don't wait for the steps they start, until nothing more happens without a human (or `maxRounds`
+    /// is reached). A round with no new actions while steps are running isn't idle: the next round follows after
+    /// `pause`.
     @discardableResult
-    public func runUntilIdle(maxRounds: Int = 50, onRound: (@Sendable (RoundReport) -> Void)? = nil) async -> [RoundReport] {
+    public func runUntilIdle(maxRounds: Int = 50, pause: Duration = .milliseconds(100),
+                             onRound: (@Sendable (RoundReport) -> Void)? = nil) async -> [RoundReport] {
         var reports: [RoundReport] = []
-        for _ in 0..<maxRounds {
-            let report = await step()
+        for round in 0..<maxRounds {
+            let report = await reconciler.runRound()
             reports.append(report)
             onRound?(report)
             if report.isIdle || report.safeStop != nil { break }
+            if report.actions.isEmpty, round < maxRounds - 1 { try? await Task.sleep(for: pause) }
         }
         return reports
     }

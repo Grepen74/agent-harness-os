@@ -1,6 +1,6 @@
 // API contract: runRound() returns while node steps remain running, but still consumes signals,
 // serializes landing and projects WorkingState.status(of:). Reconciler.init additionally accepts
-// beforeNodeStep: (@Sendable (NodeID) async -> Void)? = nil, awaited AFTER reserving a non-landing
+// beforeStep: (@Sendable (NodeID) async -> Void)? = nil, awaited AFTER reserving a non-landing
 // node step and BEFORE executing it or writing runStarted. This optional scheduling seam lets tests
 // exercise the otherwise unobservable reservation-before-claim interval without scheduler races.
 
@@ -240,12 +240,55 @@ struct GH_50Tests {
     }
 
     @Test
-    func aReservedNodeInTheLandingQueueWaitsUntilItsStepCompletes() async throws {
-        try await withFixture(reserve: "queued") { f in
+    func landingWaitsForAFreeAgentSlot() async throws {
+        try await withFixture(maxParallelAgents: 1) { f in
+            try await f.seed("slow", authoring: true)
+            try await f.startHeldAuthor()
             try await f.seed("queued", phase: .landing)
 
             _ = try await f.roundReturningWhileHeld()
+            #expect(await f.workspace.landingOperations().isEmpty)
+
+            await f.authorGate.release()
+            try #require(try await Self.eventually {
+                _ = await f.reconciler.runRound()
+                return await f.node("queued")?.phase == .proven
+            })
+        }
+    }
+
+    @Test
+    func aChangeWaitingToLandKeepsASlotFreeFromNewWork() async throws {
+        try await withFixture(maxParallelAgents: 1) { f in
+            try await f.seed("queued", phase: .landing)
+            try await f.seed("fresh", authoring: true)
+
+            _ = try await f.roundReturningWhileHeld()
+
+            #expect(await f.workspace.landed() == ["queued"])
+            let records = await f.ledger.allRecords()
+            let landed = try #require(records.firstIndex {
+                guard $0.event.node == "queued", case .phaseChanged(to: .proven) = $0.event.kind else { return false }
+                return true
+            })
+            let freshStarted = records.firstIndex {
+                guard $0.event.node == "fresh", case .runStarted = $0.event.kind else { return false }
+                return true
+            }
+            #expect(freshStarted.map { $0 > landed } ?? true, "New work took the slot the waiting change needed")
+        }
+    }
+
+    @Test
+    func aReservedNodeInTheLandingQueueWaitsUntilItsStepCompletes() async throws {
+        try await withFixture(reserve: "queued") { f in
+            // Only a step started before the node reached the landing queue can still hold its reservation there.
+            try await f.seed("queued", phase: .landing)
+            try await f.record("queued", [.phaseChanged(to: .checking)])
+
+            _ = try await f.roundReturningWhileHeld()
             try #require(try await Self.eventually { await f.reservationGate.hasEntered })
+            try await f.record("queued", [.phaseChanged(to: .landing)])
             _ = try await f.roundReturningWhileHeld()
 
             #expect(await f.node("queued")?.activeRun == nil)
@@ -351,10 +394,10 @@ struct GH_50Tests {
     }
 
     private func withFixture(
-        reserve: NodeID? = nil, holdLanding: Bool = false,
+        reserve: NodeID? = nil, holdLanding: Bool = false, maxParallelAgents: Int = 4,
         _ body: (Fixture) async throws -> Void
     ) async throws {
-        let f = try Fixture(reserve: reserve, holdLanding: holdLanding)
+        let f = try Fixture(reserve: reserve, holdLanding: holdLanding, maxParallelAgents: maxParallelAgents)
         do {
             try await body(f)
         } catch {
@@ -375,7 +418,7 @@ struct GH_50Tests {
         let author: HeldAuthor
         let reconciler: Reconciler
 
-        init(reserve: NodeID?, holdLanding: Bool) throws {
+        init(reserve: NodeID?, holdLanding: Bool, maxParallelAgents: Int) throws {
             root = FileManager.default.temporaryDirectory.appending(path: "GH-50-\(UUID().uuidString)")
             ledger = try Ledger()
             workspace = InstrumentedWorkspace(root: root, gate: holdLanding ? landingGate : nil)
@@ -386,8 +429,8 @@ struct GH_50Tests {
                 workspace: workspace, artifacts: Artifacts(), checks: Checks(workspace: workspace),
                 team: AgentTeam(name: "GH-50", decomposer: NoDecomposer(),
                                 testAuthor: author, implementer: NoImplementer()),
-                policy: Policy(maxParallelAgents: 4),
-                beforeNodeStep: { id in
+                policy: Policy(maxParallelAgents: maxParallelAgents),
+                beforeStep: { id in
                     if id == reserve { await reservationGate.enter() }
                 }
             )

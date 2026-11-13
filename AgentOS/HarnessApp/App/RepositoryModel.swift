@@ -32,7 +32,8 @@ final class RepositoryModel: HarnessActions {
     @ObservationIgnored private var session: RepositorySession?
     @ObservationIgnored private var recovered = false
     @ObservationIgnored private var isClosed = false
-    @ObservationIgnored private var runTask: Task<Void, Never>?
+    /// Owns Run and the session's agents across rounds: pausing, draining before a new session, closing.
+    @ObservationIgnored private let lifecycle = HarnessLifecycleController(session: nil)
     @ObservationIgnored private let scanner = ReadinessScanner()
     @ObservationIgnored private let follower = LedgerFollower()
 
@@ -41,6 +42,7 @@ final class RepositoryModel: HarnessActions {
         view.actions = self
         view.you = NSUserName()
         HarnessLifecycle.repositories.add(self)
+        lifecycle.runStep = { [weak self] in await self?.step() }
     }
 
     var name: String { (root ?? url).lastPathComponent }
@@ -94,44 +96,49 @@ final class RepositoryModel: HarnessActions {
         }
     }
 
-    /// A new session for every scan, so agents always work with the current config and policy. A running round
-    /// finishes first; Run continues with the new session.
+    /// A new session for every scan, so agents always work with the current config and policy. The old session's
+    /// round and agents (including those started by earlier rounds) finish first; Run continues with the new one.
     private func startSession(_ result: ScannedRepository, at location: RepositoryLocation, ledger: Ledger) async {
-        let wasRunning = isRunning
-        await stopAndWait()
-        session = nil
         guard !isClosed else { return }
-        guard let storage else { return }
-        var blockers = RepositorySession.blockers(result.scan)
-        let copilot = CopilotCLI.locate()
-        if copilot == nil { blockers.append("Copilot CLI not found") }
-        guard blockers.isEmpty, let config = result.config, let copilot else {
-            startBlockers = blockers
-            return
+        let wasRunning = isRunning
+        if let running = await session?.reconciler.busyNodes, !running.isEmpty {
+            log("Waiting for the agents on \(running.sorted().joined(separator: ", ")) to finish before using the new scan…")
         }
         do {
-            session = try RepositorySession(
-                location: location, storage: storage, ledger: ledger, config: config, policy: result.policy,
-                team: RepositorySession.copilotTeam(executable: copilot, policy: result.policy), tracker: tracker)
-            startBlockers = []
+            try await lifecycle.replaceSession { [self] in
+                session = nil
+                guard !isClosed, let storage else { return nil }
+                var blockers = RepositorySession.blockers(result.scan)
+                let copilot = CopilotCLI.locate()
+                if copilot == nil { blockers.append("Copilot CLI not found") }
+                guard blockers.isEmpty, let config = result.config, let copilot else {
+                    startBlockers = blockers
+                    return nil
+                }
+                session = try RepositorySession(
+                    location: location, storage: storage, ledger: ledger, config: config, policy: result.policy,
+                    team: RepositorySession.copilotTeam(executable: copilot, policy: result.policy), tracker: tracker)
+                startBlockers = []
+                return session
+            }
         } catch {
             startBlockers = ["Couldn't prepare the workspace: \(error)"]
-            return
         }
+        isRunning = false
         if wasRunning { setRunning(true) }
     }
 
     // MARK: Agents
 
-    /// One reconciler round.
+    /// One reconciler round. It returns without waiting for the agents it starts.
     func step() async {
-        guard !isBusy, let session else { return }
+        guard !isBusy, session != nil else { return }
         isBusy = true
         let indicator = Task {
             try? await Task.sleep(for: .milliseconds(400))
             if !Task.isCancelled { showsActivity = true }
         }
-        let report = await session.step()
+        let report = await lifecycle.step()
         indicator.cancel()
         showsActivity = false
         isBusy = false
@@ -143,17 +150,10 @@ final class RepositoryModel: HarnessActions {
         await refresh()
     }
 
-    /// Run = a round about every 2 seconds while the window is open.
+    /// Run = a round about every 2 seconds while the window is open. Pause leaves running agents working.
     func setRunning(_ running: Bool) {
-        isRunning = running && session != nil
-        runTask?.cancel()
-        guard isRunning else { return }
-        runTask = Task {
-            while !Task.isCancelled {
-                await step()
-                try? await Task.sleep(for: .seconds(2))
-            }
-        }
+        lifecycle.setRunning(running)
+        isRunning = lifecycle.isRunning
     }
 
     /// The window closed: stop Run and stop following the ledger.
@@ -162,11 +162,11 @@ final class RepositoryModel: HarnessActions {
         follower.stop()
     }
 
+    /// Stops the agents (recording `reason` on their runs) and waits for their cleanup.
     func shutdown(reason: String) async {
         isClosed = true
-        setRunning(false)
-        await session?.reconciler.shutdown(reason: reason)
-        await stopAndWait()
+        await lifecycle.shutdown(reason: reason)
+        isRunning = false
         await refresh()
     }
 
@@ -177,10 +177,10 @@ final class RepositoryModel: HarnessActions {
         await refresh()
     }
 
-    /// Stops Run and waits for a round already under way.
+    /// Stops Run and waits for a round already under way and for every agent the session started.
     func stopAndWait() async {
-        setRunning(false)
-        while isBusy { try? await Task.sleep(for: .milliseconds(50)) }
+        await lifecycle.stopAndWait()
+        isRunning = false
     }
 
     // MARK: Baseline and ledger

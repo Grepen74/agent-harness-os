@@ -59,7 +59,7 @@ func makeTeam() -> AgentTeam {
 func say(_ text: String) { print("\n\u{001B}[1m\(text)\u{001B}[0m") }
 
 func run(_ sim: Simulation) async {
-    await sim.runUntilIdle { report in
+    for report in await sim.runUntilFinished() {
         for action in report.actions { print("  · \(action)") }
         if let stop = report.safeStop { print("  ⛔️ \(stop)") }
     }
@@ -244,7 +244,8 @@ case "work":
         if arguments.contains("--go") { await session.tracker.addLabel(HarnessCommand.go.label, to: ticket.key, by: you) }
     }
     say("Working on \(location.root.lastPathComponent); landing on \(scanned.policy.landingBranch)")
-    await session.runUntilIdle { report in
+    // Agents keep running across rounds; a round every 2 seconds picks up labels and lands finished work meanwhile.
+    await session.runUntilIdle(maxRounds: .max, pause: .seconds(2)) { report in
         for action in report.actions { print("  · \(action)") }
         if let stop = report.safeStop { print("  ⛔️ \(stop)") }
     }

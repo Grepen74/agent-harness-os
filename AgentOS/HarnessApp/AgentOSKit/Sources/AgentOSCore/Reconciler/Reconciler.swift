@@ -6,6 +6,12 @@ public struct RoundReport: Sendable {
     public var safeStop: String?
     public var hasRunningAgents = false
     public var isIdle: Bool { actions.isEmpty && !hasRunningAgents }
+
+    public init(actions: [String] = [], safeStop: String? = nil, hasRunningAgents: Bool = false) {
+        self.actions = actions
+        self.safeStop = safeStop
+        self.hasRunningAgents = hasRunningAgents
+    }
 }
 
 /// The harness loop (doc 07). Each round: look at what should be true and what is proven, take the
@@ -38,11 +44,17 @@ public actor Reconciler {
     private var stopReasons: [RunID: String] = [:]
     private var shutdownReason: String?
     private var lifecycleFailure: String?
+    /// Set while a round works through the landing queue; another round meanwhile skips landing.
+    private var isLanding = false
+    /// Awaited after a node step is reserved and before it runs or records its claim (a test seam).
+    private let beforeStep: (@Sendable (NodeID) async -> Void)?
 
     public init(ledger: Ledger, tracker: any TrackerAdapter, external: any ExternalDependencySource,
                 workspace: any Workspace, artifacts: any ArtifactStore, checks: any CheckRunner, team: AgentTeam,
                 policy: Policy = Policy(),
-                acceptanceTestPreflight: any AcceptanceTestPreflight = SkippedAcceptanceTestPreflight()) {
+                acceptanceTestPreflight: any AcceptanceTestPreflight = SkippedAcceptanceTestPreflight(),
+                beforeStep: (@Sendable (NodeID) async -> Void)? = nil) {
+        self.beforeStep = beforeStep
         self.ledger = ledger
         self.artifacts = artifacts
         self.tracker = tracker
@@ -78,25 +90,28 @@ public actor Reconciler {
 
     // MARK: The loop
 
+    /// One round that doesn't wait for the node steps it starts: they keep running across rounds, and each
+    /// finished step's action is reported once, by the next round to return.
     public func runRound() async -> RoundReport {
-        await runRound(waitForAgents: true)
+        await runRound(waitForAgents: false)
     }
 
-    /// With waiting disabled, node steps remain owned by the reconciler across rounds.
+    /// With waiting, the round first waits for steps from earlier rounds, then for every step it starts
+    /// (the simulator's Step and tests that expect each round to finish its work).
     public func runRound(waitForAgents: Bool) async -> RoundReport {
         var report = RoundReport()
-        guard shutdownReason == nil, !Task.isCancelled else { return report }
+        guard shutdownReason == nil, !Task.isCancelled else { return finish(report) }
         let chain = await ledger.verifyChain()
         if let problem = chain.problem {
             report.safeStop = "Ledger integrity check failed at #\(problem.position): \(problem.reason). " +
                 "Safe stop: nothing will happen until a human investigates."
-            return report
+            return finish(report)
         }
         do { try await workspace.prepare() } catch {
             report.safeStop = "Workspace repository unavailable: \(error)"
-            return report
+            return finish(report)
         }
-        guard shutdownReason == nil, !Task.isCancelled else { return report }
+        guard shutdownReason == nil, !Task.isCancelled else { return finish(report) }
 
         await intakeSignals(&report)
         await intakeExternal(&report)
@@ -105,28 +120,51 @@ public actor Reconciler {
             await self.waitForAgents()
             await advanceAll(&report)
         } else {
-            await scheduleAvailableSteps()
+            scheduleAvailableSteps(in: await ledger.workingState())
         }
 
-        // The landing queue: the only place where work happens strictly one at a time (doc 08 §4).
-        for node in await ledger.workingState().landingQueue {
-            if let action = await step(node.id, landing: true) { report.actions.append(action) }
+        // The landing queue: the only place where work happens strictly one at a time (doc 08 §4). A round that
+        // starts while another is landing leaves the queue to it. A landing takes one of the `maxParallelAgents`
+        // slots (its checks and review run agents), which scheduling keeps free for it; once it's done, the round
+        // fills that slot. A node with a step reserved or running isn't landed.
+        if !isLanding {
+            isLanding = true
+            for node in await ledger.workingState().landingQueue {
+                guard shutdownReason == nil, !Task.isCancelled,
+                      tasks.count < max(1, policy.maxParallelAgents) else { break }
+                if let action = await step(node.id, landing: true) { report.actions.append(action) }
+            }
+            isLanding = false
+            if !waitForAgents { scheduleAvailableSteps(in: await ledger.workingState()) }
         }
 
         await projectStatuses()
+        return finish(report)
+    }
+
+    /// Every return path reports the steps that finished since the last report, once.
+    private func finish(_ report: RoundReport) -> RoundReport {
+        var report = report
         report.actions += completedActions
         completedActions.removeAll()
         report.hasRunningAgents = !tasks.isEmpty
-        report.safeStop = lifecycleFailure
+        if report.safeStop == nil { report.safeStop = lifecycleFailure }
         return report
     }
 
     /// Drains owned steps through their final fingerprint comparisons and durable effects.
-    /// Waiting never schedules another step.
+    /// Waiting never schedules another step, and leaves finished steps' actions for the next round's report.
     public func waitForAgents() async {
         while !tasks.isEmpty {
             let pending = Array(tasks.values)
             for task in pending { _ = await task.value }
+        }
+    }
+
+    /// Like `waitForAgents()`, for the given nodes' steps only.
+    public func waitForAgents(for nodes: Set<NodeID>) async {
+        while let task = tasks.first(where: { nodes.contains($0.key) })?.value {
+            _ = await task.value
         }
     }
 
@@ -186,6 +224,13 @@ public actor Reconciler {
         let node = state.node(forTicket: ticket.key)
         if let replanned = state.superseded[ticket.key], node == nil {
             throw Rejection(reason: "Superseded: \(replanned) was replanned and this ticket is no longer part of it.")
+        }
+        // These can discard or rewrite a working copy, so not while a step is reserved or running below the
+        // node, including one that hasn't recorded its claim yet.
+        if [.retry, .retest, .replan].contains(signal.command), let node,
+           let busy = state.subtree(of: node.id).first(where: { tasks[$0.id] != nil || $0.activeRun != nil }) {
+            throw Rejection(reason: "An agent is working on \(workLink(busy)) right now. Wait for it to finish, " +
+                "then add \(signal.command.label) again if it's still needed.")
         }
 
         switch signal.command {
@@ -686,11 +731,14 @@ public actor Reconciler {
         report.actions += actions.keys.sorted().compactMap { actions[$0] }
     }
 
-    private func scheduleAvailableSteps() async {
-        let state = await ledger.workingState()
+    /// Fills free slots in creation order. Slots count steps from earlier rounds that are still running, and
+    /// steps reserved but not yet claimed, so a node never gets a second step. While a node waits to land and
+    /// no landing is under way, one slot stays free for it, so new work can't starve the landing queue.
+    private func scheduleAvailableSteps(in state: WorkingState) {
+        let waitingToLand = !isLanding && state.landingQueue.contains { tasks[$0.id] == nil && !$0.awaitingHumanReview }
+        let limit = max(1, policy.maxParallelAgents) - (waitingToLand ? 1 : 0)
         for id in state.creationOrder {
-            guard shutdownReason == nil, !Task.isCancelled,
-                  tasks.count < max(1, policy.maxParallelAgents) else { break }
+            guard shutdownReason == nil, !Task.isCancelled, tasks.count < limit else { break }
             guard tasks[id] == nil, let node = state.nodes[id], canAdvance(node, in: state) else { continue }
             startStep(id, reportCompletion: true)
         }
@@ -700,6 +748,7 @@ public actor Reconciler {
     private func startStep(_ id: NodeID, landing: Bool = false,
                            reportCompletion: Bool = false) -> Task<String?, Never> {
         let task = Task {
+            if !landing, let beforeStep = self.beforeStep { await beforeStep(id) }
             let result = await self.performStep(id, landing: landing)
             if reportCompletion, let result { self.completedActions.append(result) }
             self.tasks[id] = nil
@@ -715,6 +764,8 @@ public actor Reconciler {
     }
 
     private func performStep(_ id: NodeID, landing: Bool) async -> String? {
+        // A reserved step that hasn't claimed anything yet simply doesn't start once stopping has begun.
+        guard shutdownReason == nil, !Task.isCancelled else { return nil }
         let state = await ledger.workingState()
         guard let node = state.nodes[id] else { return nil }
         var result: String?
@@ -1896,9 +1947,10 @@ public actor Reconciler {
             }
             instructions = try String(contentsOf: directory.appending(path: path), encoding: .utf8)
         }
+        let earlier = await failedReviews(of: node.id, stage: stage).map(\.result.allFindings)
         let request = ReviewRequest(
             stage: stage, spec: node.spec, acceptanceTests: tests, context: context,
-            instructions: instructions, directory: directory)
+            instructions: instructions, directory: directory, earlierFindings: earlier)
         var result = try await watchingUserGitState(node, run: run) { try await reviewer.review(request) }
         try Task.checkCancellation()
         let after = try await workspace.reviewContext(in: directory, against: context.baseBranch)
@@ -1930,35 +1982,57 @@ public actor Reconciler {
                 }
                 if !missing.isEmpty {
                     result = ReviewResult(passed: false, findings: result.findings + missing, testFindings: result.testFindings,
-                                          model: result.model, unavailableModels: result.unavailableModels)
+                                          followUps: result.followUps, model: result.model,
+                                          unavailableModels: result.unavailableModels)
                 }
             }
         }
+        let reported = Set(await ledger.allRecords().flatMap { record -> [String] in
+            guard record.event.node == node.id, case .reviewRecorded(let review) = record.event.kind else { return [] }
+            return review.result.followUps ?? []
+        })
         try await write(node.id, by: .reconciler, [.reviewRecorded(ReviewRecord(
             stage: stage, result: result, commit: context.commit, uiEvidence: context.uiEvidence))])
+        // Later rounds and re-reviews often repeat a follow-up: the ticket gets each one once.
+        if let followUps = result.followUps?.filter({ !reported.contains($0) }), !followUps.isEmpty {
+            await tracker.comment(on: node.ticket, "📝 The \(stage.rawValue) review noted follow-ups. They don't block this "
+                + "ticket; create tickets for those you want:\n" + followUps.map { "- \($0)" }.joined(separator: "\n"))
+        }
         return result
     }
 
-    private func returnReviewFindings(_ result: ReviewResult, stage: ReviewStage,
-                                     node: NodeState, run: RunID, directory: URL? = nil) async throws -> String {
-        let records = await ledger.allRecords().filter { $0.event.node == node.id }
-        // Rounds start over when a person resets attempts or has the tests rewritten (harness:retest): reviews of
-        // discarded work no longer count.
+    /// This stage's failed reviews of the node's current work, oldest first. Rounds start over when a person
+    /// resets attempts, has the tests rewritten (harness:retest) or replans or corrects the node: reviews of
+    /// discarded work no longer count.
+    private func failedReviews(of id: NodeID, stage: ReviewStage) async -> [ReviewRecord] {
+        let records = await ledger.allRecords().filter { $0.event.node == id }
         let reset = records.lastIndex {
             switch $0.event.kind {
-            case .attemptsReset: return true
+            case .attemptsReset, .replanned: return true
             case .phaseChanged(to: .specified): return $0.event.by.isHuman
             default: return false
             }
         }
-        let failures = records.dropFirst(reset.map { $0 + 1 } ?? 0).compactMap { record -> ReviewRecord? in
+        return records.dropFirst(reset.map { $0 + 1 } ?? 0).compactMap { record -> ReviewRecord? in
             guard case .reviewRecorded(let review) = record.event.kind,
                   review.stage == stage, !review.result.passed else { return nil }
             return review
         }
+    }
+
+    private func returnReviewFindings(_ result: ReviewResult, stage: ReviewStage,
+                                     node: NodeState, run: RunID, directory: URL? = nil) async throws -> String {
+        let failures = await failedReviews(of: node.id, stage: stage)
         let escalated = failures.count >= policy.review.maxRounds
         let findings = (escalated ? failures.flatMap(\.result.allFindings) : result.allFindings).joined(separator: "\n")
-        let reason = "\(stage.rawValue) review findings:\n\(findings)\nComment with guidance, then add harness:retry."
+        // Reviews that keep finding new problems usually mean the ticket is too big for one change: retrying the
+        // same ticket rarely converges, so the escalation suggests splitting it before trying again.
+        let reason = escalated
+            ? "\(stage.rawValue) review didn't pass in \(failures.count) rounds. Findings:\n\(findings)\n"
+                + "If each round found new problems, the ticket is probably too big for one change: split it into "
+                + "smaller tickets (narrow its criteria and add the rest as new tickets, or harness:replan its parent "
+                + "before building starts). Otherwise comment with guidance, then add harness:retry."
+            : "\(stage.rawValue) review findings:\n\(findings)\nComment with guidance, then add harness:retry."
         // The implementer may not change the ticket's acceptance tests: problems in them go to the test author.
         let toTestAuthor = stage == .acceptanceTests || (result.testFindings != nil && !escalated)
         if stage == .change, toTestAuthor, let directory { try await workspace.resetForRework(directory) }

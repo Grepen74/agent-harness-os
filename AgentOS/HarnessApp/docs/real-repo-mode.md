@@ -229,7 +229,7 @@ Harness settings save review as `{"level":"agent","reviewer":{"type":"default"},
 Older saved settings retain the agent minimum. A specific reviewer uses
 `{"type":"specific","model":"model-name"}` or `{"type":"specific","command":"local-review --stdin"}`.
 Commands receive the complete review prompt on stdin and must return
-`{"passed":true,"findings":[]}`, optionally with `"testFindings":[…]` at the change stage (nonzero exit or invalid JSON stops work for a person).
+`{"passed":true,"findings":[]}`, optionally with `"testFindings":[…]` at the change stage and `"followUps":[…]` (nonzero exit or invalid JSON stops work for a person).
 A repo can set `review.model` only to a model in the review-specific offered list.
 When the CLI says a model isn't available to your account, a Copilot reviewer tries the other offered
 reviewer models that differ from the implementer's, then the agent CLI's default; the review event in
@@ -253,6 +253,13 @@ wrong, or about the tests), the harness doesn't submit the same branch for anoth
 sends the answer to the implementer. After `maxRounds` reviews with findings at
 either stage (default 2), work escalates; a human `harness:retry` resets the limit, and so does
 `harness:retest`, since reviews of the discarded tests and code no longer count.
+
+So that reviews converge, a later review round gets the findings of the earlier rounds at that stage.
+The reviewer first checks each earlier finding is fixed. A new finding must be a defect that makes an
+acceptance criterion fail or a regression the change introduced, and starts with "New:". Improvements,
+out-of-scope and pre-existing problems go in `followUps`. The harness posts follow-ups on the ticket for a
+person to file as new tickets; they never fail the review. When the round limit is reached, the
+escalation suggests splitting the ticket into smaller tickets.
 
 UI changes must include snapshot evidence and confirmation that windows actually open and close.
 The implementer supplies `.agentos-ui-evidence.json` with `snapshotPaths`, `windowsOpened`,
@@ -359,9 +366,21 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
   share all of these with your repo. Any change escalates the leaf instead of retrying it, naming what
   changed; if it was you (e.g. you fetched meanwhile), add `harness:retry`. When agents ran side by side,
   the change can't be pinned on one: each of them is escalated and names the others it ran with.
-- **Parallel work.** Each round, up to *max parallel agents* nodes take their step at the same time
-  (breakdown, tests, build, pre-check), each in its own worktree; landing stays one at a time. The limit
-  counts the agents the harness starts, not the sub-agents they use. Adding and removing worktrees is
+- **Parallel work.** Up to *max parallel agents* nodes take their step at the same time (breakdown,
+  tests, build, pre-check), each in its own worktree. A round starts steps and returns without waiting
+  for them: an agent keeps running across rounds, a later round fills a freed slot, and each finished
+  step is reported once, by the next round that returns. Agents started by earlier rounds count against
+  the limit. While a node or one of its descendants has a step under way, `harness:retry`, `retest` and
+  `replan` on it are rejected with a reply, so its worktree is never discarded under a running agent.
+  The limit counts the agents the harness starts, not the sub-agents they use.
+
+  Two kinds of work still hold their own round open. A preview waits for the decomposer before its round
+  returns; an approved breakdown is decomposed by a scheduled step, across rounds like other agents.
+  Landing is synchronous and one at a time: the round that lands waits for the rebase, the landing checks
+  and the merge, and a round requested meanwhile doesn't start a second landing; agents from earlier
+  rounds keep running meanwhile. A landing takes a slot, and while a change waits to land, scheduling
+  keeps a slot free for it so new work can't starve the queue.
+ Adding and removing worktrees is
   serialized, because they share the repo's `.git`. Running side by side costs no more agent work than one
   after the other, except that leaves built from the same landing branch conflict more often at landing,
   and a conflict means rework.

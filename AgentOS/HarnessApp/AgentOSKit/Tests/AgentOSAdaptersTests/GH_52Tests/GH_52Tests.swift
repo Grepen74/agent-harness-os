@@ -1,5 +1,5 @@
-// API contract: GH-48 supplies nonblocking runRound() and waitForInProgressSteps().
-// ReconcilerStepObserver.stepReserved(for:) observes an owned step before runStarted.
+// API contract: GH-48 supplies nonblocking runRound() and waitForAgents().
+// Reconciler's beforeStep hook observes an owned step before runStarted.
 // The MainActor HarnessLifecycleController in AgentOSAdapters is the shared app lifecycle boundary:
 // pause preserves work; stopAndWait, close, quit and replacement drain it before returning/calling back.
 // Legacy synchronous-round callers and Simulation.step must migrate in GH-48, not in this suite.
@@ -108,7 +108,7 @@ struct GH_52Tests {
             #expect(!(await finished.isOpen), "The pre-claim reservation is still owned and blocked")
             await fixture.observer.release.open()
             await shutdown.value
-            await fixture.reconciler.waitForInProgressSteps()
+            await fixture.reconciler.waitForAgents()
 
             #expect(await fixture.observer.didExit)
             #expect(await fixture.workers[2].calls == 0)
@@ -199,11 +199,39 @@ struct GH_52Tests {
                 #expect(await enteredReplacement.isOpen)
                 #expect(recordsAtReplacement >= 0)
 
-                await fixture.reconciler.waitForInProgressSteps()
+                await fixture.reconciler.waitForAgents()
                 _ = try await replacement.round(using: lifecycle)
                 #expect(await fixture.ledger.allRecords().count == recordsAtReplacement)
                 for worker in fixture.workers { #expect(await worker.calls == 1) }
             }
+        }
+    }
+
+    @Test
+    func overlappingReplacementsRunOneAtATimeAndNoneStartsAfterShutdown() async throws {
+        try await Self.withFixture(phases: []) { fixture in
+            let lifecycle = HarnessLifecycleController(reconciler: fixture.reconciler)
+            let entered = Gate()
+            let release = Gate()
+            let secondMade = Gate()
+            let first = Task { @MainActor in
+                try await lifecycle.replaceSession {
+                    await entered.open()
+                    _ = await release.wait()
+                    return fixture.reconciler
+                }
+            }
+            try await Self.requireOpen(entered)
+            let second = Task { @MainActor in
+                try await lifecycle.replaceSession { await secondMade.open(); return fixture.reconciler }
+            }
+            let closing = Task { @MainActor in await lifecycle.close() }
+            await release.open()
+            try await first.value
+            try await second.value
+            await closing.value
+            #expect(!(await secondMade.isOpen), "A replacement started after shutdown")
+            #expect(lifecycle.isShutDown && !lifecycle.isReplacing)
         }
     }
 
@@ -258,7 +286,7 @@ struct GH_52Tests {
             #expect(Self.finishes(run, in: await fixture.ledger.allRecords()).isEmpty)
             await worker.complete.open()
             await worker.allowCleanup.open()
-            await fixture.reconciler.waitForInProgressSteps()
+            await fixture.reconciler.waitForAgents()
             #expect(await worker.didExit)
             #expect(worker.tree.livingPIDs.isEmpty)
             #expect(Self.finishes(run, in: await fixture.ledger.allRecords()).count == 1)
@@ -383,7 +411,7 @@ struct GH_52Tests {
             ledger: ledger, tracker: tracker, external: NoExternal(), workspace: workspace,
             artifacts: Artifacts(), checks: work,
             team: AgentTeam(name: "GH-52", decomposer: work, testAuthor: work, implementer: work),
-            policy: Policy(maxParallelAgents: 3), stepObserver: observer)
+            policy: Policy(maxParallelAgents: 3), beforeStep: { await observer.stepReserved(for: $0) })
     }
 
     @MainActor private struct Fixture {
@@ -485,7 +513,7 @@ struct GH_52Tests {
         func cleanup() async throws {
             await releaseAll()
             await reconciler.shutdown(reason: "test cleanup")
-            await reconciler.waitForInProgressSteps()
+            await reconciler.waitForAgents()
             for worker in workers { worker.tree.killOwnedProcesses() }
             try FileManager.default.removeItem(at: directory)
         }
@@ -526,7 +554,7 @@ struct GH_52Tests {
         }
     }
 
-    private actor ReservationObserver: ReconcilerStepObserver {
+    private actor ReservationObserver {
         let node: NodeID?
         let reserved = Gate()
         let cancelled = Gate()

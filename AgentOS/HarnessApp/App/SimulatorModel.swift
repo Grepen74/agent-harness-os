@@ -26,13 +26,17 @@ final class SimulatorModel: HarnessActions {
     var showsActivity = false
     var agentMode = AgentMode.scripted { didSet { Task { await applyAgentMode() } } }
     var you: String { view.you }
-    private var runTask: Task<Void, Never>?
+    /// Owns Run and the simulation's agents across rounds: pausing, draining before a reset or restore, quitting.
+    @ObservationIgnored private let lifecycle: HarnessLifecycleController
     @ObservationIgnored private let follower = LedgerFollower()
 
     init() {
         directory = URL.applicationSupportDirectory.appending(path: "AgentOSSimulator")
-        simulation = Self.open(directory)
+        let simulation = Self.open(directory)
+        self.simulation = simulation
+        lifecycle = HarnessLifecycleController(reconciler: simulation.reconciler, interval: .seconds(1))
         view.actions = self
+        lifecycle.runStep = { [weak self] in await self?.step() }
         HarnessLifecycle.simulators.add(self)
         view.offersLedgerDemo = true
         view.extraLabels = ("Simulation (make agents misbehave)", ["sim:fail-once", "sim:always-fail", "sim:stuck", "sim:ask", "sim:assume"])
@@ -49,7 +53,7 @@ final class SimulatorModel: HarnessActions {
 
     // MARK: Harness
 
-    /// One reconciler round, like the harness waking up once.
+    /// One reconciler round, like the harness waking up once. It returns without waiting for the agents it starts.
     func step() async {
         guard !isBusy else { return }
         isBusy = true
@@ -57,7 +61,7 @@ final class SimulatorModel: HarnessActions {
             try? await Task.sleep(for: .milliseconds(400))
             if !Task.isCancelled { showsActivity = true }
         }
-        let report = await simulation.step()
+        let report = await lifecycle.step()
         indicator.cancel()
         showsActivity = false
         isBusy = false
@@ -65,23 +69,19 @@ final class SimulatorModel: HarnessActions {
         await refresh()
     }
 
-    /// Run = the always-on service: a round about every second (production: woken by events too).
+    /// Run = the always-on service: a round about every second (production: woken by events too). Pause leaves
+    /// running agents working.
     func setRunning(_ running: Bool) {
-        isRunning = running
-        runTask?.cancel()
-        guard running else { return }
-        runTask = Task {
-            while !Task.isCancelled {
-                await step()
-                try? await Task.sleep(for: .seconds(1))
-            }
-        }
+        lifecycle.setRunning(running)
+        isRunning = lifecycle.isRunning
     }
 
-    /// Stops Run and waits for a round that is already under way, so it can't write to files being replaced.
-    private func stopAndWait() async {
-        setRunning(false)
-        while isBusy { try? await Task.sleep(for: .milliseconds(50)) }
+    /// Drains the simulation (Run, a round under way and every agent it started), then replaces it, so nothing
+    /// from the old one writes to files being reset or restored.
+    private func replaceSimulation(_ body: () async throws -> Void) async {
+        do { try await lifecycle.replaceSession { try await body(); return simulation.reconciler } }
+        catch { view.activity.insert("⛔️ \(error)", at: 0) }
+        isRunning = false
     }
 
     private func applyAgentMode() async {
@@ -141,10 +141,14 @@ final class SimulatorModel: HarnessActions {
 
     /// Stands in for a human restoring a verified backup, then restarting the harness on it.
     func restoreLedger() async {
-        await stopAndWait()
-        guard (try? await simulation.restoreLedgerAfterTamperDemo()) == true else { return }
+        var restored = false
+        await replaceSimulation {
+            restored = (try? await simulation.restoreLedgerAfterTamperDemo()) == true
+            if restored { simulation = Self.open(directory) }
+        }
+        guard restored else { return }
         view.activity.insert("🧑‍🔧 Ledger restored from the copy taken before the tamper.", at: 0)
-        await restartHarness()
+        await reopened()
         await verifyChain()
     }
 
@@ -158,18 +162,18 @@ final class SimulatorModel: HarnessActions {
     }
 
     func shutdown(reason: String) async {
-        setRunning(false)
-        await simulation.reconciler.shutdown(reason: reason)
-        await stopAndWait()
+        await lifecycle.shutdown(reason: reason)
+        isRunning = false
     }
 
     func loadDemo() async { await simulation.loadDemo(by: you); await refresh() }
     func loadConflictingTicket() async { await simulation.loadConflictingTicket(by: you); await refresh() }
 
     func reset() async {
-        await stopAndWait()
-        try? Simulation.reset(directory: directory)
-        simulation = Self.open(directory)
+        await replaceSimulation {
+            try? Simulation.reset(directory: directory)
+            simulation = Self.open(directory)
+        }
         followLedger()
         view.activity = ["Reset."]
         view.chain = nil
@@ -179,8 +183,11 @@ final class SimulatorModel: HarnessActions {
 
     /// Like restarting the harness process: reload everything from disk and reclaim unfinished runs.
     func restartHarness() async {
-        await stopAndWait()
-        simulation = Self.open(directory)
+        await replaceSimulation { simulation = Self.open(directory) }
+        await reopened()
+    }
+
+    private func reopened() async {
         followLedger()
         await applyAgentMode()
         let notes = await simulation.reconciler.recoverAfterRestart()

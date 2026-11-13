@@ -91,10 +91,10 @@ public final class RepositorySession: Sendable {
         return notes
     }
 
-    /// One reconciler round.
+    /// One reconciler round. It doesn't wait for the agents it starts: they keep running across rounds.
     @discardableResult
     public func step() async -> RoundReport {
-        await step(waitForAgents: true)
+        await step(waitForAgents: false)
     }
 
     /// One reconciler round; with waiting, it returns once the agents it started have finished.
@@ -125,15 +125,19 @@ public final class RepositorySession: Sendable {
         _ = await catchUp.reconcile(force: true, busy: await reconciler.busyNodes)
     }
 
-    /// Rounds until nothing more happens without a human (or `maxRounds` is reached).
+    /// Rounds that don't wait for the agents they start, until nothing more happens without a human (or `maxRounds`
+    /// is reached). A round with no new actions while agents are running isn't idle: the next round follows after
+    /// `pause`.
     @discardableResult
-    public func runUntilIdle(maxRounds: Int = 50, onRound: (@Sendable (RoundReport) -> Void)? = nil) async -> [RoundReport] {
+    public func runUntilIdle(maxRounds: Int = 50, pause: Duration = .milliseconds(100),
+                             onRound: (@Sendable (RoundReport) -> Void)? = nil) async -> [RoundReport] {
         var reports: [RoundReport] = []
-        for _ in 0..<maxRounds {
+        for round in 0..<maxRounds {
             let report = await step()
             reports.append(report)
             onRound?(report)
             if report.isIdle || report.safeStop != nil { break }
+            if report.actions.isEmpty, round < maxRounds - 1 { try? await Task.sleep(for: pause) }
         }
         return reports
     }

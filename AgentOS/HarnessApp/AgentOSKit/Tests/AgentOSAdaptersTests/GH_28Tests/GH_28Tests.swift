@@ -378,7 +378,27 @@ struct GH_28Tests {
         let reviews = await fixture.reviewer.requests.filter { $0.stage == .change }
         try #require(reviews.count == 2)
         #expect(reviews[0].context.commit != reviews[1].context.commit)
+        #expect(reviews[0].earlierFindings.isEmpty && !CopilotReviewer.prompt(for: reviews[0]).contains("EARLIER FINDINGS"))
+        #expect(reviews[1].earlierFindings == [[finding]])
+        let followUp = CopilotReviewer.prompt(for: reviews[1])
+        #expect(followUp.contains("review round 2") && followUp.contains(finding) && followUp.contains("\"New:\""))
         #expect(await fixture.workspace.landedCommit == reviews[1].context.commit)
+    }
+
+    @Test
+    func followUpsAreReportedOnTheTicketOnceWithoutFailingTheReview() async throws {
+        let followUp = "AppModel.swift (not touched by this ticket) repeats the date formatting."
+        let parsed = try CopilotReviewer.result(from: #"{"passed": true, "findings": [], "followUps": ["\#(followUp)"]}"#)
+        #expect(parsed.passed && parsed.followUps == [followUp])
+        let fixture = try await Fixture(changeResults: [
+            .init(passed: false, findings: ["Opening the log file once per line causes unnecessary I/O."],
+                  followUps: [followUp]),
+            .init(passed: true, findings: [], followUps: [followUp]),
+        ])
+        defer { fixture.cleanUp() }
+        try await fixture.advanceUntil { await fixture.workspace.landedCount == 1 }
+        #expect(await fixture.builder.tasks.count == 2)
+        #expect(await fixture.tracker.comments.filter { $0.contains("don't block") && $0.contains(followUp) }.count == 1)
     }
 
     @Test
@@ -468,6 +488,7 @@ struct GH_28Tests {
             #expect((reason + comments).contains(finding))
         }
         #expect(comments.contains("harness:retry"))
+        #expect(comments.contains("split it into smaller tickets"))
         #expect(await fixture.reviewer.requests.filter { $0.stage == .change }.count == 2)
         #expect(await fixture.builder.tasks.count == 2)
         #expect(await fixture.workspace.landedCount == 0)

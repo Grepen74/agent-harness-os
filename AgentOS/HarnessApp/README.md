@@ -45,6 +45,17 @@ open a repo (or a recent one), or **Show Simulator** (⇧⌘N). No Xcode? Run th
   processes. It is signed to run locally only.
 - **Step** runs one reconciler round; **Run** runs one round a second, like the always-on service.
 
+A round doesn't wait for the agents it starts. An agent keeps working across rounds in the background, and
+later rounds meanwhile pick up your labels, land finished work and start other agents, up to *max parallel
+agents*. A round reports an agent's result once, in the first round after it finished. **Pause** stops
+starting rounds but lets running agents finish; closing the window or quitting stops them and waits for
+their cleanup, and a rescan waits for them before it replaces the session.
+
+Two things still hold their own round open: a `harness:preview` waits for the decomposer before the round
+returns (an approved breakdown runs like any other agent, across rounds), and landing runs synchronously in
+the round that lands, one change at a time, while agents started by earlier rounds keep running. A landing
+takes one of the *max parallel agents* slots, and while a change waits to land, rounds keep a slot free for it.
+
 ## Open a real repo
 
 **File → Open Repository…** (⌘O) and choose a git repo. The window runs the **readiness scan** (doc 01)
