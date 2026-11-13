@@ -502,6 +502,12 @@ struct GH_28Tests {
         for finding in findings {
             #expect((reason + comments).contains(finding))
         }
+        // Only the last round's findings are still open; earlier ones were fixed unless the reviewer repeated them.
+        let open = try #require(reason.range(of: "Still open:"))
+        let history = try #require(reason.range(of: "Earlier rounds"))
+        #expect(reason[open.upperBound..<history.lowerBound].contains(findings[1]))
+        #expect(!reason[open.upperBound..<history.lowerBound].contains(findings[0]))
+        #expect(reason[history.upperBound...].contains(findings[0]))
         #expect(comments.contains("harness:retry"))
         #expect(comments.contains("split it into smaller tickets"))
         #expect(await fixture.reviewer.requests.filter { $0.stage == .change }.count == 2)

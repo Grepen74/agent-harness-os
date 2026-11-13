@@ -255,7 +255,9 @@ the remaining findings. If the implementer changes nothing for a review's findin
 wrong, or about the tests), the harness doesn't submit the same branch for another review: it stops with
 "Needs input". `harness:retest` then sends the ticket to the test author; a comment plus `harness:retry`
 sends the answer to the implementer. After `maxRounds` reviews with findings at
-either stage (default 2), work escalates; a human `harness:retry` resets the limit, and so does
+either stage (default 2), work escalates; the escalation lists the last round's findings as still open
+and earlier rounds' as history, since the reviewer repeats any it still finds unfixed. A human
+`harness:retry` resets the limit, and so does
 `harness:retest`, since reviews of the discarded tests and code no longer count.
 
 So that reviews converge, a later review round gets the findings of the earlier rounds at that stage.

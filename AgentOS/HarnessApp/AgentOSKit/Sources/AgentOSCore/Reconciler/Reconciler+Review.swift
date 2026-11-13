@@ -96,11 +96,15 @@ extension Reconciler {
                                      node: NodeState, run: RunID, directory: URL? = nil) async throws -> String {
         let failures = await failedReviews(of: node.id, stage: stage)
         let escalated = failures.count >= policy.review.maxRounds
-        let findings = (escalated ? failures.flatMap(\.result.allFindings) : result.allFindings).joined(separator: "\n")
+        let findings = result.allFindings.joined(separator: "\n")
+        // Each round repeats the earlier findings still unfixed, so only the last round's are open.
+        let earlier = failures.dropLast().flatMap(\.result.allFindings)
+        let history = earlier.isEmpty ? "" : "Earlier rounds (fixed unless repeated above):\n"
+            + earlier.joined(separator: "\n") + "\n"
         // Reviews that keep finding new problems usually mean the ticket is too big for one change: retrying the
         // same ticket rarely converges, so the escalation suggests splitting it before trying again.
         let reason = escalated
-            ? "\(stage.rawValue) review didn't pass in \(failures.count) rounds. Findings:\n\(findings)\n"
+            ? "\(stage.rawValue) review didn't pass in \(failures.count) rounds. Still open:\n\(findings)\n\(history)"
                 + "If each round found new problems, the ticket is probably too big for one change: split it into "
                 + "smaller tickets (narrow its criteria and add the rest as new tickets, or harness:replan its parent "
                 + "before building starts). Otherwise comment with guidance, then add harness:retry."
