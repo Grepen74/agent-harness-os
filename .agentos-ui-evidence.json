@@ -1,0 +1,10 @@
+{
+  "afterScreenshot" : "ui-evidence\/GH-66\/after.png",
+  "beforeScreenshot" : "ui-evidence\/GH-66\/before.png",
+  "snapshotPaths" : [
+    "ui-evidence\/GH-66\/before.png",
+    "ui-evidence\/GH-66\/after.png"
+  ],
+  "windowsClosed" : true,
+  "windowsOpened" : true
+}

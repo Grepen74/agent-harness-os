@@ -1,0 +1,19 @@
+Building for debugging...
+[0/3] Write sources
+[1/3] Write swift-version--58304C5D6DBC2206.txt
+[3/5] Emitting module GH66UIEvidenceTests
+[4/5] Compiling GH66UIEvidenceTests SnapshotTests.swift
+[4/6] Write Objects.LinkFileList
+[5/6] Linking GH66UIEvidencePackageTests
+Build complete! (1.16s)
+Test Suite 'All tests' started at 2026-11-13 17:15:12.222.
+Test Suite 'All tests' passed at 2026-11-13 17:15:12.230.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.008) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1743
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite GH66UIEvidenceTests started.
+􀟈  Test sharedPanesRenderIdenticallyAfterTheirWindowReopens() started.
+􁁛  Test sharedPanesRenderIdenticallyAfterTheirWindowReopens() passed after 0.458 seconds.
+􁁛  Suite GH66UIEvidenceTests passed after 0.458 seconds.
+􁁛  Test run with 1 test in 1 suite passed after 0.458 seconds.
