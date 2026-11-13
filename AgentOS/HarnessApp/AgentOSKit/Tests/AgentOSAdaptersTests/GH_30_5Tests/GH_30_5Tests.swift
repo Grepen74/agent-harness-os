@@ -465,7 +465,9 @@ struct GH_30_5Tests {
                     ChildProposal(
                         title: received.count == 1 ? "Original results" : "Corrected results",
                         acceptanceCriteria: [received.count == 1 ? "Ten results" : "All matching results"],
-                        touches: ["Results"]
+                        // Ordered after the first child, which touches the same component, so a breakdown
+                        // check has no overlap to send back and each proposal takes one decomposer call.
+                        touches: ["Results"], after: [1]
                     ),
                 ],
                 report: AgentReport(questions: suggests && received.count == 1 ? Fixture.questions : [])
