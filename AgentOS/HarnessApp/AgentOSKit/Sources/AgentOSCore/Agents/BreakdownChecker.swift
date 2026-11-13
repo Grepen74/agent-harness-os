@@ -78,14 +78,12 @@ public enum BreakdownChecker {
                 token = token.dropLast()
             }
             if token.contains("/") { return true }
-            if token.hasPrefix("."), let first = token.dropFirst().first, first.isLetter || first.isNumber {
+            if token.hasPrefix("."), token.count > 1 {
                 return true
             }
             guard let dot = token.lastIndex(of: "."), dot != token.startIndex else { return false }
             let fileExtension = token[token.index(after: dot)...]
-            return !fileExtension.isEmpty && fileExtension.allSatisfy {
-                $0.isLetter || $0.isNumber || $0 == "_" || $0 == "-"
-            }
+            return !fileExtension.isEmpty
         }
     }
 }
