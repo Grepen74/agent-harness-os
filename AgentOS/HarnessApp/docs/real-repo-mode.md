@@ -258,7 +258,9 @@ sends the answer to the implementer. After `maxRounds` reviews with findings at
 either stage (default 2), work escalates; the escalation lists the last round's findings as still open
 and earlier rounds' as history, since the reviewer repeats any it still finds unfixed. A human
 `harness:retry` resets the limit, and so does
-`harness:retest`, since reviews of the discarded tests and code no longer count.
+`harness:retest`, since reviews of the discarded tests and code no longer count. A passing review at a
+stage also starts its rounds over: work that comes back to that stage later (a broken test, say) is
+reviewed afresh.
 
 So that reviews converge, a later review round gets the findings of the earlier rounds at that stage.
 The reviewer first checks each earlier finding is fixed. A new finding must be a defect that makes an

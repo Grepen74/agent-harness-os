@@ -471,6 +471,23 @@ struct GH_28Tests {
     }
 
     @Test
+    func aPassedReviewStartsTheRoundsOverWhenTheWorkComesBackToThatStage() async throws {
+        let fixed = "The test sleeps instead of waiting for the agent."
+        let testFinding = "The test requires B to start before C, though the ticket only bounds concurrency."
+        let later = "The new test searches the whole pane instead of the setting's row."
+        let fixture = try await Fixture(
+            testResults: [.init(passed: false, findings: [fixed]), .init(passed: true, findings: []),
+                          .init(passed: false, findings: [later])],
+            changeResults: [.init(passed: false, findings: [], testFindings: [testFinding])])
+        defer { fixture.cleanUp() }
+        try await fixture.advanceUntil { await fixture.workspace.landedCount == 1 }
+        #expect(await fixture.author.tasks.count == 4)
+        #expect(await fixture.node()?.flags[.escalated] == nil)
+        let afterPass = try #require(await fixture.reviewer.requests.filter { $0.stage == .acceptanceTests }.dropFirst(2).first)
+        #expect(afterPass.earlierFindings.isEmpty)
+    }
+
+    @Test
     func afterARetestOnlyReviewsOfTheNewWorkCountTowardsMaxRounds() async throws {
         let old = ["The old test pins scheduling order.", "The old test sleeps."]
         let testFinding = "The new test skips the waiting branch."
