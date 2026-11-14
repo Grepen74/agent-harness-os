@@ -95,6 +95,8 @@ public struct CopilotReviewer: Reviewer {
         assumptions about the order or batching of concurrent work that no criterion asks for.
         - Tests must prove lasting behaviour, not one ticket's scope: reject checksums of files and checks \
         that unrelated files stay unchanged, since they block every later change to those files.
+        - Tests must not capture the screen (screencapture, CGWindowListCreateImage, ScreenCaptureKit): \
+        they would need Screen Recording permission. They render views in the test process instead.
         For UI changes require snapshot tests and practical evidence windows open and close.
         Human UI review additionally requires before and after screenshots. Do not infer this from logic tests.
         Repository review rules:

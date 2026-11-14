@@ -210,6 +210,12 @@ public struct CopilotCLI: Sendable {
         """
     }
 
+    /// Agents run as the harness app's child processes, so a screen capture asks the person for Screen Recording
+    /// permission on the app's behalf, and granting it would let every agent record the screen.
+    static let noScreenCaptureRule = "Never capture the screen (screencapture, CGWindowListCreateImage, " +
+        "ScreenCaptureKit), not even your own windows: it needs Screen Recording permission. Render views to " +
+        "images in your own process instead, e.g. with SwiftUI's ImageRenderer."
+
     /// When to ask and when to assume, with repository analogues available to planning roles.
     static func guessingRules(_ guesswork: Guesswork, repositoryConventions: Bool = false) -> String {
         if guesswork == .autonomous && repositoryConventions {
@@ -419,7 +425,8 @@ public struct CopilotTestAuthor: TestAuthor {
         Do not run the tests. The tests must compile once the API they expect exists: other test files share the \
         same test target, so make helper types and functions `private` or nest them in the suite, and qualify a \
         name with its module when more than one imported module declares it (e.g. a type that Testing also has). \
-        Call a static helper from inside a test as `Self.helper(…)`, or it won't compile.\(feedback)
+        Call a static helper from inside a test as `Self.helper(…)`, or it won't compile. \
+        \(CopilotCLI.noScreenCaptureRule)\(feedback)
 
         \(CopilotCLI.guessingRules(task.guesswork, repositoryConventions: true)) Report them in \(AgentReportFile.name) at the top of your \
         working directory, as {"questions": [string or {"question": string, "suggestion": string}], \
@@ -456,7 +463,8 @@ public struct CopilotImplementer: Implementer {
         Capture before and after screenshots. Write .agentos-ui-evidence.json at the worktree root as \
         {"snapshotPaths": [string], "windowsOpened": Bool, "windowsClosed": Bool, \
         "beforeScreenshot": string, "afterScreenshot": string}, with paths to real evidence files inside \
-        this worktree, outside the scratch folder. Do not claim evidence you did not produce.
+        this worktree, outside the scratch folder. Do not claim evidence you did not produce. \
+        \(CopilotCLI.noScreenCaptureRule)
         \(failure)\(expected)
         If an acceptance test itself is impossible or contradicts the available public contract, report a broken \
         acceptance test instead of changing it or working around it. Write \(AgentReportFile.name) as \

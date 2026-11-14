@@ -40,6 +40,16 @@ struct GH_29_3Tests {
     }
 
     @Test
+    func agentsThatWriteCodeAreToldNotToCaptureTheScreen() {
+        let task = taskForPrompt()
+
+        for prompt in [CopilotImplementer.prompt(for: task), CopilotTestAuthor.prompt(for: task)] {
+            #expect(prompt.contains("Never capture the screen"))
+            #expect(prompt.contains("ImageRenderer"))
+        }
+    }
+
+    @Test
     func scratchExperimentsAreNotIncludedInTheSubmittedImplementation() async throws {
         let result = try await runImplementer()
 

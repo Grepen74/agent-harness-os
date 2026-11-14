@@ -284,7 +284,10 @@ UI changes must include snapshot evidence and confirmation that windows actually
 The implementer supplies `.agentos-ui-evidence.json` with `snapshotPaths`, `windowsOpened`,
 `windowsClosed`, `beforeScreenshot` and `afterScreenshot`; file paths must refer to evidence inside
 the worktree, outside the per-run scratch folder. The workspace copies those files to artifact storage
-so removing a landed worktree does not lose them.
+so removing a landed worktree does not lose them. Agents and the tests they write never capture the
+screen (`screencapture`, ScreenCaptureKit): agents run as the app's child processes, so macOS would ask
+the person for Screen Recording permission on the app's behalf. They render views in their own process
+instead, and the reviewer rejects tests that capture the screen.
 
 At `agent+human`, a passing candidate stays **In review** until a fresh human `harness:build`
 approves that reviewed commit. Earlier build gates and agent signals cannot approve it.
