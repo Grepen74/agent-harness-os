@@ -342,6 +342,17 @@ private actor FakeGitHub: GitHubTransport {
         #expect(TrackerChoice.resolve(.init(type: "jira"), remote: nil, hasGitHubCLI: true).1.map(\.severity) == [.blocker])
     }
 
+    @Test func cancellingIsNotReportedAsATrackerProblem() async {
+        let tracker = GitHubIssuesTracker(repo: "o/r", transport: Cancelled())
+        #expect(await tracker.tickets().isEmpty)
+        #expect(await tracker.ticket("GH-1") == nil)
+        #expect(await tracker.takeProblems().isEmpty)
+    }
+
+    private struct Cancelled: GitHubTransport {
+        func request(_ method: String, _ path: String, body: Data?) async throws -> Data { throw CancellationError() }
+    }
+
     private struct Failing: GitHubTransport {
         func request(_ method: String, _ path: String, body: Data?) async throws -> Data { throw GitHubError(description: "nope") }
     }

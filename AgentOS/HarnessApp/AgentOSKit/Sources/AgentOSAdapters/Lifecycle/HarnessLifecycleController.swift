@@ -40,6 +40,8 @@ public final class HarnessLifecycleController {
     /// What Run does each interval; by default one `step()`. A window sets its own, e.g. to also show the report.
     public var runStep: (@MainActor () async -> Void)?
     private var runTask: Task<Void, Never>?
+    /// The round Run started, which Pause leaves running and shutdown cancels.
+    private var roundTask: Task<Void, Never>?
 
     public init(session: (any HarnessSession)?, interval: Duration = .seconds(2)) {
         self.session = session
@@ -70,7 +72,14 @@ public final class HarnessLifecycleController {
         guard isRunning else { return }
         runTask = Task { [weak self] in
             while !Task.isCancelled, let self {
-                if let runStep = self.runStep { await runStep() } else { await self.step() }
+                // A task of its own: Pause cancels this loop, not the round under way (its tracker and git
+                // calls would all fail).
+                let round = Task { @MainActor in
+                    if let runStep = self.runStep { await runStep() } else { await self.step() }
+                }
+                self.roundTask = round
+                await round.value
+                if self.roundTask == round { self.roundTask = nil }
                 try? await Task.sleep(for: self.interval)
             }
         }
@@ -111,6 +120,7 @@ public final class HarnessLifecycleController {
     public func shutdown(reason: String) async {
         isShutDown = true
         setRunning(false)
+        roundTask?.cancel()
         while isReplacing { try? await Task.sleep(for: .milliseconds(20)) }
         await session?.reconciler.shutdown(reason: reason)
         await waitForRound()

@@ -498,7 +498,8 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
 
     private func attempt<T>(_ what: String, _ operation: () async throws -> T) async -> T? {
         do { return try await operation() } catch {
-            problems.append("\(what): \(error)")
+            // Stopping isn't a tracker problem, and every later call would report it again.
+            if !(error is CancellationError) { problems.append("\(what): \(error)") }
             return nil
         }
     }
