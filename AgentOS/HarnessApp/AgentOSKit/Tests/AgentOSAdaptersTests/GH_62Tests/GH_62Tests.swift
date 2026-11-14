@@ -370,7 +370,7 @@ private extension GH_62Tests {
         nonisolated func testFolder(for spec: NodeSpec) -> String { "Tests/\(spec.testTarget)" }
         nonisolated var agentContext: String { "" }
         func rebaseOntoMain(_ directory: URL) async throws -> RebaseResult {
-            if conflictOnce {
+            if conflictOnce, implementationDirectories.contains(directory) {
                 conflictOnce = false
                 return .conflict(files: ["Sources/Greeting.swift"])
             }

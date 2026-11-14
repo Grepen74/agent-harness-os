@@ -54,9 +54,27 @@ struct FlowTests {
         }
     }
 
+    /// Which nodes' work was already in the code each node's first implementer started from.
+    actor WorkSeenAtStart {
+        var byNode: [String: Set<String>] = [:]
+        func record(_ nodes: Set<String>, for node: String) { if byNode[node] == nil { byNode[node] = nodes } }
+    }
+
+    struct RecordingImplementer: Implementer {
+        let seen: WorkSeenAtStart
+        func implement(_ task: AgentTask) async throws -> AgentReport {
+            let present = task.spec.touches.flatMap {
+                ScriptedFacts.read(ScriptedFacts.sourceFile($0, in: task.directory)).values.map(\.node)
+            }
+            await seen.record(Set(present), for: task.spec.id)
+            return try await ScriptedImplementer().implement(task)
+        }
+    }
+
     @Test func aChildThatBuildsOnAnEarlierSiblingIsBuiltOnlyOnceThatSiblingIsProven() async throws {
+        let seen = WorkSeenAtStart()
         let team = AgentTeam(name: "Ordered", decomposer: SecondChildBuildsOnTheFirst(),
-                             testAuthor: ScriptedTestAuthor(), implementer: ScriptedImplementer())
+                             testAuthor: ScriptedTestAuthor(), implementer: RecordingImplementer(seen: seen))
         let sim = try Simulation(directory: temporaryDirectory(), team: team, checks: FakeCheckRunner())
         let ticket = try #require(await sim.tracker.newTicket(
             title: "Greeting", description: "Greet people",
@@ -81,6 +99,9 @@ struct FlowTests {
             if case .runStarted(_, .implementer) = $0.event.kind { return $0.event.node == second.id } else { return false }
         })
         #expect(secondBuilt > firstLanded)
+        // Its tests were written before the first child landed; its implementer still starts from that work.
+        #expect(await seen.byNode[second.spec.id]?.contains(first.spec.id) == true)
+        #expect(second.reworks == 0)
         #expect(records.contains {
             if case .flagSet(.blocked, let reason) = $0.event.kind {
                 return $0.event.node == second.id && reason == "Waiting for \(first.displayName)"
