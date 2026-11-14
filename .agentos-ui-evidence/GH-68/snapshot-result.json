@@ -1,6 +1,6 @@
 {
-  "captureMethod" : "SwiftUI ImageRenderer of the content hosted in each opened window.",
-  "comparison" : "Legacy complete-array refresh versus indexed-history refresh; identical detail-pane pixels.",
+  "captureMethod" : "NSHostingView.cacheDisplay of actual AgentRuns content in opened AppKit windows",
+  "comparison" : "Complete legacy agent history versus indexed history after 241 unrelated events",
   "passed" : true,
   "test" : "HistorySnapshotTests.indexedHistoryPreservesTheLegacyAgentRunDisplay",
   "unrelatedNewerEvents" : 241,

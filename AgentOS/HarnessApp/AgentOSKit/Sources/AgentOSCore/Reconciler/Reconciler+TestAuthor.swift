@@ -110,7 +110,7 @@ extension Reconciler {
     /// replan starts them over.
     private func keepsEarlierTests(_ node: NodeState) async -> Bool {
         guard node.latestTestFeedback != nil else { return false }
-        let history = await ledger.allRecords().filter { $0.event.node == node.id }
+        let history = await ledger.records(for: node.id)
         guard let lastRun = history.lastIndex(where: {
             if case .runStarted(_, .testAuthor) = $0.event.kind { return true }
             return false

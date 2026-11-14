@@ -56,9 +56,13 @@ public final class HarnessViewModel {
     public var state = WorkingState()
     private var historyRecords: [RecordedEvent] = []
     private var recordsByNode: [NodeID: [RecordedEvent]] = [:]
+    private var indexedHistory: LedgerHistorySnapshot?
+    @ObservationIgnored private var historyRefreshID = UUID()
     public var records: [RecordedEvent] {
         get { historyRecords }
         set {
+            historyRefreshID = UUID()
+            indexedHistory = nil
             historyRecords = newValue
             recordsByNode = [:]
             for record in newValue {
@@ -115,16 +119,22 @@ public final class HarnessViewModel {
 
     /// Refreshes complete history independently of any collection used to page the ledger pane.
     public func refreshHistory(from ledger: Ledger) async {
-        let snapshot = await ledger.allRecords()
-        var indexed: [NodeID: [RecordedEvent]] = [:]
-        for node in Set(snapshot.compactMap(\.event.node)) {
-            indexed[node] = await ledger.records(for: node)
-        }
-        historyRecords = snapshot
-        recordsByNode = indexed
+        await refreshHistory { await ledger.historySnapshot() }
     }
 
-    public func records(for node: NodeID) -> [RecordedEvent] { recordsByNode[node] ?? [] }
+    func refreshHistory(readSnapshot: () async -> LedgerHistorySnapshot) async {
+        let refreshID = UUID()
+        historyRefreshID = refreshID
+        let snapshot = await readSnapshot()
+        guard historyRefreshID == refreshID else { return }
+        historyRecords = snapshot.records
+        indexedHistory = snapshot
+        recordsByNode = [:]
+    }
+
+    public func records(for node: NodeID) -> [RecordedEvent] {
+        indexedHistory?.records(for: node) ?? recordsByNode[node] ?? []
+    }
 
     public func ticket(_ key: String?) -> Ticket? { tickets.first { $0.key == key } }
 

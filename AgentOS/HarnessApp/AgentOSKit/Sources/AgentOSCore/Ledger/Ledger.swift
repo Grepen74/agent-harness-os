@@ -61,6 +61,11 @@ public actor Ledger {
     /// Complete history for one node, in ledger order (not timestamp order).
     public func records(for node: NodeID) -> [RecordedEvent] { recordsByNode[node] ?? [] }
 
+    /// Captures complete legacy and indexed history at the same ledger position.
+    public func historySnapshot() -> LedgerHistorySnapshot {
+        LedgerHistorySnapshot(records: records, recordsByNode: recordsByNode)
+    }
+
     /// The live event stream (doc 06): views subscribe and redraw on every new event.
     public func subscribe() -> AsyncStream<RecordedEvent> {
         let id = UUID()
