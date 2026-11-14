@@ -115,6 +115,10 @@ import AgentOSCore
             $0?.contains("The expected greeting is contradictory.") == true
         })
         #expect(leaf.brokenTestReports.contains { $0.testName == "GH_62Tests.greeting" })
+        // The report was about the tests since rewritten; the next implementer mustn't take it as still true.
+        let implementerFeedback = await fixture.builder.feedback
+        #expect(implementerFeedback.count == 2)
+        #expect(implementerFeedback.allSatisfy { $0 == nil })
         #expect(leaf.flags[.needsInput] == nil)
         #expect(await fixture.tracker.comments.contains { $0.text.contains("sent back to the test author") })
     }
@@ -316,12 +320,14 @@ private extension GH_62Tests {
         private var brokenTest: BrokenTestReport?
         let changesTests: Bool
         private(set) var calls = 0
+        private(set) var feedback: [String?] = []
         init(brokenTest: BrokenTestReport?, changesTests: Bool) {
             self.brokenTest = brokenTest
             self.changesTests = changesTests
         }
         func implement(_ task: AgentTask) async throws -> AgentReport {
             calls += 1
+            feedback.append(task.previousFailure)
             if let report = brokenTest {
                 brokenTest = nil
                 return AgentReport(brokenTest: report)

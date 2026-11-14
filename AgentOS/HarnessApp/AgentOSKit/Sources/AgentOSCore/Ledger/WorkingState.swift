@@ -68,6 +68,9 @@ public struct NodeState: Sendable, Identifiable {
     public var brokenTestReports: [BrokenTestReport] = []
     /// The newest problem with this node's acceptance tests (broken-test report or failed compile), for the test author.
     public var latestTestFeedback: String?
+    /// A problem reported with the current acceptance tests (broken-test report or failed compile), for the
+    /// implementer. Tests fixed again replace them, so whatever was said about the earlier ones no longer applies.
+    public var openTestProblem: String?
     /// The claim: at most one agent run per node at a time.
     public var activeRun: ActiveRun?
     public var lastSubmission: Submission?
@@ -266,7 +269,9 @@ public struct WorkingState: Sendable {
         case .attemptsReset:
             node.failedAttempts = 0
             node.recentFailures = []
-        case .testsFixed(let digest): node.testsDigest = digest
+        case .testsFixed(let digest):
+            node.testsDigest = digest
+            node.openTestProblem = nil
         case .reviewRecorded(let review):
             node.reviews.append(review)
             if !review.result.passed && review.stage == .acceptanceTests {
@@ -292,6 +297,7 @@ public struct WorkingState: Sendable {
         case .brokenTestReported(let report):
             node.brokenTestReports.append(report)
             node.latestTestFeedback = report.reason
+            node.openTestProblem = report.reason
         case .runStarted(let run, let role): node.activeRun = ActiveRun(run: run, role: role, since: event.at)
         case .runFinished: node.activeRun = nil
         case .changeSubmitted(let run, let commit):
@@ -333,6 +339,7 @@ public struct WorkingState: Sendable {
         case .acceptanceTestPreflightFailed(let evidence):
             node.evidence.append(evidence)
             node.latestTestFeedback = evidence.details ?? evidence.summary
+            node.openTestProblem = evidence.summary
         case .evidenceRecorded(let evidence):
             node.evidence.append(evidence)
             if !evidence.passed { node.latestReviewFeedback = nil }

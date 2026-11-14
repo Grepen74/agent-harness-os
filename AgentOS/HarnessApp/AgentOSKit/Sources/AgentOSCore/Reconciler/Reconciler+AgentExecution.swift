@@ -98,10 +98,7 @@ extension Reconciler {
             // The test author needs the latest problem with its tests; older reports may be about tests since rewritten.
             previousFailure: role == .testAuthor
                 ? node.latestTestFeedback ?? node.recentFailures.last
-                : node.latestReviewFeedback
-                    ?? node.brokenTestReports.last?.reason
-                    ?? node.evidence.last(where: { $0.check == "acceptance-test compilation" })?.summary
-                    ?? node.recentFailures.last,
+                : node.latestReviewFeedback ?? node.openTestProblem ?? node.recentFailures.last,
             simulationHints: Set(labels.filter { $0.hasPrefix("sim:") }), log: log,
             clarifications: state.clarifications(for: node.id), guesswork: policy.guesswork,
             expectedAPI: node.expectedAPI, ticketKey: node.ticket,
