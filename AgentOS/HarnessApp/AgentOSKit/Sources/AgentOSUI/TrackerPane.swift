@@ -83,15 +83,6 @@ struct TicketDetail: View {
                     Spacer()
                     Button("Edit", action: edit)
                 }
-                Text(ticket.description.isEmpty ? "(no description)" : ticket.description)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Acceptance criteria").font(.caption.bold())
-                    if ticket.acceptanceCriteria.isEmpty { Text("(none)").foregroundStyle(.secondary) }
-                    ForEach(ticket.acceptanceCriteria, id: \.self) { Text("• \($0)") }
-                    if !ticket.blockedBy.isEmpty {
-                        Text("Needs from other systems: \(ticket.blockedBy.joined(separator: ", "))").font(.caption)
-                    }
-                }
 
                 HStack {
                     ForEach(ticket.labels, id: \.name) { label in
@@ -120,6 +111,16 @@ struct TicketDetail: View {
                         }
                     }
                     .fixedSize()
+                }
+
+                Text(ticket.description.isEmpty ? "(no description)" : ticket.description)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Acceptance criteria").font(.caption.bold())
+                    if ticket.acceptanceCriteria.isEmpty { Text("(none)").foregroundStyle(.secondary) }
+                    ForEach(ticket.acceptanceCriteria, id: \.self) { Text("• \($0)") }
+                    if !ticket.blockedBy.isEmpty {
+                        Text("Needs from other systems: \(ticket.blockedBy.joined(separator: ", "))").font(.caption)
+                    }
                 }
 
                 Divider()
