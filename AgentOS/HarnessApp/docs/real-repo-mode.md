@@ -264,12 +264,13 @@ wrong, or about the tests), the harness doesn't submit the same branch for anoth
 sends the answer to the implementer. After `maxRounds` reviews with findings at
 either stage (default 2), work escalates; the escalation lists the last round's findings as still open
 and earlier rounds' as history, since the reviewer repeats any it still finds unfixed. A human
-`harness:retry` resets the limit, and so does
+`harness:retry` resets the limit (from an escalation or from "Needs input"), and so does
 `harness:retest`, since reviews of the discarded tests and code no longer count. A passing review at a
 stage also starts its rounds over: work that comes back to that stage later (a broken test, say) is
 reviewed afresh.
 
-So that reviews converge, a later review round gets the findings of the earlier rounds at that stage.
+So that reviews converge, every review is asked to report all the blocking problems it finds at once,
+and a later review round gets the findings of the earlier rounds at that stage.
 The reviewer first checks each earlier finding is fixed. A new finding must be a defect that makes an
 acceptance criterion fail or a regression the change introduced, and starts with "New:". Improvements,
 out-of-scope and pre-existing problems go in `followUps`. The harness posts follow-ups on the ticket for a
