@@ -500,6 +500,22 @@ struct GH_28Tests {
     }
 
     @Test
+    func aPersonRetryingFromNeedsInputStartsTheReviewRoundsOver() async throws {
+        let mistake = CompilerDiagnostic(file: "Tests/GH_28Tests/GH_28Tests.swift", line: 6,
+                                         message: "Static member 'make' cannot be used on instance of type 'GH_28Tests'",
+                                         classification: .testAuthorMistake)
+        let fixture = try await Fixture(
+            testResults: ["The test sleeps.", "The test pins call order."].map { .init(passed: false, findings: [$0]) },
+            preflight: QueuedPreflight([.compiled, .diagnostics([mistake], fullLog: ""), .diagnostics([mistake], fullLog: "")]))
+        defer { fixture.cleanUp() }
+        try await fixture.advanceUntil { await fixture.node()?.flags[.needsInput] != nil }
+        await fixture.tracker.add(.retry, by: .human("Alice"))
+        try await fixture.advanceUntil { await fixture.workspace.landedCount == 1 }
+        #expect(await fixture.reviewer.requests.filter { $0.stage == .acceptanceTests }.count == 3)
+        #expect(await fixture.node()?.flags[.escalated] == nil)
+    }
+
+    @Test
     func testsThatComeBackAreKeptUntilAPersonAsksForNewOnes() async throws {
         let mistake = CompilerDiagnostic(file: "Tests/GH_28Tests/GH_28Tests.swift", line: 6,
                                          message: "Static member 'make' cannot be used on instance of type 'GH_28Tests'",

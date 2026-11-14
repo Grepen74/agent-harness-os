@@ -74,15 +74,16 @@ extension Reconciler {
     }
 
     /// This stage's failed reviews of the node's current work, oldest first. Rounds start over when a person
-    /// resets attempts, has the tests rewritten (harness:retest) or replans or corrects the node: reviews of
-    /// discarded work no longer count. They also start over after this stage's review passes: the findings
-    /// before it were fixed, and work coming back later (a broken test, say) is a new review.
+    /// steps in (resets attempts, answers or retries from "needs input", has the tests rewritten with
+    /// harness:retest, or replans or corrects the node): earlier reviews were of work they changed or discarded.
+    /// They also start over after this stage's review passes: the findings before it were fixed, and work
+    /// coming back later (a broken test, say) is a new review.
     private func failedReviews(of id: NodeID, stage: ReviewStage) async -> [ReviewRecord] {
         let records = await ledger.records(for: id)
         let reset = records.lastIndex {
             switch $0.event.kind {
             case .attemptsReset, .replanned: return true
-            case .phaseChanged(to: .specified): return $0.event.by.isHuman
+            case .phaseChanged(to: .specified), .flagCleared(.needsInput): return $0.event.by.isHuman
             case .reviewRecorded(let review): return review.stage == stage && review.result.passed
             default: return false
             }

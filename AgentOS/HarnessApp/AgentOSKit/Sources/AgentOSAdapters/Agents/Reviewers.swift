@@ -69,6 +69,8 @@ public struct CopilotReviewer: Reviewer {
         must deliver. Put improvements, problems outside the ticket's scope and touched areas, and problems that \
         were there before this change in followUps: a person files those as new tickets, and they never fail \
         the review.
+        Report every blocking problem you find now, not only the first few: later rounds only check the fixes \
+        and what they changed, so a problem held back costs a whole round.
         \(earlierRounds(of: request))\(unchangedProduction(in: request))
         Reject acceptance tests that only check constants or types, use made-up APIs instead of real behavior,
         or pass without the requirement being met. Check the tests against every ticket criterion
