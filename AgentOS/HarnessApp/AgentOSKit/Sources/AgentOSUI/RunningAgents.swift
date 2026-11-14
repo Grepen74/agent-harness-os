@@ -303,6 +303,7 @@ struct AgentRuns: View {
             Text("Agent runs").font(.caption.bold()).padding(.top, 4)
             ForEach(runs, id: \.run) { item in
                 HStack {
+                    Text(item.date.formatted(date: .omitted, time: .standard))
                     Text(item.role.rawValue)
                     Text(item.run).monospaced().foregroundStyle(.secondary)
                     Text(item.outcome ?? "running…").foregroundStyle(.secondary).lineLimit(1)
@@ -317,9 +318,17 @@ struct AgentRuns: View {
     }
 
     struct Item {
+        internal init(run: RunID, role: AgentRole, outcome: String? = nil, date: Date) {
+            self.run = run
+            self.role = role
+            self.outcome = outcome
+            self.date = date
+        }
+        
         let run: RunID
         let role: AgentRole
         var outcome: String?
+        var date: Date
     }
 
     @MainActor
@@ -333,7 +342,7 @@ struct AgentRuns: View {
         for record in records where record.event.node == node {
             switch record.event.kind {
             case .runStarted(let run, let role) where role != .verifier:
-                items.append(Item(run: run, role: role))
+                items.append(Item(run: run, role: role, date: record.event.at))
             case .runFinished(let run, let outcome):
                 if let index = items.firstIndex(where: { $0.run == run }) { items[index].outcome = outcome }
             default:
