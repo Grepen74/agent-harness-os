@@ -21,6 +21,11 @@ public struct FileLedgerStore: LedgerStore {
         try checkpoint?.validatePrefix(in: bytes)
         let offset = checkpoint?.byteCount ?? 0
         let start = checkpoint?.recordCount ?? 0
+        // A valid final record need not end in a newline, but any later record must be separated.
+        if offset > 0, bytes.count > offset,
+           bytes[offset - 1] != 0x0A, bytes[offset] != 0x0A {
+            throw LedgerError.unreadable("line \(start + 1): missing newline after verified storage prefix")
+        }
         let decoder = Hashing.decoder()
         let records = try bytes.dropFirst(offset).split(separator: 0x0A).enumerated().map { index, line in
             do { return try decoder.decode(RecordedEvent.self, from: Data(line)) } catch {
@@ -34,6 +39,7 @@ public struct FileLedgerStore: LedgerStore {
     }
 
     public func append(_ records: [RecordedEvent]) throws {
+        guard !records.isEmpty else { return }
         var lines = Data()
         for record in records {
             lines.append(Hashing.canonicalJSON(record))
@@ -43,9 +49,17 @@ public struct FileLedgerStore: LedgerStore {
             try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             FileManager.default.createFile(atPath: fileURL.path, contents: nil)
         }
-        let handle = try FileHandle(forWritingTo: fileURL)
+        let handle = try FileHandle(forUpdating: fileURL)
         defer { try? handle.close() }
-        try handle.seekToEnd()
+        let end = try handle.seekToEnd()
+        if end > 0 {
+            try handle.seek(toOffset: end - 1)
+            let lastByte = try handle.read(upToCount: 1)
+            guard let lastByte, lastByte.count == 1 else {
+                throw LedgerError.unreadable("could not read the final byte before appending")
+            }
+            if lastByte.first != 0x0A { lines.insert(0x0A, at: 0) }
+        }
         try handle.write(contentsOf: lines)
         // Production: fsync + database transaction, so a crash can't leave half a write.
     }
