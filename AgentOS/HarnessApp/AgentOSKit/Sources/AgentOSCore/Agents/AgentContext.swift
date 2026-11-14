@@ -73,7 +73,7 @@ public enum AgentContextBuilder {
 
     /// Also used by trackers to fetch only the directly referenced issues missing from their snapshot.
     public static func referencedKeys(in ticket: Ticket, repository: String) -> [String] {
-        let humans = ticket.comments.filter { $0.author.isHuman }.sorted { $0.at < $1.at }
+        let humans = ticket.comments.filter(\.isHumanInput).sorted { $0.at < $1.at }
         let text = ([ticket.description] + ticket.acceptanceCriteria + humans.map(\.text)).joined(separator: "\n")
         // Consume whole URLs first so foreign URLs cannot contribute shorthand references.
         let pattern = #"https?://[^\s<>]+|(?<![\w/#-])(?:GH-|#)([0-9]+)\b"#
@@ -99,7 +99,7 @@ public enum AgentContextBuilder {
     }
 
     private static func boundedComments(_ comments: [Comment]) -> (values: [Comment], omitted: Bool) {
-        let humans = comments.enumerated().filter { $0.element.author.isHuman }.sorted {
+        let humans = comments.enumerated().filter { $0.element.isHumanInput }.sorted {
             $0.element.at == $1.element.at ? $0.offset < $1.offset : $0.element.at < $1.element.at
         }.map(\.element)
         var omitted = humans.count > 30

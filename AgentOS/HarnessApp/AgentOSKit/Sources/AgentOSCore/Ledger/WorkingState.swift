@@ -335,7 +335,8 @@ public struct WorkingState: Sendable {
         case .assumptionsReported(let role, let assumptions): node.assumptions[role] = assumptions.isEmpty ? nil : assumptions
         case .suggestionsReported(let role, let questions):
             node.suggestedAnswers[role] = questions.isEmpty ? nil : SuggestedAnswers(questions: questions, reportedAt: event.at)
-        case .questionsAnswered(let clarification):
+        case .questionsAnswered(var clarification):
+            clarification.answeredAt = event.at
             node.clarifications.append(clarification)
             node.openQuestions = []
             node.reviewFeedbackAnswered = true

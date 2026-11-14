@@ -18,7 +18,7 @@ extension Reconciler {
     /// The latest human comment since the newest suggestions, when it's a numbered correction.
     static func latestCorrectionComment(on ticket: Ticket, for node: NodeState) -> Comment? {
         guard let newest = node.suggestedAnswers.values.map(\.reportedAt).max(),
-              let comment = ticket.comments.last(where: { $0.author.isHuman && $0.at >= newest }),
+              let comment = ticket.comments.last(where: { $0.isHumanInput && $0.at >= newest }),
               corrections(in: comment.text) != nil else { return nil }
         return comment
     }
@@ -28,7 +28,7 @@ extension Reconciler {
             "\"Proceeding on suggested answers\" list, one per line, e.g. `2: <correct answer>`, then add harness:retry. " +
             "If the work stopped for another reason, comment what to change without numbers and add harness:retry."
         guard let (role, suggestions) = node.suggestedAnswers.max(by: { $0.value.reportedAt < $1.value.reportedAt }),
-              let comment = ticket.comments.last(where: { $0.author.isHuman && $0.at >= suggestions.reportedAt }),
+              let comment = ticket.comments.last(where: { $0.isHumanInput && $0.at >= suggestions.reportedAt }),
               let corrections = Self.corrections(in: comment.text),
               corrections.allSatisfy({ $0.number > 0 && $0.number <= suggestions.questions.count && !$0.answer.isEmpty })
         else {
@@ -113,10 +113,11 @@ extension Reconciler {
         return isReview ? "feedback recorded; the acceptance tests will be written again with it" : "answer recorded; work continues with it"
     }
 
-    /// Human comments after the harness's latest "Needs input" comment, or nil when nobody answered yet.
+    /// People's comments after the harness's latest "Needs input" comment (notes marked for people only are
+    /// left out), or nil when nobody answered yet.
     static func answer(on ticket: Ticket) -> String? {
         guard let asked = ticket.comments.lastIndex(where: { !$0.author.isHuman && $0.text.contains(needsInputMarker) }) else { return nil }
-        let replies = ticket.comments[(asked + 1)...].filter(\.author.isHuman).map(\.text)
+        let replies = ticket.comments[(asked + 1)...].filter(\.isHumanInput).map(\.text)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
         return replies.isEmpty ? nil : replies.joined(separator: "\n\n")
     }
@@ -171,9 +172,15 @@ extension Reconciler {
         var answers: [Clarification] = []
         var asked: [AgentQuestion]?
         var replies: [String] = []
+        var repliedAt: Date?
         func flush() throws {
             if let asked, !replies.isEmpty {
-                answers += try resolveAnswers(replies.joined(separator: "\n\n"), to: asked, signal: .preview)
+                // Dated like recorded answers, so a fresh correction sorts after the answers it corrects.
+                answers += try resolveAnswers(replies.joined(separator: "\n\n"), to: asked, signal: .preview).map {
+                    var answer = $0
+                    answer.answeredAt = repliedAt
+                    return answer
+                }
             }
             replies = []
         }
@@ -190,9 +197,12 @@ extension Reconciler {
                     }
                 }
                 asked = questions
-            } else if asked != nil, comment.author.isHuman {
+            } else if asked != nil, comment.isHumanInput {
                 let text = comment.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !text.isEmpty { replies.append(text) }
+                if !text.isEmpty {
+                    replies.append(text)
+                    repliedAt = comment.at
+                }
             }
         }
         try flush()

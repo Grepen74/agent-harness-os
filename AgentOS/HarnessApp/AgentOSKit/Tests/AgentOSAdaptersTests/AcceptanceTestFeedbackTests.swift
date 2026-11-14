@@ -108,6 +108,20 @@ struct AcceptanceTestFeedbackTests {
         #expect(prompt.contains("smallest change"))
     }
 
+    @Test func answersAreDatedOldestFirstAndTheLaterOneWins() throws {
+        var later = Clarification(questions: ["Feedback on the acceptance tests"], answer: "Use the shared helper.")
+        later.answeredAt = Date(timeIntervalSince1970: 2_000_000_000)
+        var earlier = Clarification(questions: ["Which renderer?"], answer: "Use ImageRenderer.")
+        earlier.answeredAt = Date(timeIntervalSince1970: 1_000_000_000)
+
+        let block = CopilotCLI.answersBlock([later, earlier])
+
+        let first = try #require(block.range(of: "1. (answered 2001-09-09T01:46:40Z)\nQ: Which renderer?\nA: Use ImageRenderer."))
+        let second = try #require(block.range(of: "2. (answered 2033-05-18T03:33:20Z)\nQ: Feedback on the acceptance tests"))
+        #expect(first.upperBound < second.lowerBound)
+        #expect(block.contains("the later one wins"))
+    }
+
     @Test(arguments: Guesswork.allCases)
     func questionsAreAskedWithSuggestedAnswersAtEveryLevel(guesswork: Guesswork) {
         #expect(CopilotCLI.guessingRules(guesswork, repositoryConventions: true).contains("\"suggestion\""))

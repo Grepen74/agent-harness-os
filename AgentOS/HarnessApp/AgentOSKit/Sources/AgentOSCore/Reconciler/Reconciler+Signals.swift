@@ -120,7 +120,7 @@ extension Reconciler {
                node.flags[.escalated] == nil || Self.latestCorrectionComment(on: ticket, for: node) != nil {
                 return try await correctSuggestion(on: node, ticket: ticket, in: state)
             }
-            if let node, node.flags[.escalated] == nil, let comment = ticket.comments.last, comment.author.isHuman,
+            if let node, node.flags[.escalated] == nil, let comment = ticket.comments.last, comment.isHumanInput,
                Self.corrections(in: comment.text) != nil {
                 return try await correctSuggestion(on: node, ticket: ticket, in: state)
             }

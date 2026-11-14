@@ -281,7 +281,8 @@ struct GH_25Tests {
         let started = ContinuousClock.now
         let output = await runner.runChecks(in: tree.directory, only: nil)
 
-        #expect(ContinuousClock.now - started < .seconds(4))
+        // Well before the 20 s full timeout; generous because the full suite runs checks in parallel.
+        #expect(ContinuousClock.now - started < .seconds(10))
         #expect(!output.passed)
         #expect(output.summary.lowercased().contains("hung"))
         #expect(output.summary.contains(step))

@@ -151,10 +151,21 @@ public struct AgentReport: Codable, Sendable, Hashable {
 public struct Clarification: Codable, Sendable, Hashable {
     public var questions: [String]
     public var answer: String
+    /// When it was recorded, from its ledger event; not part of its identity.
+    public var answeredAt: Date?
 
     public init(questions: [String], answer: String) {
         self.questions = questions
         self.answer = answer
+    }
+
+    public static func == (lhs: Clarification, rhs: Clarification) -> Bool {
+        lhs.questions == rhs.questions && lhs.answer == rhs.answer
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(questions)
+        hasher.combine(answer)
     }
 }
 

@@ -131,6 +131,33 @@ struct ClarifyingQuestionsTests {
         #expect(rewritten.flags[.needsInput] != nil)
     }
 
+    @Test func notesForPeopleAreNeverAnswersNorAgentContext() async throws {
+        let sim = try makeSimulation()
+        await sim.tracker.createTicket(title: "Greeting", description: "Say hi", acceptanceCriteria: ["Says hello"], by: alice)
+        await sim.tracker.addLabel("sim:assume", to: "APP-1", by: alice)
+        await sim.signal(.breakdown, "APP-1")
+        await sim.tracker.addComment("Check it in the greeting component only", to: "APP-1", by: alice)
+        await sim.signal(.retry, "APP-1")
+
+        // A note for people alone is no answer.
+        let note = "\(AgentOSCore.Comment.agentIgnoreMarker)\nWhy this kept blocking: history for people."
+        await sim.tracker.addComment(note, to: "APP-1", by: alice)
+        await sim.signal(.retry, "APP-1")
+        #expect(await sim.lastComment("APP-1").contains("in a comment"))
+
+        await sim.tracker.addComment("Check it in the footer instead", to: "APP-1", by: alice)
+        await sim.signal(.retry, "APP-1")
+        let node = try #require(await sim.node("APP-1"))
+        #expect(node.clarifications.map(\.answer) == ["Check it in the greeting component only", "Check it in the footer instead"])
+        #expect(node.clarifications.allSatisfy { $0.answeredAt != nil })
+
+        var ticket = try #require(await sim.tracker.ticket("APP-1"))
+        ticket.comments.append(AgentOSCore.Comment(author: .human("bob"), text: note))
+        let context = AgentContextBuilder.build(ticket: ticket, tickets: [], repository: "acme/app", designDocumentPaths: [])
+        #expect(!context.ticketComments.isEmpty)
+        #expect(!context.ticketComments.contains { $0.text.contains("Why this kept blocking") })
+    }
+
     @Test func autonomousAgentsReportAssumptionsWithoutWaiting() async throws {
         let sim = try Simulation(directory: temporaryDirectory(), team: .scripted, checks: FakeCheckRunner(),
                                  policy: Policy(guesswork: .autonomous))

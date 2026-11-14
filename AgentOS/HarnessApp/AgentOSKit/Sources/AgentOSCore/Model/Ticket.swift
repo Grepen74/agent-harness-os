@@ -21,6 +21,12 @@ public struct Comment: Codable, Sendable, Hashable, Identifiable {
         self.author = author
         self.text = text
     }
+
+    /// A person's note for other people (a diagnosis, a status update): never an answer, a correction or agent context.
+    public static let agentIgnoreMarker = "<!-- agentos:ignore -->"
+
+    /// A person's comment that agents and the harness may act on.
+    public var isHumanInput: Bool { author.isHuman && !text.contains(Self.agentIgnoreMarker) }
 }
 
 /// A ticket as the harness sees it, whatever tracker it came from (doc 03).

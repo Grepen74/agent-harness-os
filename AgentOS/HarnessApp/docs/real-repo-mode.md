@@ -576,7 +576,9 @@ Each phase is usable on its own.
      `questionsRaised` and the `needs input` flag, and post a "❓ Needs input" comment with them. Tests
      written on a guess are thrown away. You answer in comments, then add `harness:retry`; without a
      comment after the question it's refused. The answer is recorded (`questionsAnswered`) and every agent
-     working on the node or below it gets it as data.
+     working on the node or below it gets it as data: dated, oldest first, with later answers winning where
+     they disagree. A comment containing `<!-- agentos:ignore -->` is a note for people (a diagnosis, a
+     status update): it's never taken as an answer or a correction, nor shown to agents.
    - Every leaf's tests are posted when written: files, test names and the assumptions the work rests on.
      Under `assume and report`, a leaf with assumptions waits (`needs input`). `harness:build` (or `go`)
      approves its tests as they are; a comment plus `harness:retry` has them written again with your

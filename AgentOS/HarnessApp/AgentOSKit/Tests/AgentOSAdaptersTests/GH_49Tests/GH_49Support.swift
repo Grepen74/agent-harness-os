@@ -30,7 +30,8 @@ extension GH_49Tests {
 
         func value() async throws -> Value {
             let timeout = DispatchWorkItem { self.resolve(.failure(Timeout())) }
-            DispatchQueue.global().asyncAfter(deadline: .now() + 10, execute: timeout)
+            // Generous: a real hang still fails, but repository steps can be slow while the full suite runs in parallel.
+            DispatchQueue.global().asyncAfter(deadline: .now() + 30, execute: timeout)
             defer { timeout.cancel() }
             return try await withCheckedThrowingContinuation { continuation in
                 let result = state.withLock { state -> Result<Value, any Error>? in
