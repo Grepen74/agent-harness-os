@@ -28,13 +28,16 @@ import Foundation
         }
         await view.refreshLedger(from: source)
         guard refreshID == request else { return }
-        let target = view.ledgerPage.totalCount - 1
+        // A filter or paging request can supersede the display refresh without updating its count.
+        let snapshot = await source.pageSnapshot(node: nil, kind: nil, limit: 200)
+        guard refreshID == request else { return }
+        let target = snapshot.totalCount - 1
         var cursor = position
         var newRecords: [RecordedEvent] = []
         while cursor < target {
             let batch = await source.records(after: cursor, limit: min(200, target - cursor))
             guard refreshID == request else { return }
-            precondition(!batch.isEmpty, "Ledger history ended before its page snapshot position")
+            precondition(!batch.isEmpty, "Ledger history ended before its snapshot position")
             newRecords.append(contentsOf: batch)
             cursor = batch.last!.position
         }
