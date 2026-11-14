@@ -54,6 +54,7 @@ extension HarnessActions {
 public final class HarnessViewModel {
     public var tickets: [Ticket] = []
     public var state = WorkingState()
+    public let ledgerPage = LedgerPageModel()
     private var historyRecords: [RecordedEvent] = []
     private var recordsByNode: [NodeID: [RecordedEvent]] = [:]
     private var indexedHistory: LedgerHistorySnapshot?
@@ -116,6 +117,30 @@ public final class HarnessViewModel {
     public weak var actions: (any HarnessActions)?
 
     public init() {}
+
+    public func refreshLedger(from source: any LedgerPageSource) async {
+        await ledgerPage.refresh(from: source)
+    }
+
+    public func ledgerNodeLabel(_ node: NodeID) -> String {
+        state.nodes[node]?.displayName ?? node
+    }
+
+    func appendHistory(_ records: [RecordedEvent]) {
+        guard !records.isEmpty else { return }
+        historyRefreshID = UUID()
+        if let indexedHistory {
+            recordsByNode = [:]
+            for node in Set(historyRecords.compactMap(\.event.node)) {
+                recordsByNode[node] = indexedHistory.records(for: node)
+            }
+            self.indexedHistory = nil
+        }
+        historyRecords.append(contentsOf: records)
+        for record in records {
+            if let node = record.event.node { recordsByNode[node, default: []].append(record) }
+        }
+    }
 
     /// Refreshes complete history independently of any collection used to page the ledger pane.
     public func refreshHistory(from ledger: Ledger) async {

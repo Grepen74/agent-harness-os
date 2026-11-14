@@ -124,6 +124,20 @@ quitting also waits for running work to stop. Opening a repo abandons leftover r
 app session even if readiness blockers prevent agents from starting. Checks that produce no output
 for 10 minutes are reported as hung, with their log retained.
 
+## Browsing the ledger
+
+In repository and simulator windows, the ledger starts with the newest **200** records, newest first.
+**Show older** adds 200 matching records at a time and disappears when all matches are displayed.
+The header always counts the entire ledger, regardless of the displayed page or filters.
+
+Use **Ticket** to select **All tickets** (including events without a ticket) or one exact ledger node.
+Choices include nodes no longer in tracker results; known nodes show their canonical ticket names and
+unknown nodes show their NodeIDs. Selecting a parent does not include its descendants.
+**Event kind** selects **All event kinds** or a case independent of its payload. Both filters apply
+together across the complete ledger before paging, so older matches remain available.
+Changing either filter returns to 200 records; live refresh preserves filters and the expanded limit.
+Reset, restart and restore discard stale pages. Agent-run history remains complete regardless of these controls.
+
 ## Try this in the app
 
 1. **⚙︎ → Load demo tickets.** Press **Step** or **Run**: nothing happens. Tickets need a deliberate signal (doc 05).

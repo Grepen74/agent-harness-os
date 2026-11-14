@@ -31,7 +31,8 @@ public struct ChainReport: Sendable {
 /// The ledger decides what may be written; a `LedgerStore` keeps the records (a JSON-lines file to
 /// start with). Production (doc 04 §7): a database with append-only permissions, the hash anchored
 /// somewhere the operators can't change, big files in artifact storage, point-in-time-recovery backups.
-public actor Ledger {
+public actor Ledger: HarnessLedgerRefreshSource {
+    public nonisolated let ledgerID = UUID()
     private let store: any LedgerStore
     private var records: [RecordedEvent] = []
     private var recordsByNode: [NodeID: [RecordedEvent]] = [:]
@@ -64,6 +65,35 @@ public actor Ledger {
     /// Captures complete legacy and indexed history at the same ledger position.
     public func historySnapshot() -> LedgerHistorySnapshot {
         LedgerHistorySnapshot(records: records, recordsByNode: recordsByNode)
+    }
+
+    /// Bounded, exclusive-position transfer in append order.
+    public func records(after position: Int, limit: Int) -> [RecordedEvent] {
+        guard limit > 0, position < records.count - 1 else { return [] }
+        let start = position < 0 ? 0 : position + 1
+        let count = min(limit, records.count - start)
+        return Array(records[start..<(start + count)])
+    }
+
+    /// Filters the complete ledger before collecting only the newest requested rows.
+    public func pageSnapshot(node: NodeID?, kind: LedgerEventKind?, limit: Int) -> LedgerPageSnapshot {
+        let candidates = node.map { recordsByNode[$0] ?? [] } ?? records
+        let limit = max(0, limit)
+        guard let kind else {
+            return LedgerPageSnapshot(
+                ledgerID: ledgerID, totalCount: records.count, matchingCount: candidates.count,
+                nodeIDs: recordsByNode.keys.sorted(), records: Array(candidates.suffix(limit).reversed()))
+        }
+        var matchingCount = 0
+        var page: [RecordedEvent] = []
+        for record in candidates.reversed() {
+            guard LedgerEventKind(record.event.kind) == kind else { continue }
+            matchingCount += 1
+            if page.count < limit { page.append(record) }
+        }
+        return LedgerPageSnapshot(ledgerID: ledgerID, totalCount: records.count,
+                                  matchingCount: matchingCount, nodeIDs: recordsByNode.keys.sorted(),
+                                  records: page)
     }
 
     /// The live event stream (doc 06): views subscribe and redraw on every new event.

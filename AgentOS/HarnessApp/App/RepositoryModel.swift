@@ -26,6 +26,7 @@ final class RepositoryModel: HarnessActions {
     /// Settings changed while a scan was running.
     @ObservationIgnored private var rescanAgain = false
     @ObservationIgnored private var ledger: Ledger?
+    @ObservationIgnored private var ledgerSession: HarnessLedgerSession?
     @ObservationIgnored private var tracker: (any TicketBoard)?
     /// What `tracker` was made for: the scan's choice and the GitHub account from Settings.
     @ObservationIgnored private var trackerMadeFor: (choice: TrackerChoice, account: String?)?
@@ -249,6 +250,7 @@ final class RepositoryModel: HarnessActions {
         let ledger = try Ledger(store: RepositoryStorage.ledgerStore(for: identity))
         let storage = RepositoryStorage.directory(for: identity)
         self.ledger = ledger
+        ledgerSession = HarnessLedgerSession(view: view, source: ledger)
         self.storage = storage
         useTracker(.local)
         follower.follow(ledger) { [weak self] in await self?.refresh() }
@@ -278,9 +280,7 @@ final class RepositoryModel: HarnessActions {
             view.tickets = await tracker.tickets()
             for problem in await tracker.takeProblems() { log("⚠️ Tracker: \(problem)") }
         }
-        guard let ledger else { return }
-        await view.refreshHistory(from: ledger)
-        view.state = await ledger.workingState()
+        await ledgerSession?.refresh()
     }
 
     private func log(_ message: String) {
