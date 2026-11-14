@@ -1,13 +1,9 @@
 {
-  "afterScreenshot" : "ui-evidence/GH-68/after-beyond-page.png",
-  "beforeScreenshot" : "ui-evidence/GH-68/before-beyond-page.png",
+  "afterScreenshot" : ".agentos-ui-evidence\/GH-68\/after.png",
+  "beforeScreenshot" : ".agentos-ui-evidence\/GH-68\/before.png",
   "snapshotPaths" : [
-    "ui-evidence\/GH-66\/before.png",
-    "ui-evidence\/GH-66\/after.png",
-    "ui-evidence/GH-68/before-complete.png",
-    "ui-evidence/GH-68/before-beyond-page.png",
-    "ui-evidence/GH-68/after-complete.png",
-    "ui-evidence/GH-68/after-beyond-page.png"
+    ".agentos-ui-evidence\/GH-68\/before.png",
+    ".agentos-ui-evidence\/GH-68\/after.png"
   ],
   "windowsClosed" : true,
   "windowsOpened" : true

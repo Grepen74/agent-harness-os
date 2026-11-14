@@ -1,0 +1,14 @@
+{
+  "captureMethod" : "SwiftUI ImageRenderer of the content hosted in each opened window.",
+  "comparison" : "Legacy complete-array refresh versus indexed-history refresh; identical detail-pane pixels.",
+  "passed" : true,
+  "test" : "HistorySnapshotTests.indexedHistoryPreservesTheLegacyAgentRunDisplay",
+  "unrelatedNewerEvents" : 241,
+  "verifierExcluded" : true,
+  "visibleRuns" : [
+    "author-1",
+    "builder-1"
+  ],
+  "windowsClosed" : true,
+  "windowsOpened" : true
+}
