@@ -115,12 +115,11 @@ extension Reconciler {
             if case .runStarted(_, .testAuthor) = $0.event.kind { return true }
             return false
         }) else { return false }
+        // Only a retest or a replan asks for new tests; feedback with harness:retry is for fixing these.
         return !history[(lastRun + 1)...].contains {
             switch $0.event.kind {
             case .replanned: return true
-            case .phaseChanged(to: .specified):
-                if case .human = $0.event.by { return true }
-                return false
+            case .signalAccepted(_, let command, _): return command == .retest
             default: return false
             }
         }

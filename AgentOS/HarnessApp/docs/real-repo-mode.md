@@ -245,7 +245,8 @@ the test author without using a review round; errors from API that doesn't exist
 a return the test author is told to make the smallest fix, because it can't compile its tests itself.
 Whenever tests come back (compiler errors, review findings, a broken-test report), the leaf's new branch
 starts from the landing branch with its earlier test folder restored, so the author fixes those tests in
-place rather than rewriting them blind. `harness:retest` or a replan starts the tests over. Once the
+place rather than rewriting them blind. `harness:retest` or a replan starts the tests over; feedback with
+`harness:retry` keeps them, so the author applies the feedback to the earlier tests. Once the
 tests are fixed again, the implementer no longer gets those reports about the earlier tests, so it doesn't
 report a problem that's already been fixed.
 The reviewer checks authored acceptance tests against the ticket before implementation starts. Weak

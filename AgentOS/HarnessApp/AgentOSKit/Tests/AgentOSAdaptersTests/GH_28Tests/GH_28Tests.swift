@@ -531,6 +531,21 @@ struct GH_28Tests {
         #expect(kept == [nil, Fixture.folder, nil], "\(kept)")
     }
 
+    @Test
+    func feedbackWithARetryFixesTheEarlierTestsRatherThanStartingOver() async throws {
+        let broken = ["The fixture never releases the barrier.", "The snapshot test doesn't compile under Swift 6."]
+            .map { AgentReport(brokenTest: BrokenTestReport(testName: "GH_28Tests.windowRemainsUsable", reason: $0)) }
+        let fixture = try await Fixture(builderReports: broken)
+        defer { fixture.cleanUp() }
+        try await fixture.advanceUntil { await fixture.node()?.flags[.needsInput] != nil }
+        await fixture.tracker.reply("Make the snapshot tests nonisolated; leave the rest as it is.", by: "Alice")
+        await fixture.tracker.add(.retry, by: .human("Alice"))
+        try await fixture.advanceUntil { await fixture.workspace.landedCount == 1 }
+        let kept: [String?] = await fixture.workspace.keptFolders
+        #expect(await fixture.author.tasks.count == 3)
+        #expect(kept == [nil, Fixture.folder, Fixture.folder], "\(kept)")
+    }
+
     actor QueuedPreflight: AcceptanceTestPreflight {
         private var results: [AcceptanceTestPreflightResult]
         init(_ results: [AcceptanceTestPreflightResult]) { self.results = results }
