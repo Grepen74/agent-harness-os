@@ -120,6 +120,9 @@ public struct CopilotCLI: Sendable {
                                                  timeout: timeout, log: log, timeZone: .current, logPreamble: inventory)
         guard result.status == 0 else {
             if let unavailable = Self.unavailableModel(in: result.output) { throw UnavailableModel(model: unavailable) }
+            if result.crashSignal == SIGKILL && result.output.hasSuffix("Timed out after \(timeout)\n") {
+                throw AgentFailure("copilot timed out after \(timeout): \(result.output.suffix(300))")
+            }
             throw AgentFailure("copilot exited with \(result.status): \(result.output.suffix(300))")
         }
         return result.output

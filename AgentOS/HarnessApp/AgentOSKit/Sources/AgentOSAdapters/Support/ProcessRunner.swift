@@ -173,13 +173,13 @@ public enum ProcessRunner {
     }
 
     private static func processTree(below parent: pid_t) -> [OwnedProcess] {
-        let bytes = proc_listchildpids(parent, nil, 0)
-        guard bytes > 0 else { return [] }
-        var children = [pid_t](repeating: 0, count: Int(bytes) / MemoryLayout<pid_t>.size + 32)
-        let size = children.count * MemoryLayout<pid_t>.size
-        let filled = children.withUnsafeMutableBytes { proc_listchildpids(parent, $0.baseAddress, Int32(size)) }
+        // proc_listchildpids counts pids, not bytes. Unused slots stay 0 and are filtered out.
+        let estimate = proc_listchildpids(parent, nil, 0)
+        guard estimate > 0 else { return [] }
+        var children = [pid_t](repeating: 0, count: Int(estimate) + 32)
+        let filled = children.withUnsafeMutableBytes { proc_listchildpids(parent, $0.baseAddress, Int32($0.count)) }
         guard filled > 0 else { return [] }
-        let direct = children.prefix(Int(filled) / MemoryLayout<pid_t>.size).filter { $0 > 1 }
+        let direct = children.prefix(Int(filled)).filter { $0 > 1 }
         return direct.compactMap(OwnedProcess.init) + direct.flatMap { processTree(below: $0) }
     }
 

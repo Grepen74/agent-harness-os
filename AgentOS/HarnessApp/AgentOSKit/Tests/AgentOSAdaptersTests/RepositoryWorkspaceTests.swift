@@ -532,6 +532,19 @@ struct RepositoryWorkspaceTests {
         #expect((team.testAuthor as? CopilotTestAuthor)?.cli.model == "model-a")
     }
 
+    @Test func aCopilotRunThatOverrunsItsTimeLimitIsReportedAsTimedOut() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "agentos-timeout-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let copilot = directory.appending(path: "copilot")
+        try "#!/bin/sh\nsleep 30\n".write(to: copilot, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: copilot.path)
+
+        let cli = CopilotCLI(executable: copilot.path, timeout: .milliseconds(500))
+        let error = await #expect(throws: AgentFailure.self) { try await cli.run("implement", in: directory) }
+        #expect(error?.description.hasPrefix("copilot timed out after") == true)
+    }
+
     // MARK: Helpers
 
     private func makeRepo() async throws -> URL {

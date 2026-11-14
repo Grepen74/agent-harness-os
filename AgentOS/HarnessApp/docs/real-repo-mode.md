@@ -272,7 +272,8 @@ production edits is reviewed against the current source rather than its empty di
 ticket, complete diff against the landing branch, recent same-file history, and configured repository
 rules. The built-in checklist covers regressions and loosened constraints, per-line/loop I/O and
 allocation, duplicated logic, and tests that fail to prove the requirement. Rejected changes return to
-the implementer without unlocking the acceptance tests. Since the implementer may not change them, the
+the implementer without unlocking the acceptance tests. Their findings stay with the leaf until a new change
+is submitted, so an implementer run that fails (a timeout, say) doesn't leave the retry without them. Since the implementer may not change them, the
 reviewer lists problems in the ticket's own acceptance tests separately (`testFindings`): those send the
 ticket back to the test author, keeping only its tests commit, and the implementer then builds again with
 the remaining findings. If the implementer changes nothing for a review's findings (it may think they are
@@ -456,6 +457,9 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
   Post-start errors always finish their run with the diagnostic. Checks that write nothing for
   10 minutes are ended as hung and retain their log; `CommandCheckRunner.idleTimeout` configures this
   limit independently of the 30-minute total timeout. Any output, including partial lines, resets it.
+  A Copilot agent run is stopped after 20 minutes and fails as "copilot timed out". Commands the agent
+  started in their own process groups (Copilot runs each shell command in one) are ended with it, so a hung
+  `swift test` can't keep holding the worktree's build lock for the next run.
 
 Known limits: a leaf's tests go in the one configured test target, so if that target needs a simulator,
 every leaf's checks do; picking a target per leaf (e.g. a package's tests for service-layer work) would

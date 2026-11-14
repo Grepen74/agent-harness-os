@@ -185,6 +185,38 @@ struct GH_25Tests {
         #expect(tree.livingPIDs.isEmpty, "The runner returned while descendants were still alive")
     }
 
+    /// Copilot runs each shell command in its own process group, so ending the agent's group misses them; a
+    /// surviving `swift test` then holds the worktree's build lock for the next run.
+    @Test func aTimeoutAlsoEndsCommandsTheAgentStartedInTheirOwnProcessGroups() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "GH25-groups-\(UUID())")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let pidFiles = ["command.pid", "test.pid"].map { directory.appending(path: $0) }
+        var pids: [pid_t] {
+            pidFiles.compactMap { (try? String(contentsOf: $0, encoding: .utf8)).flatMap {
+                Int32($0.trimmingCharacters(in: .whitespacesAndNewlines))
+            } }
+        }
+        defer {
+            for pid in pids where kill(pid, 0) == 0 { kill(pid, SIGKILL) }
+            try? FileManager.default.removeItem(at: directory)
+        }
+        try """
+            set -m
+            /bin/sh -c 'echo $$ > command.pid; /bin/sleep 60 & echo $! > test.pid; wait' >/dev/null 2>&1 </dev/null &
+            wait
+            """.write(to: directory.appending(path: "agent.sh"), atomically: true, encoding: .utf8)
+
+        let run = Task {
+            try await ProcessRunner.run("/bin/sh", ["agent.sh"], in: directory, timeout: .seconds(3))
+        }
+        try await Self.eventually { pids.count == 2 }
+        let command = try #require(pids.first)
+        try #require(getpgid(command) == command, "The fixture's command must lead its own process group")
+        _ = try await run.value
+
+        #expect(pids.filter { kill($0, 0) == 0 }.isEmpty, "A command in its own process group outlived the agent")
+    }
+
     @Test(arguments: [false, true])
     func openingARepositoryAbandonsOldRunsEvenWithoutAStartableSession(_ blocked: Bool) async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "GH25-reopen-\(UUID())")

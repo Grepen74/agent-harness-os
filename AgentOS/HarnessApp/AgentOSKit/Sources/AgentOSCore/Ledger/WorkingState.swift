@@ -341,7 +341,7 @@ public struct WorkingState: Sendable {
             node.openQuestions = []
             node.reviewFeedbackAnswered = true
         case .attemptFailed(let summary):
-            node.latestReviewFeedback = nil
+            // A failed run (a timeout, say) addressed nothing: the change review's findings still stand for the retry.
             node.failedAttempts += 1
             node.recentFailures.append(summary)
             node.landingReworkPending = false

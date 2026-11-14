@@ -53,4 +53,19 @@ struct LedgerTests {
             try await ledger.append([LedgerEvent(node: spec.id, by: .reconciler, kind: .gateOpened(.build))])
         }
     }
+
+    @Test func reviewFindingsStillStandAfterTheImplementerRunForThemFails() async throws {
+        let ledger = try Ledger()
+        let findings = ReviewRecord(stage: .change, result: ReviewResult(passed: false, findings: ["refresh() races"]),
+                                    commit: "abc123", uiEvidence: nil)
+        try await ledger.append([
+            LedgerEvent(node: spec.id, by: alice, kind: .nodeCreated(spec: spec, ticket: "APP-1")),
+            LedgerEvent(node: spec.id, by: .agent(run: "run-2", role: .verifier), kind: .reviewRecorded(findings)),
+            LedgerEvent(node: spec.id, by: .agent(run: "run-3", role: .implementer),
+                        kind: .attemptFailed(summary: "copilot timed out after 2400.0 seconds")),
+        ])
+        let node = try #require(await ledger.workingState().nodes[spec.id])
+        #expect(node.latestReviewFeedback == "refresh() races")
+        #expect(!node.reviewFeedbackAnswered)
+    }
 }
