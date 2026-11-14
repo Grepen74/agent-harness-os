@@ -481,8 +481,9 @@ public struct CopilotImplementer: Implementer {
         For UI changes, capture snapshot-test evidence and actually open and close the affected windows. \
         Capture before and after screenshots. Write .agentos-ui-evidence.json at the worktree root as \
         {"snapshotPaths": [string], "windowsOpened": Bool, "windowsClosed": Bool, \
-        "beforeScreenshot": string, "afterScreenshot": string}, with paths to real evidence files inside \
-        this worktree, outside the scratch folder. Do not claim evidence you did not produce. \
+        "beforeScreenshot": string, "afterScreenshot": string}, with paths to real evidence files in \
+        .agentos-ui-evidence/ in this worktree. They are committed with your work for the review and removed \
+        before it lands. Tests must not write into the repository. Do not claim evidence you did not produce. \
         \(CopilotCLI.noScreenCaptureRule)
         \(failure)\(expected)
         If an acceptance test itself is impossible or contradicts the available public contract, report a broken \

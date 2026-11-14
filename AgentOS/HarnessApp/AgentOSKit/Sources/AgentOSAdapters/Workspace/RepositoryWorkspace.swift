@@ -173,8 +173,9 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
             return LandedWorkItem(ticket: node.hasPrefix("wn-") ? String(node.dropFirst(3)) : node,
                                   title: title, commit: String(parts[0]))
         }
-        let evidenceFile = directory.appending(path: ".agentos-ui-evidence.json")
-        var evidence = FileManager.default.fileExists(atPath: evidenceFile.path)
+        // Only this leaf's own evidence: a file it didn't change came from other work.
+        let evidenceFile = directory.appending(path: Self.uiEvidenceFile)
+        var evidence = files.contains(Self.uiEvidenceFile) && FileManager.default.fileExists(atPath: evidenceFile.path)
             ? try JSONDecoder().decode(UIReviewEvidence.self, from: Data(contentsOf: evidenceFile)) : nil
         if var ui = evidence {
             func preserve(_ path: String, named name: String) throws -> String {
@@ -279,16 +280,41 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
     /// Fast-forwards the landing branch to the leaf's branch by moving the ref only (compare-and-swap), so no
     /// checkout is involved. Refuses if a checkout has the landing branch checked out: it would fall out of step.
     public func landOnMain(_ id: NodeID) async throws -> String {
-        let tip = try await revision(branch(for: id))
+        let reviewed = try await revision(branch(for: id))
         let old = try await revision(landingBranch)
-        let ancestor = try await ProcessRunner.run("/usr/bin/env", ["git", "merge-base", "--is-ancestor", old, tip], in: root)
+        let ancestor = try await ProcessRunner.run("/usr/bin/env", ["git", "merge-base", "--is-ancestor", old, reviewed], in: root)
         guard ancestor.status == 0 else { throw AgentFailure("\(branch(for: id)) is not a fast-forward of \(landingBranch)") }
         if let checkout = try await checkout(of: landingBranch) {
             throw AgentFailure("\(landingBranch) is checked out in \(checkout.path). Switch that checkout to another " +
                                "branch so the harness can move \(landingBranch).")
         }
+        let tip = try await withoutUIEvidence(reviewed, id: id)
         try await git(["update-ref", "-m", "agentos: land \(id)", "refs/heads/\(landingBranch)", tip, old], in: root)
         return tip
+    }
+
+    /// UI evidence is committed with the leaf so it is reviewed, reset and retried like its code. It never lands:
+    /// on main it would be read as every later leaf's evidence. A child commit without it lands instead, so the
+    /// leaf's branch and worktree keep the reviewed (and approved) commit.
+    private func withoutUIEvidence(_ commit: String, id: NodeID) async throws -> String {
+        let paths = [Self.uiEvidenceFile, Self.uiEvidenceFolder]
+        guard !(try await git(["ls-tree", "--name-only", commit, "--"] + paths, in: root))
+            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return commit }
+        let index = FileManager.default.temporaryDirectory.appending(path: "agentos-index-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: index) }
+        let environment = ["GIT_INDEX_FILE": index.path]
+        try await git(["read-tree", commit], in: root, environment: environment)
+        try await git(["rm", "-r", "-q", "-f", "--cached", "--ignore-unmatch", "--"] + paths, in: root, environment: environment)
+        let tree = try await git(["write-tree"], in: root, environment: environment).trimmingCharacters(in: .whitespacesAndNewlines)
+        return try await git(["-c", "user.name=AgentOS", "-c", "user.email=harness@agents.agentos.local",
+                              "commit-tree", tree, "-p", commit, "-m", "\(id): remove UI evidence before landing"], in: root)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static let uiEvidenceFile = ".agentos-ui-evidence.json"
+    static let uiEvidenceFolder = ".agentos-ui-evidence"
+    static func isUIEvidence(_ path: String) -> Bool {
+        path == uiEvidenceFile || path.hasPrefix(uiEvidenceFolder + "/")
     }
 
     // MARK: Repo
@@ -364,10 +390,11 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
     }
 
     @discardableResult
-    private func git(_ arguments: [String], in directory: URL) async throws -> String {
+    private func git(_ arguments: [String], in directory: URL, environment: [String: String] = [:]) async throws -> String {
         let result = try await GitLocks.retryingAfterStaleLock {
             try await ProcessRunner.run(
-                "/usr/bin/env", ["git", "-c", "core.excludesFile=\(excludeFile.path)"] + arguments, in: directory, timeout: .seconds(120))
+                "/usr/bin/env", ["git", "-c", "core.excludesFile=\(excludeFile.path)"] + arguments, in: directory,
+                timeout: .seconds(120), environment: environment)
         }
         guard result.status == 0 else {
             throw AgentFailure("git \(arguments.first ?? "") failed: \(result.output.suffix(300))")

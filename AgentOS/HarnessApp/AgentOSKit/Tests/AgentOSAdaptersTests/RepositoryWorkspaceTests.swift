@@ -462,6 +462,39 @@ struct RepositoryWorkspaceTests {
         #expect(!FileManager.default.fileExists(atPath: directory.appending(path: folder).path))
     }
 
+    @Test("A leaf's UI evidence is reviewed with it but never lands; evidence it didn't write isn't its own")
+    func uiEvidenceIsReviewedButNeverLands() async throws {
+        let repo = try await makeRepo()
+        let inherited = #"{"snapshotPaths": [], "windowsOpened": true, "windowsClosed": true}"#
+        try inherited.write(to: repo.appending(path: ".agentos-ui-evidence.json"), atomically: true, encoding: .utf8)
+        try await git(["add", "."], in: repo)
+        try await git(["-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-q", "-m", "older evidence"], in: repo)
+        let storage = FileManager.default.temporaryDirectory.appending(path: "agentos-storage-\(UUID().uuidString)")
+        let workspace = try RepositoryWorkspace(root: repo, storage: storage, config: Self.config,
+                                                landingBranch: "agentos/main", defaultBranch: "main")
+        try await workspace.prepare()
+        let directory = try await workspace.createWorktree(for: "wn-1")
+        try "hello\n".write(to: directory.appending(path: "app.txt"), atomically: true, encoding: .utf8)
+        try #require(try await workspace.commitAll(in: directory, message: "work", author: "run-1") != nil)
+        #expect(try await workspace.reviewContext(in: directory, against: "agentos/main").uiEvidence == nil)
+
+        try FileManager.default.createDirectory(at: directory.appending(path: ".agentos-ui-evidence"), withIntermediateDirectories: true)
+        try Data([1, 2, 3]).write(to: directory.appending(path: ".agentos-ui-evidence/after.png"))
+        try #"{"snapshotPaths": [".agentos-ui-evidence/after.png"], "windowsOpened": true, "windowsClosed": true}"#
+            .write(to: directory.appending(path: ".agentos-ui-evidence.json"), atomically: true, encoding: .utf8)
+        let reviewed = try #require(try await workspace.commitAll(in: directory, message: "evidence", author: "run-1"))
+        let evidence = try #require(try await workspace.reviewContext(in: directory, against: "agentos/main").uiEvidence)
+        #expect(try Data(contentsOf: URL(filePath: try #require(evidence.snapshotPaths.first))) == Data([1, 2, 3]))
+
+        let landed = try await workspace.landOnMain("wn-1")
+        #expect(try await git(["rev-parse", "agentos/main"], in: repo) == landed)
+        #expect(try await git(["rev-parse", "\(landed)^"], in: repo) == reviewed)
+        #expect(try await git(["rev-parse", workspace.branch(for: "wn-1")], in: repo) == reviewed)
+        #expect(try await git(["ls-tree", "-r", "--name-only", landed], in: repo).split(separator: "\n").sorted()
+                == ["AGENTS.md", "Tests/AppTests/Existing/check.sh", "app.txt", "run-tests.sh"])
+        #expect(try await git(["show", "\(landed):app.txt"], in: repo) == "hello")
+    }
+
     @Test func copilotDecomposerAnswersWithChildrenOrQuestions() throws {
         let questions = try #require(CopilotDecomposer.parse(#"{"questions": ["Which buttons?"], "assumptions": [], "children": []}"#))
         #expect(questions.report.questions == ["Which buttons?"])

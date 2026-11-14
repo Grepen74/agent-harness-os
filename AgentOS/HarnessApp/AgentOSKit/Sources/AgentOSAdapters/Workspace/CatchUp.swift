@@ -265,17 +265,23 @@ public actor CatchUpCoordinator {
         var result: [String: Set<String>] = [:]
         let conflicts = Set(conflictFiles)
         for node in state.nodes.values where node.phase == .proven {
-            guard let commit = node.landedCommit else { continue }
-            let changed = try await git(
-                ["diff-tree", "--no-commit-id", "--name-only", "--no-renames", "-r", commit],
-                in: workspace.root
-            ).split(separator: "\n").map(String.init)
+            guard let landed = node.landedCommit else { continue }
+            var changed = try await changedFiles(in: landed)
+            if !changed.isEmpty, changed.allSatisfy(RepositoryWorkspace.isUIEvidence) {
+                changed = try await changedFiles(in: landed + "^")
+            }
             let matching = conflicts.intersection(changed)
             guard !matching.isEmpty else { continue }
             let root = state.lineage(of: node.id).last?.ticket ?? node.ticket
             result[root, default: []].formUnion(matching)
         }
         return result.mapValues { $0.sorted() }
+    }
+
+    /// A UI leaf lands as a commit that only removes its evidence; its changes are in the parent.
+    private func changedFiles(in commit: String) async throws -> [String] {
+        try await git(["diff-tree", "--no-commit-id", "--name-only", "--no-renames", "-r", commit], in: workspace.root)
+            .split(separator: "\n").map(String.init)
     }
 
     private func notify(_ ticketFiles: [String: [String]], main: String) async {

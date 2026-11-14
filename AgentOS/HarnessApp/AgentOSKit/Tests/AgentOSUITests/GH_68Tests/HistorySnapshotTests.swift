@@ -37,8 +37,9 @@ struct HistorySnapshotTests {
         #expect(before.pixels == after.pixels)
         #expect(before.pixels.contains { $0 != before.pixels.first })
 
-        var root = URL(fileURLWithPath: #filePath)
-        for _ in 0..<7 { root.deleteLastPathComponent() }
+        // Never inside the repository: a committed evidence file would count as every later item's evidence.
+        let root = FileManager.default.temporaryDirectory.appending(path: "GH-68-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
         let evidence = root.appending(path: ".agentos-ui-evidence/GH-68", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: evidence, withIntermediateDirectories: true)
         try before.png.write(to: evidence.appending(path: "before.png"))

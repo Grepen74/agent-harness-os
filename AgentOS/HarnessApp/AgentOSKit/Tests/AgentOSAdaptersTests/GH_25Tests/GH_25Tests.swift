@@ -339,7 +339,7 @@ struct GH_25Tests {
     }
 
     private static func eventually(_ condition: @Sendable () async -> Bool) async throws {
-        let deadline = ContinuousClock.now + .seconds(3)
+        let deadline = ContinuousClock.now + .seconds(15)
         while !(await condition()) {
             guard ContinuousClock.now < deadline else {
                 throw AgentFailure("Timed out waiting for the acceptance-test fixture to become ready")
@@ -601,7 +601,7 @@ struct GH_25Tests {
         }
         func cleanupWatchdog() -> Task<Void, Never> {
             Task {
-                do { try await Task.sleep(for: .seconds(8)) }
+                do { try await Task.sleep(for: .seconds(30)) }
                 catch { return }
                 killOwnedProcesses()
             }

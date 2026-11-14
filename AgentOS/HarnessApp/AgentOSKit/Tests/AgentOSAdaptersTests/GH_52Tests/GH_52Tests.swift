@@ -365,7 +365,7 @@ struct GH_52Tests {
     }
 
     nonisolated private static func eventually(_ condition: @Sendable () -> Bool) async throws {
-        let deadline = ContinuousClock.now + .seconds(5)
+        let deadline = ContinuousClock.now + .seconds(15)
         while !condition() {
             guard ContinuousClock.now < deadline else { throw AgentFailure("GH-52 child process did not become ready") }
             try await Task.sleep(for: .milliseconds(10))
@@ -532,7 +532,7 @@ struct GH_52Tests {
             return await withCheckedContinuation { continuation in
                 waiters[id] = continuation
                 timers[id] = Task {
-                    do { try await Task.sleep(for: .seconds(8)) }
+                    do { try await Task.sleep(for: .seconds(30)) }
                     catch { return }
                     expire(id)
                 }

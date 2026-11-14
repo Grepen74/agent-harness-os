@@ -34,7 +34,13 @@ struct GH_4_3Tests {
     }
 
     struct FileWriter: AgentOSCore.Implementer {
+        /// Also writes UI evidence for this ticket; the evidence is removed when it lands.
+        var evidenceFor: String?
         func implement(_ task: AgentTask) async throws {
+            if task.spec.title == evidenceFor {
+                try #"{"snapshotPaths": [], "windowsOpened": true, "windowsClosed": true}"#
+                    .write(to: task.directory.appending(path: ".agentos-ui-evidence.json"), atomically: true, encoding: .utf8)
+            }
             let path: String
             switch task.spec.title {
             case "A work": path = "Sources/A.swift"
@@ -68,6 +74,15 @@ struct GH_4_3Tests {
         let laterNode = try #require(await fixture.session.ledger.workingState().node(forTicket: laterTicket))
         #expect(laterNode.phase == .proven)
         #expect(try await git(["merge-base", "--is-ancestor", tipBeforeCatchUp, "agentos/main"], in: fixture.repo).isEmpty)
+    }
+
+    @Test
+    func aConflictIsTracedToTheWorkBehindItsLandedEvidenceRemoval() async throws {
+        let fixture = try await conflictedFixture(evidenceFor: "A work")
+
+        #expect(try await git(["ls-tree", "--name-only", "agentos/main", ".agentos-ui-evidence.json"], in: fixture.repo).isEmpty)
+        let conflict = try #require(catchUpConflicts(in: await fixture.session.ledger.allRecords()).last)
+        #expect(Set(conflict.tickets) == [fixture.aTicket, fixture.packageTicket])
     }
 
     @Test
@@ -210,9 +225,9 @@ struct GH_4_3Tests {
         let mainSHA: String
     }
 
-    private func conflictingFixture() async throws -> Fixture {
+    private func conflictingFixture(evidenceFor: String? = nil) async throws -> Fixture {
         let repo = try await makeRepo()
-        let session = try await makeSession(repo)
+        let session = try await makeSession(repo, implementer: FileWriter(evidenceFor: evidenceFor))
         let aTicket = await createTicket("A work", in: session)
         await session.runUntilFinished()
         let packageTicket = await createTicket("Package work", in: session)
@@ -233,13 +248,13 @@ struct GH_4_3Tests {
         )
     }
 
-    private func conflictedFixture() async throws -> Fixture {
-        let fixture = try await conflictingFixture()
+    private func conflictedFixture(evidenceFor: String? = nil) async throws -> Fixture {
+        let fixture = try await conflictingFixture(evidenceFor: evidenceFor)
         await fixture.session.runUntilFinished()
         return fixture
     }
 
-    private func makeSession(_ repo: URL) async throws -> RepositorySession {
+    private func makeSession(_ repo: URL, implementer: FileWriter = FileWriter()) async throws -> RepositorySession {
         let storage = FileManager.default.temporaryDirectory.appending(path: "agentos-storage-\(UUID().uuidString)")
         let ledger = try Ledger(store: FileLedgerStore(fileURL: storage.appending(path: "ledger.jsonl")))
         let policy = EffectivePolicy.resolve(harness: HarnessSettings(), repo: Self.config, defaultBranch: "main")
@@ -249,7 +264,7 @@ struct GH_4_3Tests {
             branch: "main",
             commit: try await git(["rev-parse", "main"], in: repo)
         )
-        let team = AgentTeam(name: "Catch-up fixtures", decomposer: Leaf(), testAuthor: TestWriter(), implementer: FileWriter())
+        let team = AgentTeam(name: "Catch-up fixtures", decomposer: Leaf(), testAuthor: TestWriter(), implementer: implementer)
         return try RepositorySession(
             location: location,
             storage: storage,

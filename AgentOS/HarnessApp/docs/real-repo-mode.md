@@ -297,8 +297,11 @@ escalation suggests splitting the ticket into smaller tickets.
 UI changes must include snapshot evidence and confirmation that windows actually open and close.
 The implementer supplies `.agentos-ui-evidence.json` with `snapshotPaths`, `windowsOpened`,
 `windowsClosed`, `beforeScreenshot` and `afterScreenshot`; file paths must refer to evidence inside
-the worktree, outside the per-run scratch folder. The workspace copies those files to artifact storage
-so removing a landed worktree does not lose them. Agents and the tests they write never capture the
+the worktree, outside the per-run scratch folder, in `.agentos-ui-evidence/`. Evidence is committed with
+the leaf, so it is reviewed, reset and retried like its code, and the review only reads a
+`.agentos-ui-evidence.json` the leaf itself changed. It never lands: the landing branch moves to a child of
+the reviewed commit without the evidence, since on main it would be read as every later leaf's evidence.
+The workspace copies those files to artifact storage so removing a landed worktree does not lose them. Agents and the tests they write never capture the
 screen (`screencapture`, ScreenCaptureKit): agents run as the app's child processes, so macOS would ask
 the person for Screen Recording permission on the app's behalf. They render views in their own process
 instead: in a window that is never shown, with `cacheDisplay`, drawn onto opaque white before text
