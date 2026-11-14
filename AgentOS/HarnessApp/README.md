@@ -138,6 +138,46 @@ together across the complete ledger before paging, so older matches remain avail
 Changing either filter returns to 200 records; live refresh preserves filters and the expanded limit.
 Reset, restart and restore discard stale pages. Agent-run history remains complete regardless of these controls.
 
+### File-backed ledger benchmark
+
+The explicitly opt-in Swift Testing benchmark lives in
+`AgentOSKit/Tests/AgentOSAdaptersTests/GH_70Tests/`. From the repository root, run:
+
+```sh
+cd AgentOS/HarnessApp && xcodegen generate
+cd AgentOSKit && AGENTOS_RUN_GH70_BENCHMARK=1 swift test -c release --filter GH_70Tests
+```
+
+Without `AGENTOS_RUN_GH70_BENCHMARK=1`, ordinary correctness tests skip the benchmark and do not
+enforce hardware-dependent timing thresholds. Opting in with a debug build fails with a reminder
+to use `-c release`.
+
+Fixtures are temporary `FileLedgerStore` JSONL files containing 20,000 deterministic, valid,
+hash-chained records evenly distributed across 100 nodes (200 per node). Fixture creation, opening,
+full verification and checkpoint preparation are outside the measured intervals. Temporary fixtures
+are removed on success or failure.
+
+Each median uses 20 measurements after one warm-up and is the arithmetic mean of the 10th and 11th
+sorted samples. Timings are `ContinuousClock` wall time in milliseconds, including actor hops:
+
+| Reported metric | Measured operation |
+|---|---|
+| `unchanged_quick_check_median` | `verifyIncrementally()` on a checkpointed 20,000-record file with no writes. |
+| `after_one_append_quick_check_median` | `verifyIncrementally()` after exactly one legitimate append, using an independently copied, opened and checkpointed fixture for each sample and warm-up. The append itself is not timed. |
+| `indexed_original_200_records_median` | `records(for:)` returning node `gh70-node-42`'s original 200 records; appends target node 0 instead. |
+| `full_verify_chain_reference` | One full `verifyChain()` measurement on the original 20,000-record fixture, reported for comparison rather than as a median or threshold. |
+
+Both quick checks include verified-prefix digest checking of the real file; they do not bypass
+historical tamper detection or substitute an in-memory store. Warm-up and measured results are
+consumed and validated outside the timing intervals: integrity reports must succeed, and lookups must
+return the expected count, node, event IDs, positions and hashes. Correctness tests also check historical
+tampering with restored modification times, with and without an intervening legitimate append.
+
+The release benchmark requires both quick-check medians to be below **20 ms** and the indexed-lookup
+median below **1 ms**. Its output includes fixture record count and byte size, node count, machine model,
+architecture, OS, Swift version, build configuration, sample count and units. Reporting and validation
+are not timed; results depend on the machine and current load.
+
 ## Try this in the app
 
 1. **⚙︎ → Load demo tickets.** Press **Step** or **Run**: nothing happens. Tickets need a deliberate signal (doc 05).
