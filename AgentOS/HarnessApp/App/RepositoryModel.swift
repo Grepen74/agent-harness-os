@@ -279,7 +279,7 @@ final class RepositoryModel: HarnessActions {
             for problem in await tracker.takeProblems() { log("⚠️ Tracker: \(problem)") }
         }
         guard let ledger else { return }
-        view.records = await ledger.allRecords()
+        await view.refreshHistory(from: ledger)
         view.state = await ledger.workingState()
     }
 

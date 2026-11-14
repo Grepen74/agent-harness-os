@@ -218,7 +218,7 @@ final class SimulatorModel: HarnessActions {
     func refresh() async {
         view.tickets = await simulation.tracker.tickets()
         view.state = await simulation.ledger.workingState()
-        view.records = await simulation.ledger.allRecords()
+        await view.refreshHistory(from: simulation.ledger)
         view.signals = HarnessCommand.allCases.filter(simulation.reconciler.policy.allowedSignals.contains)
         externalItems = await simulation.external.items()
     }

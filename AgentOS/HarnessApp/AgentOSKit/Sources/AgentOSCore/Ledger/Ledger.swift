@@ -34,6 +34,7 @@ public struct ChainReport: Sendable {
 public actor Ledger {
     private let store: any LedgerStore
     private var records: [RecordedEvent] = []
+    private var recordsByNode: [NodeID: [RecordedEvent]] = [:]
     private var knownIDs: Set<UUID> = []
     private var state = WorkingState()
     private var subscribers: [UUID: AsyncStream<RecordedEvent>.Continuation] = [:]
@@ -44,6 +45,7 @@ public actor Ledger {
         let stored = try store.readForVerification(after: nil)
         for record in stored.records {
             records.append(record)
+            if let node = record.event.node { recordsByNode[node, default: []].append(record) }
             knownIDs.insert(record.event.id)
             state.apply(record)
         }
@@ -55,6 +57,9 @@ public actor Ledger {
     public func workingState() -> WorkingState { state }
 
     public func allRecords() -> [RecordedEvent] { records }
+
+    /// Complete history for one node, in ledger order (not timestamp order).
+    public func records(for node: NodeID) -> [RecordedEvent] { recordsByNode[node] ?? [] }
 
     /// The live event stream (doc 06): views subscribe and redraw on every new event.
     public func subscribe() -> AsyncStream<RecordedEvent> {
@@ -77,7 +82,8 @@ public actor Ledger {
     /// - Events whose id is already in the ledger are skipped (idempotent retries).
     @discardableResult
     public func append(_ events: [LedgerEvent], expecting: [NodeID: Int] = [:]) throws -> [RecordedEvent] {
-        let fresh = events.filter { !knownIDs.contains($0.id) }
+        var seen: Set<UUID> = []
+        let fresh = events.filter { !knownIDs.contains($0.id) && seen.insert($0.id).inserted }
         guard !fresh.isEmpty else { return [] }
 
         for (node, expected) in expecting {
@@ -97,6 +103,7 @@ public actor Ledger {
         try store.append(new)
         for record in new {
             records.append(record)
+            if let node = record.event.node { recordsByNode[node, default: []].append(record) }
             knownIDs.insert(record.event.id)
             state.apply(record)
             for continuation in subscribers.values { continuation.yield(record) }

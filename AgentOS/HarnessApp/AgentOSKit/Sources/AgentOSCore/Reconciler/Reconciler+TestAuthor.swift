@@ -167,7 +167,7 @@ extension Reconciler {
             failureClassification: nil,
             details: details
         )
-        let history = await ledger.allRecords().filter { $0.event.node == node.id }
+        let history = await ledger.records(for: node.id)
         // A person stepping in (retest, retry, an answer) gives the test author a fresh set of attempts.
         let lastReset = history.lastIndex {
             guard case .human = $0.event.by else { return false }

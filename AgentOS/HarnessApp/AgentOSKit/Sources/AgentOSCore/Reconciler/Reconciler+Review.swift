@@ -59,8 +59,8 @@ extension Reconciler {
                 }
             }
         }
-        let reported = Set(await ledger.allRecords().flatMap { record -> [String] in
-            guard record.event.node == node.id, case .reviewRecorded(let review) = record.event.kind else { return [] }
+        let reported = Set(await ledger.records(for: node.id).flatMap { record -> [String] in
+            guard case .reviewRecorded(let review) = record.event.kind else { return [] }
             return review.result.followUps ?? []
         })
         try await write(node.id, by: .reconciler, [.reviewRecorded(ReviewRecord(
@@ -78,7 +78,7 @@ extension Reconciler {
     /// discarded work no longer count. They also start over after this stage's review passes: the findings
     /// before it were fixed, and work coming back later (a broken test, say) is a new review.
     private func failedReviews(of id: NodeID, stage: ReviewStage) async -> [ReviewRecord] {
-        let records = await ledger.allRecords().filter { $0.event.node == id }
+        let records = await ledger.records(for: id)
         let reset = records.lastIndex {
             switch $0.event.kind {
             case .attemptsReset, .replanned: return true

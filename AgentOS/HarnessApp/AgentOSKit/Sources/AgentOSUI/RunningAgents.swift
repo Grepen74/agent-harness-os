@@ -298,7 +298,7 @@ struct AgentRuns: View {
     let node: NodeState
 
     var body: some View {
-        let runs = Self.runs(of: node.id, in: model.records)
+        let runs = Self.runs(of: node.id, in: model)
         if !runs.isEmpty {
             Text("Agent runs").font(.caption.bold()).padding(.top, 4)
             ForEach(runs, id: \.run) { item in
@@ -320,6 +320,11 @@ struct AgentRuns: View {
         let run: RunID
         let role: AgentRole
         var outcome: String?
+    }
+
+    @MainActor
+    static func runs(of node: NodeID, in model: HarnessViewModel) -> [Item] {
+        runs(of: node, in: model.records(for: node))
     }
 
     /// Agent runs only: checks are the verifier's, and their logs are already listed as evidence.

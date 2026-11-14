@@ -54,7 +54,18 @@ extension HarnessActions {
 public final class HarnessViewModel {
     public var tickets: [Ticket] = []
     public var state = WorkingState()
-    public var records: [RecordedEvent] = []
+    private var historyRecords: [RecordedEvent] = []
+    private var recordsByNode: [NodeID: [RecordedEvent]] = [:]
+    public var records: [RecordedEvent] {
+        get { historyRecords }
+        set {
+            historyRecords = newValue
+            recordsByNode = [:]
+            for record in newValue {
+                if let node = record.event.node { recordsByNode[node, default: []].append(record) }
+            }
+        }
+    }
     public var chain: ChainReport?
     public var activity: [String] = []
     /// The human using the app, as shown in the tracker.
@@ -101,6 +112,19 @@ public final class HarnessViewModel {
     public weak var actions: (any HarnessActions)?
 
     public init() {}
+
+    /// Refreshes complete history independently of any collection used to page the ledger pane.
+    public func refreshHistory(from ledger: Ledger) async {
+        let snapshot = await ledger.allRecords()
+        var indexed: [NodeID: [RecordedEvent]] = [:]
+        for node in Set(snapshot.compactMap(\.event.node)) {
+            indexed[node] = await ledger.records(for: node)
+        }
+        historyRecords = snapshot
+        recordsByNode = indexed
+    }
+
+    public func records(for node: NodeID) -> [RecordedEvent] { recordsByNode[node] ?? [] }
 
     public func ticket(_ key: String?) -> Ticket? { tickets.first { $0.key == key } }
 

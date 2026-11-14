@@ -4,7 +4,7 @@ extension Reconciler {
     /// Whether the node waits because its implementer made no changes for the change review's findings.
     func isDisputingReviewFindings(_ node: NodeState) async -> Bool {
         guard node.flags[.needsInput] != nil else { return false }
-        let records = await ledger.allRecords().filter { $0.event.node == node.id }
+        let records = await ledger.records(for: node.id)
         guard let flag = records.last(where: {
             if case .flagSet(.needsInput, _) = $0.event.kind { return true }
             return false

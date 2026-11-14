@@ -1,0 +1,15 @@
+{
+  "view": "AgentOSUI.AgentRuns",
+  "checks": {
+    "completeHistoryMatchesBeforeSnapshot": true,
+    "241UnrelatedEventsPreserveAgentHistorySnapshot": true,
+    "windowsOpenedAndClosed": true
+  },
+  "comparison": "Exact PNG data equality asserted by the native NSHostingView snapshot executable",
+  "snapshots": [
+    "before-complete.png",
+    "before-beyond-page.png",
+    "after-complete.png",
+    "after-beyond-page.png"
+  ]
+}

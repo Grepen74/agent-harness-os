@@ -5,7 +5,7 @@ extension Reconciler {
     /// a broken-test report (same run, nothing started in between) naming a test that isn't the node's own.
     func isWaitingOnOtherTest(_ node: NodeState) async -> Bool {
         guard node.flags[.needsInput] != nil else { return false }
-        let records = await ledger.allRecords().filter { $0.event.node == node.id }
+        let records = await ledger.records(for: node.id)
         guard let flag = records.last(where: {
             if case .flagSet(.needsInput, _) = $0.event.kind { return true }
             return false
@@ -100,7 +100,7 @@ extension Reconciler {
     /// The broken-test report the current tests were rewritten for, unless a person stepped in since then
     /// (an answer, a retry, a retest). Nil means the test author hasn't had a chance to fix a report yet.
     private func brokenReportTheTestsWereAlreadyReworkedFor(_ id: NodeID) async -> BrokenTestReport? {
-        let records = await ledger.allRecords().filter { $0.event.node == id }
+        let records = await ledger.records(for: id)
         guard let testsFixed = records.last(where: {
             if case .testsFixed = $0.event.kind { return true }
             return false
