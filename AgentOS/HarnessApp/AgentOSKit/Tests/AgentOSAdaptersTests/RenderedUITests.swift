@@ -1,0 +1,33 @@
+import AgentOSTestSupport
+import AppKit
+import SwiftUI
+import Testing
+
+@MainActor
+struct RenderedUITests {
+    @Test
+    func readsTextAndTheValuesOfControls() throws {
+        let text = try RenderedUI.text(of: VStack(alignment: .leading) {
+            Text("Independent renderer probe").font(.title)
+            Button("Show older") {}
+            Picker("Kind", selection: .constant(1)) { Text("All kinds").tag(1) }.fixedSize()
+            Toggle("Avoid overlapping work", isOn: .constant(true))
+            List { Text("Row inside a list") }.frame(height: 60)
+        }.padding(), size: CGSize(width: 700, height: 400))
+
+        for shown in ["Independent renderer probe", "Show older", "All kinds", "Avoid overlapping work", "Row inside a list"] {
+            #expect(RenderedUI.shows(shown, in: text), "\(shown) missing from:\n\(text)")
+        }
+    }
+
+    @Test
+    func readsAKeptViewAgainAfterItChanges() throws {
+        let view = NSHostingView(rootView: AnyView(Text("Before the change").font(.title)))
+        view.frame = CGRect(x: 0, y: 0, width: 500, height: 120)
+        #expect(try RenderedUI.text(in: RenderedUI.image(of: view)).joined().contains("Before the change"))
+
+        view.rootView = AnyView(Text("After the change").font(.title))
+        let after = try RenderedUI.text(in: RenderedUI.image(of: view)).joined(separator: "\n")
+        #expect(after.contains("After the change") && !after.contains("Before"), "\(after)")
+    }
+}

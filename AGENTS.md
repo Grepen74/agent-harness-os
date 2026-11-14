@@ -50,6 +50,12 @@ New tracker, workspace or agent behaviour starts as a protocol in `AgentOSCore`,
 - Tests that touch SwiftUI views or `@MainActor` types must be `@MainActor`. Otherwise the test process
   crashes (signal 5) instead of failing.
 - Compare JSON by parsing it, never as strings: key order isn't stable.
+- To check what a SwiftUI or AppKit view shows, `import AgentOSTestSupport` and use `RenderedUI`
+  (`Tests/AgentOSAdaptersTests/Shared/RenderedUI.swift`, available to every adapter and UI test target):
+  `RenderedUI.text(of:size:)` renders the view in a window that is never shown and reads its text;
+  `RenderedUI.shows(_:in:)` compares while ignoring the spaces text recognition drops; `RenderedUI.png(_:)`
+  writes UI evidence. Don't write another renderer, and never capture the screen. A test target you add
+  that checks views needs `AgentOSTestSupport` in its dependencies.
 - In simulation tests, the last tracker comment is often the harness's reply to a signal. Check
   `comments.contains` rather than `lastComment`.
 - Tests must not depend on timing or on how rounds are scheduled; later tickets change both. Never use a

@@ -45,8 +45,20 @@ struct GH_29_3Tests {
 
         for prompt in [CopilotImplementer.prompt(for: task), CopilotTestAuthor.prompt(for: task)] {
             #expect(prompt.contains("Never capture the screen"))
-            #expect(prompt.contains("ImageRenderer"))
+            #expect(prompt.contains("cacheDisplay") && prompt.contains("opaque white background"))
         }
+    }
+
+    @Test
+    func theTestAuthorRunsItsSuiteAgainstPlaceholdersThatAreThrownAway() {
+        let task = taskForPrompt()
+
+        let prompt = CopilotTestAuthor.prompt(for: task)
+
+        #expect(prompt.contains("Build and run your suite before finishing"))
+        #expect(prompt.contains("throws away everything you change outside \(task.testFolder)/"))
+        #expect(prompt.contains(task.scratchDirectory.path))
+        #expect(!prompt.contains("Do not run the tests"))
     }
 
     @Test

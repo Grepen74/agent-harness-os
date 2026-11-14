@@ -242,7 +242,12 @@ Review level and Reviewer rows each retain their own harness/repo source.
 Before the acceptance-test review, a Swift package's tests are compiled. Errors only the tests can cause (syntax, clashing
 names, a test nested in another test, a file named like another in the same test target) send them back to
 the test author without using a review round; errors from API that doesn't exist yet are expected. On such
-a return the test author is told to make the smallest fix, because it can't compile its tests itself.
+a return the test author is told to make the smallest fix: every rewritten line risks a new mistake.
+The test author builds and runs its own suite before finishing. Where the API its tests expect doesn't exist
+yet, it adds placeholders (minimal bodies that compile, never a crash). Its new-behaviour tests should fail
+against them, and its own helpers (fakes, renderers) must work. The harness then throws away everything it
+changed outside the leaf's test folder (ignored build output stays) and commits only the tests. So helper
+defects are found while writing the tests, not one implementer run at a time.
 Whenever tests come back (compiler errors, review findings, a broken-test report), the leaf's new branch
 starts from the landing branch with its earlier test folder restored, so the author fixes those tests in
 place rather than rewriting them blind. `harness:retest` or a replan starts the tests over; feedback with
@@ -287,7 +292,9 @@ the worktree, outside the per-run scratch folder. The workspace copies those fil
 so removing a landed worktree does not lose them. Agents and the tests they write never capture the
 screen (`screencapture`, ScreenCaptureKit): agents run as the app's child processes, so macOS would ask
 the person for Screen Recording permission on the app's behalf. They render views in their own process
-instead, and the reviewer rejects tests that capture the screen.
+instead: in a window that is never shown, with `cacheDisplay`, drawn onto opaque white before text
+recognition (on a transparent background it reads nothing). The reviewer rejects tests that capture the
+screen.
 
 At `agent+human`, a passing candidate stays **In review** until a fresh human `harness:build`
 approves that reviewed commit. Earlier build gates and agent signals cannot approve it.
@@ -370,8 +377,8 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
   it waited for) must be there to build on. On a conflict the branch stays as it was and the landing queue
   sends it to rework.
 - **Agents** get the repo's context in their prompt: the configured commands, where their tests go, and the
-  protected paths. The test author may only add files in the leaf's own test folder; anything else fails
-  the run.
+  protected paths. Only the test author's files in the leaf's own test folder are committed; whatever
+  else it changed (placeholders to run its tests against) is thrown away first.
 - **Checks** before landing: the leaf's tests are unchanged since they were approved, no other leaf's tests
   changed, and no protected path changed. Then the leaf's tests (`test.only`), then all checks at landing.
   When only other proven tickets' tests fail, the harness checks latest `agentos/main` without the change

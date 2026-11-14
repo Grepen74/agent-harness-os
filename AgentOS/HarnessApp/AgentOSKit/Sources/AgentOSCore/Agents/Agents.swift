@@ -8,8 +8,8 @@ public struct AgentTask: Sendable {
     public let run: RunID
     /// The leaf's own working copy (its branch). The only place the agent may write.
     public let directory: URL
-    /// The leaf's own test folder, relative to `directory`: the test author writes only there, and nobody
-    /// changes it afterwards.
+    /// The leaf's own test folder, relative to `directory`: only what the test author writes there is committed,
+    /// and nobody changes it afterwards.
     public let testFolder: String
     /// Writable experiment space for this run, inside `directory` and excluded from its submission.
     public let scratchDirectory: URL

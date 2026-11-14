@@ -39,6 +39,10 @@ public protocol Workspace: Sendable {
     /// Commits everything in the working copy as the given run. Returns the new commit, or nil if nothing changed.
     @discardableResult
     func commitAll(in directory: URL, message: String, author: String) async throws -> String?
+    /// Puts everything outside `folder` back as the last commit has it: changes undone, new files removed. Files
+    /// git ignores, such as build output, stay. The test author builds its tests against placeholder code this
+    /// throws away.
+    func discardChanges(outside folder: String, in directory: URL) async throws
     func head(of directory: URL) async throws -> String
     /// Every file this branch changed since it left `main`, relative to the repo's top folder.
     func changedFiles(in directory: URL) async throws -> [String]
@@ -77,6 +81,7 @@ public protocol Workspace: Sendable {
 
 public extension Workspace {
     func createWorktree(for id: NodeID, keeping folder: String) async throws -> URL { try await createWorktree(for: id) }
+    func discardChanges(outside folder: String, in directory: URL) async throws {}
 }
 
 extension Workspace {

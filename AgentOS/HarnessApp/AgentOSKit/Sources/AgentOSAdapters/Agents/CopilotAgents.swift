@@ -214,7 +214,10 @@ public struct CopilotCLI: Sendable {
     /// permission on the app's behalf, and granting it would let every agent record the screen.
     static let noScreenCaptureRule = "Never capture the screen (screencapture, CGWindowListCreateImage, " +
         "ScreenCaptureKit), not even your own windows: it needs Screen Recording permission. Render views to " +
-        "images in your own process instead, e.g. with SwiftUI's ImageRenderer."
+        "images in your own process instead: host the view in a window that is never shown and use cacheDisplay, " +
+        "then draw the image onto an opaque white background before reading text from it (views draw on a " +
+        "transparent background, and text recognition reads nothing there). ImageRenderer misses control values " +
+        "such as a picker's selection. Use the repo's shared rendering helper if its instructions name one."
 
     /// When to ask and when to assume, with repository analogues available to planning roles.
     static func guessingRules(_ guesswork: Guesswork, repositoryConventions: Bool = false) -> String {
@@ -403,7 +406,7 @@ public struct CopilotTestAuthor: TestAuthor {
             "\n\nEarlier work on this item ran into the problem below. If \(task.testFolder)/ already holds your " +
             "earlier tests, they are the ones it is about: edit them there rather than starting over. If it lies " +
             "in the acceptance tests, fix it with the smallest change that does, and leave the rest of the tests " +
-            "as they are: you can't compile them, so every line you rewrite risks a new mistake:\n\($0)"
+            "as they are: every line you rewrite risks a new mistake. Run them again before finishing:\n\($0)"
         } ?? ""
         return """
         You are the test author agent in an agent harness. \(task.context)
@@ -419,10 +422,20 @@ public struct CopilotTestAuthor: TestAuthor {
         explicit signals with a timeout instead. Other work will change timing and scheduling later, and \
         your tests must still hold. Test lasting behaviour, not this item's scope: never pin files by checksum \
         or assert that unrelated files stay unchanged, because that blocks every later change to them. \
-        Only create or change files under \(task.testFolder)/, plus the report below. Name any other file you add \
-        after the suite (e.g. \(suite)Support.swift): files in one test target need unique names, even in different \
-        folders. \
-        Do not run the tests. The tests must compile once the API they expect exists: other test files share the \
+        Your tests and their helpers go under \(task.testFolder)/ only. Name any other file you add there after the \
+        suite (e.g. \(suite)Support.swift): files in one test target need unique names, even in different folders. \
+        Build and run your suite before finishing, as the repo's instructions say (only your suite, not every \
+        test). Where the API your tests expect doesn't exist yet, add placeholders for it so they build: \
+        declarations with the smallest body that compiles, returning empty or default values, never fatalError \
+        or anything else that crashes the test run. The harness throws away everything you change outside \
+        \(task.testFolder)/ before your tests are committed, so placeholders never reach the implementer. Every \
+        test must compile. Tests of new behaviour should fail against the placeholders, for the reason the test \
+        names. Your own helpers, fakes and renderers must work: when a test relies on one (say, it reads text \
+        from a rendered view), check it once against something that already exists, because a broken helper \
+        stops the implementer later and only you can fix it. Don't implement the work item, and stop after a few \
+        rounds of building and fixing. For experiments, use the writable scratch folder at \
+        \(task.scratchDirectory.path) instead of /tmp. \
+        The tests must also compile once the real API exists: other test files share the \
         same test target, so make helper types and functions `private` or nest them in the suite, and qualify a \
         name with its module when more than one imported module declares it (e.g. a type that Testing also has). \
         Call a static helper from inside a test as `Self.helper(…)`, or it won't compile. \

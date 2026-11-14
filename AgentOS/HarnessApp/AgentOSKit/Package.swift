@@ -23,44 +23,47 @@ let package = Package(
         .target(name: "AgentOSUI", dependencies: ["AgentOSCore"]),
         // Headless demo runner.
         .executableTarget(name: "agentos", dependencies: ["AgentOSCore", "AgentOSAdapters", "AgentOSSimulation"]),
+        // Helpers every test target may use, e.g. reading what a view shows. Inside the test area, so tickets can't
+        // change it.
+        .target(name: "AgentOSTestSupport", path: "Tests/AgentOSAdaptersTests/Shared"),
         .testTarget(name: "AgentOSCoreTests", dependencies: ["AgentOSCore"]),
         .testTarget(
             name: "AgentOSAdaptersLegacyTests",
-            dependencies: ["AgentOSAdapters", "AgentOSUI"],
+            dependencies: ["AgentOSAdapters", "AgentOSUI", "AgentOSTestSupport"],
             path: "Tests/AgentOSAdaptersTests",
-            exclude: ["GH_15_1Tests", "GH_29_1Tests", "GH_29_4Tests", "GH_30_4Tests", "GH_68Tests"],
+            exclude: ["GH_15_1Tests", "GH_29_1Tests", "GH_29_4Tests", "GH_30_4Tests", "GH_68Tests", "Shared"],
             swiftSettings: [.unsafeFlags(["-Xfrontend", "-disable-access-control"])]
         ),
         .testTarget(
             name: "AgentOSAdaptersGH68Tests",
-            dependencies: ["AgentOSAdapters", "AgentOSUI"],
+            dependencies: ["AgentOSAdapters", "AgentOSUI", "AgentOSTestSupport"],
             path: "Tests/AgentOSAdaptersTests/GH_68Tests"
         ),
         .testTarget(
             name: "AgentOSAdaptersGH151Tests",
-            dependencies: ["AgentOSAdapters"],
+            dependencies: ["AgentOSAdapters", "AgentOSTestSupport"],
             path: "Tests/AgentOSAdaptersTests/GH_15_1Tests",
             swiftSettings: [.unsafeFlags(["-Xfrontend", "-disable-access-control"])]
         ),
         .testTarget(
             name: "AgentOSAdaptersTests",
-            dependencies: ["AgentOSAdapters"],
+            dependencies: ["AgentOSAdapters", "AgentOSTestSupport"],
             path: "Tests/AgentOSAdaptersTests/GH_29_1Tests",
             swiftSettings: [.unsafeFlags(["-Xfrontend", "-disable-access-control"])]
         ),
         .testTarget(
             name: "AgentOSAdaptersGH294Tests",
-            dependencies: ["AgentOSAdapters"],
+            dependencies: ["AgentOSAdapters", "AgentOSTestSupport"],
             path: "Tests/AgentOSAdaptersTests/GH_29_4Tests",
             swiftSettings: [.unsafeFlags(["-Xfrontend", "-disable-access-control"])]
         ),
         .testTarget(
             name: "AgentOSAdaptersGH304Tests",
-            dependencies: ["AgentOSAdapters"],
+            dependencies: ["AgentOSAdapters", "AgentOSTestSupport"],
             path: "Tests/AgentOSAdaptersTests/GH_30_4Tests",
             swiftSettings: [.unsafeFlags(["-Xfrontend", "-disable-access-control"])]
         ),
         .testTarget(name: "AgentOSSimulationTests", dependencies: ["AgentOSSimulation"]),
-        .testTarget(name: "AgentOSUITests", dependencies: ["AgentOSUI"]),
+        .testTarget(name: "AgentOSUITests", dependencies: ["AgentOSUI", "AgentOSTestSupport"]),
     ]
 )

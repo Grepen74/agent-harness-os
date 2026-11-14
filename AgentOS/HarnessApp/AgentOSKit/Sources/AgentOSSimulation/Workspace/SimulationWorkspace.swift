@@ -76,6 +76,18 @@ public struct SimulationWorkspace: Workspace, MainTipRepository {
         return try await head(of: directory)
     }
 
+    public func discardChanges(outside folder: String, in directory: URL) async throws {
+        var folder = folder
+        while folder.hasSuffix("/") { folder.removeLast() }
+        let outside = [".", ":(exclude)\(folder)"]
+        try await git(["restore", "--source=HEAD", "--staged", "--worktree", "--"] + outside, in: directory)
+        // Staged first: clean takes a wholly untracked parent folder (say a first `Tests/`) as one, tests and all.
+        if FileManager.default.fileExists(atPath: directory.appending(path: folder).path) {
+            try await git(["add", "-A", "--", folder], in: directory)
+        }
+        try await git(["clean", "-fdq", "--"] + outside, in: directory)
+    }
+
     /// `main`'s history, newest first: "<sha> <author>: <message>".
     public func mainLog() async throws -> [String] {
         try await git(["log", "--format=%h %an: %s", "main"], in: repoDirectory)

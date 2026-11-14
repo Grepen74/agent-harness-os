@@ -15,7 +15,9 @@ extension Reconciler {
         let own = workspace.testFolder(for: node.spec) + "/"
         let report: AgentReport
         do {
-            report = try await watchingUserGitState(node, run: run) { try await team.testAuthor.writeAcceptanceTests(task) }
+            report = try await withScratchDirectory(task.scratchDirectory) {
+                try await watchingUserGitState(node, run: run) { try await team.testAuthor.writeAcceptanceTests(task) }
+            }
             try Task.checkCancellation()
         } catch {
             try await write(node.id, by: author, [
@@ -33,6 +35,8 @@ extension Reconciler {
         let assumptions = policy.assumptions(in: report)
         let testFiles: [String]
         do {
+            // The author may have added placeholder code so its tests build and run; only its tests are committed.
+            try await workspace.discardChanges(outside: workspace.testFolder(for: node.spec), in: directory)
             let changed = try await workspace.commitAll(in: directory, message: "\(node.spec.id): acceptance tests", author: run)
             // After the commit, so the check sees everything the author wrote (changes are compared commit to commit).
             let outside = try await workspace.changedFiles(in: directory).filter { !$0.hasPrefix(own) }

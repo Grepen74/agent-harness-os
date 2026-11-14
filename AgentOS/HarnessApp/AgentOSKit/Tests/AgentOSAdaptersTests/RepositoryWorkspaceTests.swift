@@ -23,7 +23,9 @@ struct RepositoryWorkspaceTests {
     }
 
     struct ShellTestAuthor: TestAuthor {
-        var alsoEdits: String?
+        /// Builds its tests against placeholder code, as a real test author does: changes a tracked file, deletes one,
+        /// adds a new one, and experiments in its scratch folder.
+        var writesPlaceholders = false
         /// Each ticket checks a file of its own (`<title>.txt`), so tickets running side by side never make the
         /// same change: otherwise whichever lands last finds nothing left to do, depending on timing.
         var filePerTicket = false
@@ -32,8 +34,13 @@ struct RepositoryWorkspaceTests {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             let file = filePerTicket ? "\(task.spec.title).txt" : "app.txt"
             try "grep -q hello '\(file)'\n".write(to: url, atomically: true, encoding: .utf8)
-            if let alsoEdits {
-                try "changed by the test author\n".write(to: task.directory.appending(path: alsoEdits), atomically: true, encoding: .utf8)
+            if writesPlaceholders {
+                try "placeholder\n".write(to: task.directory.appending(path: "app.txt"), atomically: true, encoding: .utf8)
+                try FileManager.default.removeItem(at: task.directory.appending(path: "run-tests.sh"))
+                let source = task.directory.appending(path: "Sources/Placeholder.swift")
+                try FileManager.default.createDirectory(at: source.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try "func greeting() -> String { \"\" }\n".write(to: source, atomically: true, encoding: .utf8)
+                try "probe\n".write(to: task.scratchDirectory.appending(path: "probe.txt"), atomically: true, encoding: .utf8)
             }
             return AgentReport()
         }
@@ -59,8 +66,8 @@ struct RepositoryWorkspaceTests {
         }
     }
 
-    func team(alsoEdits: String? = nil, renames: String? = nil, runsGit: [String]? = nil, authorAlsoEdits: String? = nil) -> AgentTeam {
-        AgentTeam(name: "Fake", decomposer: Leaf(), testAuthor: ShellTestAuthor(alsoEdits: authorAlsoEdits),
+    func team(alsoEdits: String? = nil, renames: String? = nil, runsGit: [String]? = nil, authorWritesPlaceholders: Bool = false) -> AgentTeam {
+        AgentTeam(name: "Fake", decomposer: Leaf(), testAuthor: ShellTestAuthor(writesPlaceholders: authorWritesPlaceholders),
                   implementer: Implementer(alsoEdits: alsoEdits, renames: renames, runsGit: runsGit))
     }
 
@@ -164,18 +171,20 @@ struct RepositoryWorkspaceTests {
         #expect(try await git(["rev-parse", "agentos/main"], in: repo) == git(["rev-parse", "main"], in: repo))
     }
 
-    @Test("The test author may only add files in its own test folder")
-    func testAuthorStaysInItsFolder() async throws {
+    @Test("Only the test author's tests are committed: the placeholder code it ran them against is thrown away")
+    func testAuthorsPlaceholdersAreThrownAway() async throws {
         let repo = try await makeRepo()
-        let session = try await session(repo, team: team(authorAlsoEdits: "app.txt"))
+        let session = try await session(repo, team: team(authorWritesPlaceholders: true))
         let key = await ticket(session)
 
-        await session.runUntilFinished()
+        let reports = await session.runUntilFinished()
 
         let node = try #require(await session.ledger.workingState().node(forTicket: key))
-        #expect(node.phase != .proven)
-        #expect(node.flags[.escalated]?.contains("wrote outside its own test folder") == true, "\(node.flags)")
-        #expect(try await git(["rev-parse", "agentos/main"], in: repo) == git(["rev-parse", "main"], in: repo))
+        #expect(node.phase == .proven, "\(node.flags) \(reports.flatMap(\.actions))")
+        let tests = try await git(["log", "agentos/main", "--format=%H", "--grep=acceptance tests"], in: repo)
+        #expect(try await git(["show", "--name-only", "--format=", tests], in: repo) == "Tests/AppTests/WORK_1Tests/check.sh")
+        let landed = try await git(["diff", "--name-only", "main", "agentos/main"], in: repo)
+        #expect(landed.split(separator: "\n").sorted() == ["Tests/AppTests/WORK_1Tests/check.sh", "app.txt"])
     }
 
     @Test("An agent that changes your refs or git config is escalated, not retried", arguments: [

@@ -132,6 +132,18 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
         return try await head(of: directory)
     }
 
+    public func discardChanges(outside folder: String, in directory: URL) async throws {
+        let folder = Self.trimmed(folder)
+        let outside = [".", ":(exclude)\(folder)"]
+        try await git(["restore", "--source=HEAD", "--staged", "--worktree", "--"] + outside, in: directory)
+        // Staged first: clean takes a wholly untracked parent folder (say a first `Tests/`) as one, tests and all.
+        if FileManager.default.fileExists(atPath: directory.appending(path: folder).path) {
+            try await git(["add", "-A", "--", folder], in: directory)
+        }
+        // Without -x: ignored build output stays, so the next build in this working copy is quick.
+        try await git(["clean", "-fdq", "--"] + outside, in: directory)
+    }
+
     public func head(of directory: URL) async throws -> String {
         try await git(["rev-parse", "HEAD"], in: directory).trimmingCharacters(in: .whitespacesAndNewlines)
     }
