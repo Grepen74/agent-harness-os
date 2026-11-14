@@ -1,0 +1,17 @@
+{
+  "fixtureRecordCount": 407,
+  "viewSize": { "width": 1100, "height": 850 },
+  "renderer": "AgentOSTestSupport.RenderedUI",
+  "before": {
+    "source": "LedgerPane temporarily restored to its pre-paging implementation: complete model.records.reversed() list, model.records.count header, no filter or Show older controls.",
+    "screenshot": "before.png",
+    "checks": "Exact count and newest summary present; All tickets, All event kinds, and Show older absent."
+  },
+  "after": {
+    "source": "Implemented LedgerPane, restored byte-for-byte after the before capture.",
+    "screenshot": "after.png",
+    "checks": "Same fixture, exact count and newest summary present; All tickets, All event kinds, and Show older present."
+  },
+  "windows": "Both panes were hosted in instantiated NSWindows that were never shown. Both windows were detached and closed after capture.",
+  "screenCaptured": false
+}

@@ -1,1 +1,10 @@
-{"snapshotPaths":[".agentos-ui-evidence/before.png",".agentos-ui-evidence/after.png"],"windowsOpened":true,"windowsClosed":true,"beforeScreenshot":".agentos-ui-evidence/before.png","afterScreenshot":".agentos-ui-evidence/after.png"}
+{
+  "snapshotPaths": [
+    ".agentos-ui-evidence/before.png",
+    ".agentos-ui-evidence/after.png"
+  ],
+  "windowsOpened": true,
+  "windowsClosed": true,
+  "beforeScreenshot": ".agentos-ui-evidence/before.png",
+  "afterScreenshot": ".agentos-ui-evidence/after.png"
+}
