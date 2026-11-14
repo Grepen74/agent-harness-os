@@ -243,6 +243,9 @@ Before the acceptance-test review, a Swift package's tests are compiled. Errors 
 names, a test nested in another test, a file named like another in the same test target) send them back to
 the test author without using a review round; errors from API that doesn't exist yet are expected. On such
 a return the test author is told to make the smallest fix, because it can't compile its tests itself.
+Whenever tests come back (compiler errors, review findings, a broken-test report), the leaf's new branch
+starts from the landing branch with its earlier test folder restored, so the author fixes those tests in
+place rather than rewriting them blind. `harness:retest` or a replan starts the tests over.
 The reviewer checks authored acceptance tests against the ticket before implementation starts. Weak
 tests return to their author with findings. Criteria that behavioural tests in the test folder can't
 prove (file layout, code moved unchanged, access levels, build settings) aren't held against the tests;

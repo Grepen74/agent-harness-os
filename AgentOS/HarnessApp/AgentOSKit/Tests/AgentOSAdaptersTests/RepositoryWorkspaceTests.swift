@@ -386,6 +386,30 @@ struct RepositoryWorkspaceTests {
         #expect(try await git(["rev-parse", "agentos/main"], in: repo) == landed)
     }
 
+    @Test("A leaf's worktree can keep its earlier tests while everything else starts again from the landing branch")
+    func aWorktreeKeepsTheLeafsEarlierTests() async throws {
+        let repo = try await makeRepo()
+        let storage = FileManager.default.temporaryDirectory.appending(path: "agentos-storage-\(UUID().uuidString)")
+        let workspace = try RepositoryWorkspace(root: repo, storage: storage, config: Self.config,
+                                                landingBranch: "agentos/main", defaultBranch: "main")
+        try await workspace.prepare()
+        let folder = "Tests/AppTests/WORK_1Tests"
+        var directory = try await workspace.createWorktree(for: "wn-1")
+        try FileManager.default.createDirectory(at: directory.appending(path: folder), withIntermediateDirectories: true)
+        try "grep -q hello app.txt\n".write(to: directory.appending(path: "\(folder)/check.sh"), atomically: true, encoding: .utf8)
+        try "hello\n".write(to: directory.appending(path: "app.txt"), atomically: true, encoding: .utf8)
+        try #require(try await workspace.commitAll(in: directory, message: "tests and work", author: "run-1") != nil)
+
+        directory = try await workspace.createWorktree(for: "wn-1", keeping: folder)
+
+        #expect(try String(contentsOf: directory.appending(path: "\(folder)/check.sh"), encoding: .utf8) == "grep -q hello app.txt\n")
+        #expect(try String(contentsOf: directory.appending(path: "app.txt"), encoding: .utf8) == "hi\n")
+        #expect(try await git(["rev-parse", "HEAD"], in: directory) == git(["rev-parse", "agentos/main"], in: repo))
+
+        directory = try await workspace.createWorktree(for: "wn-1")
+        #expect(!FileManager.default.fileExists(atPath: directory.appending(path: folder).path))
+    }
+
     @Test func copilotDecomposerAnswersWithChildrenOrQuestions() throws {
         let questions = try #require(CopilotDecomposer.parse(#"{"questions": ["Which buttons?"], "assumptions": [], "children": []}"#))
         #expect(questions.report.questions == ["Which buttons?"])

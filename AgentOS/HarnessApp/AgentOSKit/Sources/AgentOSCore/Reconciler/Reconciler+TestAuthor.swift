@@ -5,8 +5,11 @@ extension Reconciler {
     func authorTests(_ node: NodeState) async throws -> String {
         let run = Self.newRunID()
         let author = Participant.agent(run: run, role: .testAuthor)
+        let keep = await keepsEarlierTests(node)
         try await write(node.id, by: .reconciler, [.runStarted(run: run, role: .testAuthor)], expecting: node.version)
-        let directory = try await workspace.createWorktree(for: node.id)
+        let directory = keep
+            ? try await workspace.createWorktree(for: node.id, keeping: workspace.testFolder(for: node.spec))
+            : try await workspace.createWorktree(for: node.id)
         let task = await makeTask(node, run: run, in: directory, log: agentLog(node, run),
                                   for: .testAuthor, includeComments: false)
         let own = workspace.testFolder(for: node.spec) + "/"
@@ -100,6 +103,27 @@ extension Reconciler {
             \(Self.testListing(testFiles, in: directory))\(Self.assumptionsNote("Assumptions this work rests on", await ledger.workingState().assumptions(for: node.id)))\(reviewNote)
             """)
         return "\(node.displayName) acceptance tests written on branch \(workspace.branch(for: node.id)) → " + (review ? "waiting for review" : "Ready")
+    }
+
+    /// Tests that came back (review findings, compiler errors, a broken-test report) are fixed in place rather
+    /// than rewritten blind: every rewrite risks new mistakes. A person asking for new tests (retest) or a
+    /// replan starts them over.
+    private func keepsEarlierTests(_ node: NodeState) async -> Bool {
+        guard node.latestTestFeedback != nil else { return false }
+        let history = await ledger.allRecords().filter { $0.event.node == node.id }
+        guard let lastRun = history.lastIndex(where: {
+            if case .runStarted(_, .testAuthor) = $0.event.kind { return true }
+            return false
+        }) else { return false }
+        return !history[(lastRun + 1)...].contains {
+            switch $0.event.kind {
+            case .replanned: return true
+            case .phaseChanged(to: .specified):
+                if case .human = $0.event.by { return true }
+                return false
+            default: return false
+            }
+        }
     }
 
     private func returnAcceptanceTests(

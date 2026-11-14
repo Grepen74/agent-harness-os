@@ -31,6 +31,9 @@ public protocol Workspace: Sendable {
     func worktree(for id: NodeID) -> URL
     /// A fresh branch from the latest `main`, checked out in the leaf's own working copy.
     func createWorktree(for id: NodeID) async throws -> URL
+    /// Like `createWorktree(for:)`, but `folder` holds what the leaf's branch last had there: tests that came back
+    /// are fixed where they are, not rewritten from nothing.
+    func createWorktree(for id: NodeID, keeping folder: String) async throws -> URL
     func removeWorktree(for id: NodeID) async throws
 
     /// Commits everything in the working copy as the given run. Returns the new commit, or nil if nothing changed.
@@ -70,6 +73,10 @@ public protocol Workspace: Sendable {
     /// to it is lost when it's removed.
     func createSnapshot() async throws -> URL?
     func removeSnapshot(_ directory: URL) async
+}
+
+public extension Workspace {
+    func createWorktree(for id: NodeID, keeping folder: String) async throws -> URL { try await createWorktree(for: id) }
 }
 
 extension Workspace {

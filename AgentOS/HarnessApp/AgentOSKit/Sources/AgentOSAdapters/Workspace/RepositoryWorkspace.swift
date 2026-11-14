@@ -67,11 +67,27 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
     // MARK: Branch per leaf
 
     public func createWorktree(for id: NodeID) async throws -> URL {
+        try await createWorktree(for: id, keepingFolder: nil)
+    }
+
+    public func createWorktree(for id: NodeID, keeping folder: String) async throws -> URL {
+        try await createWorktree(for: id, keepingFolder: Self.trimmed(folder))
+    }
+
+    private func createWorktree(for id: NodeID, keepingFolder folder: String?) async throws -> URL {
         let directory = worktree(for: id)
         try await worktreeLock.withPermit {
+            // Read before -B moves the branch back to the landing branch.
+            let previous = folder == nil ? nil : (try? await git(["rev-parse", "--verify", "--quiet",
+                                                                  branch(for: id) + "^{commit}"], in: root))?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
             try? await removeWorktreeNow(for: id)
             try FileManager.default.createDirectory(at: worktreesDirectory, withIntermediateDirectories: true)
             try await git(["worktree", "add", "-q", "-B", branch(for: id), directory.path, landingBranch], in: root)
+            if let folder, let previous, !previous.isEmpty,
+               !(try await git(["ls-tree", "--name-only", previous, "--", folder], in: root)).isEmpty {
+                _ = try await git(["checkout", previous, "--", folder], in: directory)
+            }
         }
         return directory
     }

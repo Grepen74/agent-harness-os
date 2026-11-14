@@ -499,6 +499,22 @@ struct GH_28Tests {
         #expect(await fixture.reviewer.requests.filter { $0.stage == .acceptanceTests }.count == 1)
     }
 
+    @Test
+    func testsThatComeBackAreKeptUntilAPersonAsksForNewOnes() async throws {
+        let mistake = CompilerDiagnostic(file: "Tests/GH_28Tests/GH_28Tests.swift", line: 6,
+                                         message: "Static member 'make' cannot be used on instance of type 'GH_28Tests'",
+                                         classification: .testAuthorMistake)
+        let fixture = try await Fixture(changeResults: ["Too slow.", "Still too slow."].map { .init(passed: false, findings: [$0]) },
+                                        preflight: QueuedPreflight([.diagnostics([mistake], fullLog: "")]))
+        defer { fixture.cleanUp() }
+        try await fixture.advanceUntil { await fixture.node()?.flags[.escalated] != nil }
+        await fixture.tracker.add(.retest, by: .human("Alice"))
+        try await fixture.advanceUntil { await fixture.workspace.landedCount == 1 }
+        let kept: [String?] = await fixture.workspace.keptFolders
+        #expect(await fixture.author.tasks.count == 3)
+        #expect(kept == [nil, Fixture.folder, nil], "\(kept)")
+    }
+
     actor QueuedPreflight: AcceptanceTestPreflight {
         private var results: [AcceptanceTestPreflightResult]
         init(_ results: [AcceptanceTestPreflightResult]) { self.results = results }
@@ -932,7 +948,10 @@ private extension GH_28Tests {
         nonisolated func testFolder(for spec: NodeSpec) -> String { Fixture.folder }
         nonisolated func existingComponents() -> [String] { ["Engine", "AgentOSUI"] }
         func prepare() async throws {}
-        func createWorktree(for id: NodeID) async throws -> URL { directory }
+        /// Per worktree created: the folder kept from the leaf's earlier branch, if any.
+        private(set) var keptFolders: [String?] = []
+        func createWorktree(for id: NodeID) async throws -> URL { keptFolders.append(nil); return directory }
+        func createWorktree(for id: NodeID, keeping folder: String) async throws -> URL { keptFolders.append(folder); return directory }
         func removeWorktree(for id: NodeID) async throws { implemented = false }
         func commitAll(in directory: URL, message: String, author: String) async throws -> String? {
             let unchanged = directory.appending(path: Builder.unchangedMarker)
