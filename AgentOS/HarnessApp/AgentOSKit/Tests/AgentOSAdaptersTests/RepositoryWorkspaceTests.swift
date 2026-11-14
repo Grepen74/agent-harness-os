@@ -29,6 +29,9 @@ struct RepositoryWorkspaceTests {
         /// Each ticket checks a file of its own (`<title>.txt`), so tickets running side by side never make the
         /// same change: otherwise whichever lands last finds nothing left to do, depending on timing.
         var filePerTicket = false
+        /// Updates the older `Existing` suite, as a ticket that deliberately changes what it checks does, and lists
+        /// it; it also lists a production file, which isn't a test and so must not be kept.
+        var updatesExistingTest = false
         func writeAcceptanceTests(_ task: AgentTask) async throws -> AgentReport {
             let url = task.directory.appending(path: "\(task.testFolder)/check.sh")
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -42,8 +45,15 @@ struct RepositoryWorkspaceTests {
                 try "func greeting() -> String { \"\" }\n".write(to: source, atomically: true, encoding: .utf8)
                 try "probe\n".write(to: task.scratchDirectory.appending(path: "probe.txt"), atomically: true, encoding: .utf8)
             }
+            if updatesExistingTest {
+                try "grep -q hello app.txt\n".write(to: task.directory.appending(path: Self.existing), atomically: true, encoding: .utf8)
+                try "placeholder\n".write(to: task.directory.appending(path: "app.txt"), atomically: true, encoding: .utf8)
+                return AgentReport(updatedTests: [Self.existing, "app.txt"])
+            }
             return AgentReport()
         }
+
+        static let existing = "Tests/AppTests/Existing/check.sh"
     }
 
     struct Implementer: AgentOSCore.Implementer {
@@ -66,8 +76,10 @@ struct RepositoryWorkspaceTests {
         }
     }
 
-    func team(alsoEdits: String? = nil, renames: String? = nil, runsGit: [String]? = nil, authorWritesPlaceholders: Bool = false) -> AgentTeam {
-        AgentTeam(name: "Fake", decomposer: Leaf(), testAuthor: ShellTestAuthor(writesPlaceholders: authorWritesPlaceholders),
+    func team(alsoEdits: String? = nil, renames: String? = nil, runsGit: [String]? = nil, authorWritesPlaceholders: Bool = false,
+              authorUpdatesExistingTest: Bool = false) -> AgentTeam {
+        AgentTeam(name: "Fake", decomposer: Leaf(), testAuthor: ShellTestAuthor(
+                    writesPlaceholders: authorWritesPlaceholders, updatesExistingTest: authorUpdatesExistingTest),
                   implementer: Implementer(alsoEdits: alsoEdits, renames: renames, runsGit: runsGit))
     }
 
@@ -185,6 +197,37 @@ struct RepositoryWorkspaceTests {
         #expect(try await git(["show", "--name-only", "--format=", tests], in: repo) == "Tests/AppTests/WORK_1Tests/check.sh")
         let landed = try await git(["diff", "--name-only", "main", "agentos/main"], in: repo)
         #expect(landed.split(separator: "\n").sorted() == ["Tests/AppTests/WORK_1Tests/check.sh", "app.txt"])
+    }
+
+    @Test("Older tests the test author updates and lists land with its tests; nothing else it lists is kept")
+    func testAuthorsUpdatedOlderTestsLand() async throws {
+        let repo = try await makeRepo()
+        let session = try await session(repo, team: team(authorUpdatesExistingTest: true))
+        let key = await ticket(session)
+
+        let reports = await session.runUntilFinished()
+
+        let node = try #require(await session.ledger.workingState().node(forTicket: key))
+        #expect(node.phase == .proven, "\(node.flags) \(reports.flatMap(\.actions))")
+        #expect(node.updatedOtherTests == [ShellTestAuthor.existing])
+        let tests = try await git(["log", "agentos/main", "--format=%H", "--grep=acceptance tests"], in: repo)
+        #expect(try await git(["show", "--name-only", "--format=", tests], in: repo).split(separator: "\n").map(String.init).sorted()
+                == [ShellTestAuthor.existing, "Tests/AppTests/WORK_1Tests/check.sh"])
+        #expect(try await git(["show", "agentos/main:\(ShellTestAuthor.existing)"], in: repo) == "grep -q hello app.txt")
+    }
+
+    @Test("The implementer may not change an older test the test author updated")
+    func updatedOlderTestsAreLocked() async throws {
+        let repo = try await makeRepo()
+        let session = try await session(repo, team: team(alsoEdits: ShellTestAuthor.existing, authorUpdatesExistingTest: true))
+        let key = await ticket(session)
+
+        await session.runUntilFinished()
+
+        let node = try #require(await session.ledger.workingState().node(forTicket: key))
+        #expect(node.phase != .proven)
+        #expect(node.recentFailures.first?.contains("updated were changed afterwards") == true, "\(node.recentFailures)")
+        #expect(try await git(["rev-parse", "agentos/main"], in: repo) == git(["rev-parse", "main"], in: repo))
     }
 
     @Test("An agent that changes your refs or git config is escalated, not retried", arguments: [
@@ -409,7 +452,7 @@ struct RepositoryWorkspaceTests {
         try "hello\n".write(to: directory.appending(path: "app.txt"), atomically: true, encoding: .utf8)
         try #require(try await workspace.commitAll(in: directory, message: "tests and work", author: "run-1") != nil)
 
-        directory = try await workspace.createWorktree(for: "wn-1", keeping: folder)
+        directory = try await workspace.createWorktree(for: "wn-1", keeping: [folder])
 
         #expect(try String(contentsOf: directory.appending(path: "\(folder)/check.sh"), encoding: .utf8) == "grep -q hello app.txt\n")
         #expect(try String(contentsOf: directory.appending(path: "app.txt"), encoding: .utf8) == "hi\n")

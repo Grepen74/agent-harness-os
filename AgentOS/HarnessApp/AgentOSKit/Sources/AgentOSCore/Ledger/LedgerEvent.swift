@@ -74,6 +74,9 @@ public enum EventKind: Codable, Sendable {
     // Work
     /// Fingerprint of the node's acceptance tests; nobody may change them afterwards.
     case testsFixed(digest: String)
+    /// Other work's tests the acceptance tests changed (written after `testsFixed`), with their fingerprint: they
+    /// are locked like the node's own tests.
+    case otherTestsUpdated(files: [String], digest: String)
     case reviewRecorded(ReviewRecord)
     case humanReviewRequested(commit: String)
     case humanReviewApproved(commit: String)
@@ -211,6 +214,7 @@ extension EventKind {
         case .flagCleared(let flag): "⚑ \(flag.rawValue) cleared"
         case .attemptsReset: "attempts reset"
         case .testsFixed(let digest): "acceptance tests fixed (\(digest.prefix(8)))"
+        case .otherTestsUpdated(let files, _): "updated other work's tests: \(files.joined(separator: ", "))"
         case .reviewRecorded(let review):
             "\(review.stage.rawValue) review \(review.result.passed ? "passed" : "failed")"
                 + (review.result.unavailableModels.map { " (\($0.joined(separator: ", ")) not available; reviewed with "

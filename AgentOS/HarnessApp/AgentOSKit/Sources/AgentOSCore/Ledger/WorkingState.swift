@@ -64,6 +64,9 @@ public struct NodeState: Sendable, Identifiable {
     public var links: [TypedLink] = []
     public var children: [NodeID] = []
     public var testsDigest: String?
+    /// Other work's tests this node's acceptance tests changed, locked by `updatedOtherTestsDigest`.
+    public var updatedOtherTests: [String] = []
+    public var updatedOtherTestsDigest: String?
     public var expectedAPI: [String] = []
     public var brokenTestReports: [BrokenTestReport] = []
     /// The newest problem with this node's acceptance tests (broken-test report or failed compile), for the test author.
@@ -272,6 +275,11 @@ public struct WorkingState: Sendable {
         case .testsFixed(let digest):
             node.testsDigest = digest
             node.openTestProblem = nil
+            node.updatedOtherTests = []
+            node.updatedOtherTestsDigest = nil
+        case .otherTestsUpdated(let files, let digest):
+            node.updatedOtherTests = files
+            node.updatedOtherTestsDigest = digest
         case .reviewRecorded(let review):
             node.reviews.append(review)
             if !review.result.passed && review.stage == .acceptanceTests {
@@ -296,7 +304,8 @@ public struct WorkingState: Sendable {
         case .expectedAPIReported(let api): node.expectedAPI = api
         case .brokenTestReported(let report):
             node.brokenTestReports.append(report)
-            node.latestTestFeedback = report.reason
+            // With the name: a test of other work is one the test author may not know.
+            node.latestTestFeedback = "\(report.testName): \(report.reason)"
             node.openTestProblem = report.reason
         case .runStarted(let run, let role): node.activeRun = ActiveRun(run: run, role: role, since: event.at)
         case .runFinished: node.activeRun = nil

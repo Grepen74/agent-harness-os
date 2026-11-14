@@ -67,26 +67,27 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
     // MARK: Branch per leaf
 
     public func createWorktree(for id: NodeID) async throws -> URL {
-        try await createWorktree(for: id, keepingFolder: nil)
+        try await createWorktree(for: id, keepingPaths: [])
     }
 
-    public func createWorktree(for id: NodeID, keeping folder: String) async throws -> URL {
-        try await createWorktree(for: id, keepingFolder: Self.trimmed(folder))
+    public func createWorktree(for id: NodeID, keeping paths: [String]) async throws -> URL {
+        try await createWorktree(for: id, keepingPaths: paths.map(Self.trimmed).filter { !$0.isEmpty })
     }
 
-    private func createWorktree(for id: NodeID, keepingFolder folder: String?) async throws -> URL {
+    private func createWorktree(for id: NodeID, keepingPaths paths: [String]) async throws -> URL {
         let directory = worktree(for: id)
         try await worktreeLock.withPermit {
             // Read before -B moves the branch back to the landing branch.
-            let previous = folder == nil ? nil : (try? await git(["rev-parse", "--verify", "--quiet",
+            let previous = paths.isEmpty ? nil : (try? await git(["rev-parse", "--verify", "--quiet",
                                                                   branch(for: id) + "^{commit}"], in: root))?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             try? await removeWorktreeNow(for: id)
             try FileManager.default.createDirectory(at: worktreesDirectory, withIntermediateDirectories: true)
             try await git(["worktree", "add", "-q", "-B", branch(for: id), directory.path, landingBranch], in: root)
-            if let folder, let previous, !previous.isEmpty,
-               !(try await git(["ls-tree", "--name-only", previous, "--", folder], in: root)).isEmpty {
-                _ = try await git(["checkout", previous, "--", folder], in: directory)
+            if let previous, !previous.isEmpty {
+                for path in paths where !(try await git(["ls-tree", "--name-only", previous, "--", path], in: root)).isEmpty {
+                    _ = try await git(["checkout", previous, "--", path], in: directory)
+                }
             }
         }
         return directory
@@ -132,13 +133,14 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
         return try await head(of: directory)
     }
 
-    public func discardChanges(outside folder: String, in directory: URL) async throws {
-        let folder = Self.trimmed(folder)
-        let outside = [".", ":(exclude)\(folder)"]
+    public func discardChanges(keeping paths: [String], in directory: URL) async throws {
+        let kept = paths.map(Self.trimmed).filter { !$0.isEmpty }
+        let outside = ["."] + kept.map { ":(exclude)\($0)" }
         try await git(["restore", "--source=HEAD", "--staged", "--worktree", "--"] + outside, in: directory)
         // Staged first: clean takes a wholly untracked parent folder (say a first `Tests/`) as one, tests and all.
-        if FileManager.default.fileExists(atPath: directory.appending(path: folder).path) {
-            try await git(["add", "-A", "--", folder], in: directory)
+        let existing = kept.filter { FileManager.default.fileExists(atPath: directory.appending(path: $0).path) }
+        if !existing.isEmpty {
+            try await git(["add", "-A", "--"] + existing, in: directory)
         }
         // Without -x: ignored build output stays, so the next build in this working copy is quick.
         try await git(["clean", "-fdq", "--"] + outside, in: directory)

@@ -65,13 +65,14 @@ struct GH_29_2Tests {
     }
 
     @Test
-    func reportOnTestsAlreadyReworkedForABrokenTestWaitsAndShowsBothReports() async throws {
+    func reportOnTestsReworkedTwiceForBrokenTestsWaitsAndShowsEveryReport() async throws {
         let fixture = try await Fixture(implementerReports: [
             .init(brokenTest: .init(testName: "originalContract", reason: "The original contract is impossible.")),
+            .init(brokenTest: .init(testName: "secondContract", reason: "The second contract misses a case.")),
             .init(brokenTest: .init(testName: "rewrittenContract", reason: "The rewrite still requires hidden state.")),
         ])
 
-        await fixture.runRounds(4)
+        await fixture.runRounds(6)
 
         let node = try #require(await fixture.node())
         #expect(node.failedAttempts == 0)
@@ -80,8 +81,9 @@ struct GH_29_2Tests {
         #expect(reason.contains("The original contract is impossible."))
         #expect(reason.contains("rewrittenContract"))
         #expect(reason.contains("The rewrite still requires hidden state."))
+        #expect(reason.contains("secondContract"))
         #expect(reason.localizedCaseInsensitiveContains("next"))
-        #expect(await fixture.testAuthor.runCount() == 2)
+        #expect(await fixture.testAuthor.runCount() == 3)
     }
 
     @Test
@@ -111,6 +113,7 @@ struct GH_29_2Tests {
     func ticketCommentsNameTheTestReasonAndRoutingOutcome() async throws {
         let fixture = try await Fixture(implementerReports: [
             .init(brokenTest: .init(testName: "firstContract", reason: "It depends on private state.")),
+            .init(brokenTest: .init(testName: "middleContract", reason: "It depends on a private type.")),
             .init(brokenTest: .init(testName: "secondContract", reason: "It still depends on private state.")),
         ])
 
@@ -121,7 +124,7 @@ struct GH_29_2Tests {
                 && $0.contains("sent back to the test author")
         })
 
-        await fixture.runRounds(2)
+        await fixture.runRounds(4)
         #expect(await fixture.comments().contains {
             $0.contains("secondContract")
                 && $0.contains("It still depends on private state.")
@@ -133,15 +136,17 @@ struct GH_29_2Tests {
     func workPaneModelsShowBrokenRunAndActionableAttention() async throws {
         let fixture = try await Fixture(implementerReports: [
             .init(brokenTest: .init(testName: "firstContract", reason: "The first API is unavailable.")),
+            .init(brokenTest: .init(testName: "middleContract", reason: "The next API is unavailable.")),
             .init(brokenTest: .init(testName: "secondContract", reason: "The replacement API is also unavailable.")),
         ])
-        await fixture.runRounds(4)
+        await fixture.runRounds(6)
 
         let node = try #require(await fixture.node())
         let runs = AgentRuns.runs(of: node.id, in: await fixture.records())
         let implementerRuns = runs.filter { $0.role == .implementer }
         #expect(implementerRuns.map(\.outcome) == [
             "reported a broken test: firstContract",
+            "reported a broken test: middleContract",
             "reported a broken test: secondContract",
         ])
 

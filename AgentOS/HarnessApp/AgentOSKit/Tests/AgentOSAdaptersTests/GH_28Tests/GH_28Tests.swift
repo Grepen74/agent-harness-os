@@ -533,7 +533,8 @@ struct GH_28Tests {
 
     @Test
     func feedbackWithARetryFixesTheEarlierTestsRatherThanStartingOver() async throws {
-        let broken = ["The fixture never releases the barrier.", "The snapshot test doesn't compile under Swift 6."]
+        let broken = ["The fixture never releases the barrier.", "The barrier is released too late.",
+                      "The snapshot test doesn't compile under Swift 6."]
             .map { AgentReport(brokenTest: BrokenTestReport(testName: "GH_28Tests.windowRemainsUsable", reason: $0)) }
         let fixture = try await Fixture(builderReports: broken)
         defer { fixture.cleanUp() }
@@ -542,8 +543,8 @@ struct GH_28Tests {
         await fixture.tracker.add(.retry, by: .human("Alice"))
         try await fixture.advanceUntil { await fixture.workspace.landedCount == 1 }
         let kept: [String?] = await fixture.workspace.keptFolders
-        #expect(await fixture.author.tasks.count == 3)
-        #expect(kept == [nil, Fixture.folder, Fixture.folder], "\(kept)")
+        #expect(await fixture.author.tasks.count == 4)
+        #expect(kept == [nil, Fixture.folder, Fixture.folder, Fixture.folder], "\(kept)")
     }
 
     actor QueuedPreflight: AcceptanceTestPreflight {
@@ -982,7 +983,7 @@ private extension GH_28Tests {
         /// Per worktree created: the folder kept from the leaf's earlier branch, if any.
         private(set) var keptFolders: [String?] = []
         func createWorktree(for id: NodeID) async throws -> URL { keptFolders.append(nil); return directory }
-        func createWorktree(for id: NodeID, keeping folder: String) async throws -> URL { keptFolders.append(folder); return directory }
+        func createWorktree(for id: NodeID, keeping paths: [String]) async throws -> URL { keptFolders.append(paths.first); return directory }
         func removeWorktree(for id: NodeID) async throws { implemented = false }
         func commitAll(in directory: URL, message: String, author: String) async throws -> String? {
             let unchanged = directory.appending(path: Builder.unchangedMarker)

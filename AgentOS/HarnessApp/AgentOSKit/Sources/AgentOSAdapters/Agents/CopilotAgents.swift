@@ -422,7 +422,11 @@ public struct CopilotTestAuthor: TestAuthor {
         explicit signals with a timeout instead. Other work will change timing and scheduling later, and \
         your tests must still hold. Test lasting behaviour, not this item's scope: never pin files by checksum \
         or assert that unrelated files stay unchanged, because that blocks every later change to them. \
-        Your tests and their helpers go under \(task.testFolder)/ only. Name any other file you add there after the \
+        Your tests and their helpers go under \(task.testFolder)/ only. The one exception: where a criterion of \
+        this item deliberately changes behaviour another work item's existing test checks, update that test with \
+        the smallest change that makes it expect the new behaviour (never delete it or loosen it beyond that), \
+        and list its file in updatedTests. A reviewer checks every such change against the criteria. Where no \
+        criterion asks for the change, leave the other test alone and ask a question instead. Name any other file you add there after the \
         suite (e.g. \(suite)Support.swift): files in one test target need unique names, even in different folders. \
         Build and run your suite before finishing, as the repo's instructions say (only your suite, not every \
         test). Where the API your tests expect doesn't exist yet, add placeholders for it so they build: \
@@ -443,8 +447,10 @@ public struct CopilotTestAuthor: TestAuthor {
 
         \(CopilotCLI.guessingRules(task.guesswork, repositoryConventions: true)) Report them in \(AgentReportFile.name) at the top of your \
         working directory, as {"questions": [string or {"question": string, "suggestion": string}], \
-        "assumptions": [string], "expectedAPI": [string]}. \
-        List the public production symbols and signatures your tests expect in expectedAPI. \
+        "assumptions": [string], "expectedAPI": [string], "updatedTests": [string]}. \
+        List the public production symbols and signatures your tests expect in expectedAPI, and the \
+        repository-relative paths of other work's test files you updated in updatedTests (anything else you \
+        change outside \(task.testFolder)/ is thrown away). \
         \(CopilotCLI.stopRule(task.guesswork, stop: "write only that report and no tests", proceed: "write the tests"))
 
         \(CopilotCLI.dataBlock(task.spec))\(CopilotCLI.answersBlock(task.clarifications))
@@ -483,7 +489,8 @@ public struct CopilotImplementer: Implementer {
         acceptance test instead of changing it or working around it. Write \(AgentReportFile.name) as \
         {"questions": [], "assumptions": [], "brokenTest": \
         {"testName": string, "reason": string}}. Name the test as Suite.testName (for example FlowTests.someTest), \
-        so the harness can tell this item's tests from other work's. Only if the code already meets every \
+        so the harness can tell this item's tests from other work's. Report another work item's test the same \
+        way when it expects behaviour this item's criteria deliberately change: the test author may update it. Only if the code already meets every \
         acceptance criterion without any change (for example because other work delivered it), change nothing \
         and write {"alreadySatisfied": true}; the verifier then checks the branch as it is. Passing tests are \
         not enough: a refactor's tests pass before the work too, and criteria such as file layout or size \

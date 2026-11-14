@@ -4,16 +4,18 @@ import Testing
 
 @Suite("Broken test routing")
 struct BrokenTestRoutingTests {
-    @Test func aConflictWithAnotherSuitesTestWaitsForAPersonAndRetryContinuesTheImplementation() async throws {
-        let fixture = try await Fixture(reports: [
-            BrokenTestReport(testName: "FlowTests.previewKeepsIDs", reason: "It expects the old IDs."),
-        ])
+    @Test func aConflictWithAnotherSuitesTestGoesToTheTestAuthorTwiceThenWaitsAndRetryContinues() async throws {
+        let fixture = try await Fixture(reports: Array(repeating: BrokenTestReport(
+            testName: "FlowTests.previewKeepsIDs", reason: "It expects the old IDs."), count: 3))
         await fixture.rounds(2)
+        #expect(await fixture.node()?.phase == .specified)
+        #expect(await fixture.tracker.comments.last?.text.contains("isn't one of this ticket's tests") == true)
+        await fixture.rounds(4)
 
         let waiting = try #require(await fixture.node())
         #expect(waiting.phase == .ready)
         #expect(waiting.flags[.needsInput]?.contains("isn't one of this ticket's acceptance tests") == true)
-        #expect(await fixture.testAuthor.runs == 1)
+        #expect(await fixture.testAuthor.runs == 3)
         let comment = try #require(await fixture.tracker.comments.last?.text)
         #expect(comment.contains("❓ Needs input"))
         #expect(comment.contains("harness:retry"))
@@ -24,8 +26,8 @@ struct BrokenTestRoutingTests {
 
         let resumed = try #require(await fixture.node())
         #expect(resumed.flags[.needsInput] == nil)
-        #expect(await fixture.testAuthor.runs == 1)
-        #expect(await fixture.implementer.runs == 2)
+        #expect(await fixture.testAuthor.runs == 3)
+        #expect(await fixture.implementer.runs == 4)
     }
 
     @Test func aRetestGivesTheRewrittenTestsAFirstBrokenReportBeforeAPersonIsAsked() async throws {
@@ -33,33 +35,36 @@ struct BrokenTestRoutingTests {
             BrokenTestReport(testName: "first", reason: "First problem."),
             BrokenTestReport(testName: "second", reason: "Second problem."),
             BrokenTestReport(testName: "third", reason: "Third problem."),
+            BrokenTestReport(testName: "fourth", reason: "Fourth problem."),
         ])
-        await fixture.rounds(4)
+        await fixture.rounds(6)
         let waiting = try #require(await fixture.node())
         let reason = try #require(waiting.flags[.needsInput])
-        #expect(reason.contains("Second problem."))
+        #expect(reason.contains("Third problem."))
 
         await fixture.tracker.add(.retest)
         await fixture.rounds(3)
 
         let afterRetest = try #require(await fixture.node())
         #expect(afterRetest.flags[.needsInput] == nil)
-        #expect(await fixture.tracker.comments.contains { $0.text.contains("third") && $0.text.contains("sent back to the test author") })
+        #expect(await fixture.tracker.comments.contains { $0.text.contains("fourth") && $0.text.contains("sent back to the test author") })
     }
 
     @Test func aWaitingReasonNamesOnlyTheReportsThatLedToIt() async throws {
         let fixture = try await Fixture(reports: [
             BrokenTestReport(testName: "old", reason: "Old problem."),
             BrokenTestReport(testName: "older", reason: "Older follow-up."),
+            BrokenTestReport(testName: "oldest", reason: "Oldest follow-up."),
             BrokenTestReport(testName: "first", reason: "First problem."),
             BrokenTestReport(testName: "second", reason: "Second problem."),
+            BrokenTestReport(testName: "third", reason: "Third problem."),
         ])
-        await fixture.rounds(4)
+        await fixture.rounds(6)
         await fixture.tracker.add(.retest)
-        await fixture.rounds(5)
+        await fixture.rounds(7)
 
         let reason = try #require(await fixture.node()?.flags[.needsInput])
-        #expect(reason.contains("First problem.") && reason.contains("Second problem."))
+        #expect(reason.contains("First problem.") && reason.contains("Second problem.") && reason.contains("Third problem."))
         #expect(!reason.contains("Old problem."))
     }
 }

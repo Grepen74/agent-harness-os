@@ -22,6 +22,16 @@ public enum Hashing {
         return decoder
     }
 
+    /// Fingerprint of the given files below `directory` (path + content); a missing file counts as empty.
+    public static func digest(ofFiles paths: [String], in directory: URL) -> String {
+        var hasher = SHA256()
+        for path in paths.sorted() {
+            hasher.update(data: Data(path.utf8))
+            hasher.update(data: (try? Data(contentsOf: directory.appending(path: path))) ?? Data())
+        }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+
     /// Fingerprint of every file below `directory` (path + content), ignoring build output.
     public static func digest(of directory: URL) -> String {
         let base = directory.resolvingSymlinksInPath().path

@@ -248,6 +248,15 @@ yet, it adds placeholders (minimal bodies that compile, never a crash). Its new-
 against them, and its own helpers (fakes, renderers) must work. The harness then throws away everything it
 changed outside the leaf's test folder (ignored build output stays) and commits only the tests. So helper
 defects are found while writing the tests, not one implementer run at a time.
+The one exception is other work's existing tests that this ticket's criteria deliberately supersede (say a
+default that flips): the test author may update them with the smallest change and list them in
+`updatedTests`. Only listed files in the test area that aren't protected are kept. They're committed with
+the acceptance tests, fingerprinted and locked like them, and named in the ticket comment. The reviewer
+rejects any such change no criterion requires.
+When the implementer reports a broken test (its own or, by `Suite.testName`, another item's that conflicts
+with this ticket), the ticket goes back to the test author without charging an attempt. A person is asked
+only on the third report since a person last stepped in (an answer, `harness:retry` or `harness:retest`);
+the "Needs input" lists every report.
 Whenever tests come back (compiler errors, review findings, a broken-test report), the leaf's new branch
 starts from the landing branch with its earlier test folder restored, so the author fixes those tests in
 place rather than rewriting them blind. `harness:retest` or a replan starts the tests over; feedback with
@@ -377,10 +386,11 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
   it waited for) must be there to build on. On a conflict the branch stays as it was and the landing queue
   sends it to rework.
 - **Agents** get the repo's context in their prompt: the configured commands, where their tests go, and the
-  protected paths. Only the test author's files in the leaf's own test folder are committed; whatever
-  else it changed (placeholders to run its tests against) is thrown away first.
-- **Checks** before landing: the leaf's tests are unchanged since they were approved, no other leaf's tests
-  changed, and no protected path changed. Then the leaf's tests (`test.only`), then all checks at landing.
+  protected paths. Only the test author's files in the leaf's own test folder, and older tests it updated
+  and listed, are committed; whatever else it changed (placeholders to run its tests against) is thrown
+  away first.
+- **Checks** before landing: the leaf's tests (and older tests its test author updated) are unchanged
+  since they were approved, no other leaf's tests changed, and no protected path changed. Then the leaf's tests (`test.only`), then all checks at landing.
   When only other proven tickets' tests fail, the harness checks latest `agentos/main` without the change
   and reruns the candidate. A failing baseline is a main/infrastructure problem, with no failed attempt;
   fix it and add `harness:retry`. If both reruns pass, the harness reports unreliable tests and lands.

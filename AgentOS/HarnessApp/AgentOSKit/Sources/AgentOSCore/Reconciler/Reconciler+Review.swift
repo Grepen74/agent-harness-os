@@ -6,7 +6,9 @@ extension Reconciler {
         guard let reviewer = team.reviewer else { throw AgentFailure("No reviewer is assigned.") }
         let folder = workspace.testFolder(for: node.spec) + "/"
         var tests: [String: String] = [:]
-        for path in context.changedFiles where path.hasPrefix(folder) {
+        // Other work's tests the test author updated are shown, and at the change stage locked, like its own.
+        let testArea = workspace.testArea
+        for path in context.changedFiles where path.hasPrefix(folder) || (!testArea.isEmpty && path.hasPrefix(testArea)) {
             let file = directory.appending(path: path)
             if FileManager.default.fileExists(atPath: file.path) {
                 tests[path] = try String(contentsOf: file, encoding: .utf8)

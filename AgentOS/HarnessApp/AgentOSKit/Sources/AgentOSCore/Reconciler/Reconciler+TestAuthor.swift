@@ -8,7 +8,7 @@ extension Reconciler {
         let keep = await keepsEarlierTests(node)
         try await write(node.id, by: .reconciler, [.runStarted(run: run, role: .testAuthor)], expecting: node.version)
         let directory = keep
-            ? try await workspace.createWorktree(for: node.id, keeping: workspace.testFolder(for: node.spec))
+            ? try await workspace.createWorktree(for: node.id, keeping: [workspace.testFolder(for: node.spec)] + node.updatedOtherTests)
             : try await workspace.createWorktree(for: node.id)
         let task = await makeTask(node, run: run, in: directory, log: agentLog(node, run),
                                   for: .testAuthor, includeComments: false)
@@ -34,12 +34,20 @@ extension Reconciler {
         try await recordSuggestions(report.questions, on: node, role: .testAuthor, by: author)
         let assumptions = policy.assumptions(in: report)
         let testFiles: [String]
+        let updatedOtherTests: [String]
+        let updatable = updatableOtherTests(report.updatedTests, of: node)
         do {
-            // The author may have added placeholder code so its tests build and run; only its tests are committed.
-            try await workspace.discardChanges(outside: workspace.testFolder(for: node.spec), in: directory)
+            // The author may have added placeholder code so its tests build and run; only its tests, and other
+            // work's tests it says this item deliberately changes, are committed.
+            try await workspace.discardChanges(keeping: [workspace.testFolder(for: node.spec)] + updatable, in: directory)
             let changed = try await workspace.commitAll(in: directory, message: "\(node.spec.id): acceptance tests", author: run)
             // After the commit, so the check sees everything the author wrote (changes are compared commit to commit).
-            let outside = try await workspace.changedFiles(in: directory).filter { !$0.hasPrefix(own) }
+            let changedFiles = try await workspace.changedFiles(in: directory)
+            // A listed folder keeps the files in it.
+            let isUpdated = { (file: String) in updatable.contains { file == $0 || file.hasPrefix($0 + "/") } }
+            let protected = Set(policy.protectedPathViolations(changedFiles))
+            updatedOtherTests = changedFiles.filter { !$0.hasPrefix(own) && isUpdated($0) && !protected.contains($0) }
+            let outside = changedFiles.filter { !$0.hasPrefix(own) && !updatedOtherTests.contains($0) }
             guard outside.isEmpty, changed != nil else {
                 let none = report.questions.isEmpty ? "no tests written"
                     : "no tests written: it reported questions with suggested answers but didn't write tests on them"
@@ -93,8 +101,10 @@ extension Reconciler {
             || (!state.assumptions(for: node.id).isEmpty && state.clarifications(for: node.id).isEmpty))
         let reviewReason = "Review the acceptance tests and assumptions, then add harness:build"
         try await write(node.id, by: author, [
-            .runFinished(run: run, outcome: "acceptance tests committed"), .testsFixed(digest: testsDigest(node, in: directory)),
-            .expectedAPIReported(report.expectedAPI),
+            .runFinished(run: run, outcome: "acceptance tests committed"), .testsFixed(digest: testsDigest(node, in: directory))]
+            + (updatedOtherTests.isEmpty ? [] : [.otherTestsUpdated(
+                files: updatedOtherTests, digest: Hashing.digest(ofFiles: updatedOtherTests, in: directory))])
+            + [.expectedAPIReported(report.expectedAPI),
             .assumptionsReported(role: .testAuthor, assumptions: assumptions), .phaseChanged(to: .ready)]
             + (review ? [.flagSet(.needsInput, reason: reviewReason)] : []))
         let reviewNote = review ? """
@@ -104,9 +114,35 @@ extension Reconciler {
             """ : ""
         await tracker.comment(on: node.ticket, """
             🧪 Acceptance tests written on branch \(workspace.branch(for: node.id)):
-            \(Self.testListing(testFiles, in: directory))\(Self.assumptionsNote("Assumptions this work rests on", await ledger.workingState().assumptions(for: node.id)))\(reviewNote)
+            \(Self.testListing(testFiles, in: directory))\(Self.updatedTestsNote(updatedOtherTests))\(Self.assumptionsNote("Assumptions this work rests on", await ledger.workingState().assumptions(for: node.id)))\(reviewNote)
             """)
         return "\(node.displayName) acceptance tests written on branch \(workspace.branch(for: node.id)) → " + (review ? "waiting for review" : "Ready")
+    }
+
+    /// Files the test author says it updated in other work's tests: only test files of the test area, never
+    /// protected ones. Anything else it changed is thrown away.
+    private func updatableOtherTests(_ files: [String], of node: NodeState) -> [String] {
+        let own = workspace.testFolder(for: node.spec)
+        let area = workspace.testArea
+        let candidates = Set(files.map { (file: String) -> String in
+            var file = file
+            while file.hasPrefix("./") { file.removeFirst(2) }
+            while file.hasSuffix("/") { file.removeLast() }
+            return file
+        }).filter { (file: String) -> Bool in
+            // Something inside the test area, never the whole area, the own folder or a folder holding it.
+            !area.isEmpty && file.hasPrefix(area) && file.count > area.count
+                && file != own && !file.hasPrefix(own + "/") && !own.hasPrefix(file + "/")
+                && !file.split(separator: "/").contains("..")
+        }
+        let protected = Set(policy.protectedPathViolations(Array(candidates)))
+        return candidates.subtracting(protected).sorted()
+    }
+
+    static func updatedTestsNote(_ files: [String]) -> String {
+        guard !files.isEmpty else { return "" }
+        return "\n\nOther work's tests updated because this ticket deliberately changes what they check:\n"
+            + files.map { "- \($0)" }.joined(separator: "\n")
     }
 
     /// Tests that came back (review findings, compiler errors, a broken-test report) are fixed in place rather

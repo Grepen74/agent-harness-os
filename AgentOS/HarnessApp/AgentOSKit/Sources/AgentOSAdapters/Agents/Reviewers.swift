@@ -76,7 +76,10 @@ public struct CopilotReviewer: Reviewer {
         or pass without the requirement being met. Check the tests against every ticket criterion
         they can prove.
         The test author may only test behaviour through APIs, never source text, and may only change files in
-        its test folder: no new test targets, package manifests or build settings. Criteria that only source
+        its test folder: no new test targets, package manifests or build settings. The one exception: it may
+        update other work's existing tests where a criterion of this ticket deliberately changes what they check.
+        At the acceptanceTests stage, make a finding for every change to another test that no criterion requires,
+        or that goes further than the criterion needs (deleting a test instead of updating what it expects, say). Criteria that only source
         text or build setup can show (file layout, code moved unchanged, file sizes, access levels, build or
         target settings) are checked at the change stage against the diff, never at the acceptanceTests stage:
         don't make findings at the acceptanceTests stage for tests missing them. At the change stage, check

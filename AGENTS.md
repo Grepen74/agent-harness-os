@@ -38,7 +38,9 @@ New tracker, workspace or agent behaviour starts as a protocol in `AgentOSCore`,
 - Human-facing text (tracker comments, rejections, next-step hints, statuses) must say what happened and
   what the human can do next, with the signal label to use (for example `harness:retry`).
 - Statuses shown to people come from `WorkingState.status(of:)`. Don't make up status words in the UI.
-- An implementer must never edit another node's acceptance tests to make its own change pass.
+- An implementer must never edit another node's acceptance tests to make its own change pass. Only the test
+  author may update one, where the ticket's criteria deliberately change what it checks; it lists the file
+  in `updatedTests` and the reviewer checks the change.
 
 ## Tests
 

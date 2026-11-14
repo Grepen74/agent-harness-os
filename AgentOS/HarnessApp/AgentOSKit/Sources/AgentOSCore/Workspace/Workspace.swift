@@ -31,18 +31,18 @@ public protocol Workspace: Sendable {
     func worktree(for id: NodeID) -> URL
     /// A fresh branch from the latest `main`, checked out in the leaf's own working copy.
     func createWorktree(for id: NodeID) async throws -> URL
-    /// Like `createWorktree(for:)`, but `folder` holds what the leaf's branch last had there: tests that came back
-    /// are fixed where they are, not rewritten from nothing.
-    func createWorktree(for id: NodeID, keeping folder: String) async throws -> URL
+    /// Like `createWorktree(for:)`, but `paths` (folders or files) hold what the leaf's branch last had there:
+    /// tests that came back are fixed where they are, not rewritten from nothing.
+    func createWorktree(for id: NodeID, keeping paths: [String]) async throws -> URL
     func removeWorktree(for id: NodeID) async throws
 
     /// Commits everything in the working copy as the given run. Returns the new commit, or nil if nothing changed.
     @discardableResult
     func commitAll(in directory: URL, message: String, author: String) async throws -> String?
-    /// Puts everything outside `folder` back as the last commit has it: changes undone, new files removed. Files
-    /// git ignores, such as build output, stay. The test author builds its tests against placeholder code this
-    /// throws away.
-    func discardChanges(outside folder: String, in directory: URL) async throws
+    /// Puts everything except `paths` (folders or files) back as the last commit has it: changes undone, new files
+    /// removed. Files git ignores, such as build output, stay. The test author builds its tests against
+    /// placeholder code this throws away.
+    func discardChanges(keeping paths: [String], in directory: URL) async throws
     func head(of directory: URL) async throws -> String
     /// Every file this branch changed since it left `main`, relative to the repo's top folder.
     func changedFiles(in directory: URL) async throws -> [String]
@@ -80,8 +80,8 @@ public protocol Workspace: Sendable {
 }
 
 public extension Workspace {
-    func createWorktree(for id: NodeID, keeping folder: String) async throws -> URL { try await createWorktree(for: id) }
-    func discardChanges(outside folder: String, in directory: URL) async throws {}
+    func createWorktree(for id: NodeID, keeping paths: [String]) async throws -> URL { try await createWorktree(for: id) }
+    func discardChanges(keeping paths: [String], in directory: URL) async throws {}
 }
 
 extension Workspace {

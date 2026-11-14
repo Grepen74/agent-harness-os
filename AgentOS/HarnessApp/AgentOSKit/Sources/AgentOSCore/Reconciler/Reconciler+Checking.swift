@@ -89,14 +89,22 @@ extension Reconciler {
 
     /// Acceptance tests are locked: the node's own must match their fingerprint, and the branch may not touch
     /// any other node's tests (the implementer must never "fix" a conflict by editing someone else's tests),
-    /// nor any protected path (e.g. the agents' own instructions).
+    /// nor any protected path (e.g. the agents' own instructions). The only exception: other work's tests the
+    /// test author updated with the acceptance tests, locked by their own fingerprint.
     func protectedTestsViolation(_ node: NodeState, in directory: URL) async throws -> String? {
         if testsDigest(node, in: directory) != node.testsDigest {
             return "Acceptance tests were changed after they were fixed (not allowed)"
         }
+        if !node.updatedOtherTests.isEmpty,
+           Hashing.digest(ofFiles: node.updatedOtherTests, in: directory) != node.updatedOtherTestsDigest {
+            return "Other work's tests the acceptance tests updated were changed afterwards (not allowed): "
+                + node.updatedOtherTests.joined(separator: ", ")
+        }
         let changed = try await workspace.changedFiles(in: directory)
         let own = workspace.testFolder(for: node.spec) + "/"
-        let others = changed.filter { $0.hasPrefix(workspace.testArea) && !$0.hasPrefix(own) }
+        let others = changed.filter {
+            $0.hasPrefix(workspace.testArea) && !$0.hasPrefix(own) && !node.updatedOtherTests.contains($0)
+        }
         if !others.isEmpty { return "Changed other nodes' tests (not allowed): \(others.joined(separator: ", "))" }
         let protected = policy.protectedPathViolations(changed)
         return protected.isEmpty ? nil : "Changed protected files (not allowed): \(protected.joined(separator: ", "))"

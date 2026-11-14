@@ -116,19 +116,24 @@ public struct AgentReport: Codable, Sendable, Hashable {
     public var brokenTest: BrokenTestReport?
     /// The implementer found the tests already pass without changes, e.g. because other work delivered it.
     public var alreadySatisfied: Bool
+    /// Other work's test files the test author changed because this item's criteria deliberately change what they
+    /// check. Only these are kept besides its own tests; the reviewer checks each change.
+    public var updatedTests: [String]
 
     public init(
         questions: [AgentQuestion] = [],
         assumptions: [String] = [],
         expectedAPI: [String] = [],
         brokenTest: BrokenTestReport? = nil,
-        alreadySatisfied: Bool = false
+        alreadySatisfied: Bool = false,
+        updatedTests: [String] = []
     ) {
         self.questions = questions
         self.assumptions = assumptions
         self.expectedAPI = expectedAPI
         self.brokenTest = brokenTest
         self.alreadySatisfied = alreadySatisfied
+        self.updatedTests = updatedTests
     }
 
     public init(from decoder: any Decoder) throws {
@@ -138,6 +143,7 @@ public struct AgentReport: Codable, Sendable, Hashable {
         expectedAPI = try container.decodeIfPresent([String].self, forKey: .expectedAPI) ?? []
         brokenTest = try container.decodeIfPresent(BrokenTestReport.self, forKey: .brokenTest)
         alreadySatisfied = try container.decodeIfPresent(Bool.self, forKey: .alreadySatisfied) ?? false
+        updatedTests = try container.decodeIfPresent([String].self, forKey: .updatedTests) ?? []
     }
 }
 

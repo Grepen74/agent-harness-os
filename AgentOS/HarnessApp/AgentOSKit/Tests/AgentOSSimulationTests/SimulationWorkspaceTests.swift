@@ -20,7 +20,7 @@ struct SimulationWorkspaceTests {
         try write("README.md", "placeholder\n")
         try write("Package.swift")
 
-        try await workspace.discardChanges(outside: "Tests/WN1Tests/", in: directory)
+        try await workspace.discardChanges(keeping: ["Tests/WN1Tests/"], in: directory)
 
         func exists(_ path: String) -> Bool { FileManager.default.fileExists(atPath: directory.appending(path: path).path) }
         #expect(exists("Tests/WN1Tests/WN1Tests.swift"))

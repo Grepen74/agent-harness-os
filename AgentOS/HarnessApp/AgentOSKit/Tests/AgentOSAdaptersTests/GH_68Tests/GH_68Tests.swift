@@ -175,7 +175,11 @@ import Testing
     func reworkedBrokenTestsWaitForAPersonUnlessThatPersonResetThisNode(reset: BrokenReportReset) async throws {
         var history = [
             Self.event(.brokenTestReported(.init(testName: "GH_68Tests.original", reason: "original conflict"))),
+            Self.event(.brokenTestRouted(testName: "GH_68Tests.original", outcome: .sentBackToTestAuthor)),
             Self.event(.testsFixed(digest: "rewritten-tests")),
+            Self.event(.brokenTestReported(.init(testName: "GH_68Tests.second", reason: "second conflict"))),
+            Self.event(.brokenTestRouted(testName: "GH_68Tests.second", outcome: .sentBackToTestAuthor)),
+            Self.event(.testsFixed(digest: "rewritten-again")),
             Self.event(.attemptsReset, node: Self.other, by: .human("Alice")),
         ]
         if let kind = reset.kind { history.append(Self.event(kind, by: .human("Alice"))) }
@@ -197,7 +201,8 @@ import Testing
             if case .brokenTestRouted(_, let outcome) = record.event.kind { return outcome }
             return nil
         }
-        #expect(routes == [reset == .none ? .waitingForPerson : .sentBackToTestAuthor])
+        #expect(routes.count == 3)
+        #expect(routes.last == (reset == .none ? .waitingForPerson : .sentBackToTestAuthor))
         #expect(await fixture.tracker.comments().contains {
             $0.contains(reset == .none ? "original conflict" : "sent back to the test author")
         })

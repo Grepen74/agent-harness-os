@@ -30,47 +30,41 @@ extension Reconciler {
         try await workspace.resetForRework(directory)
         let finished = EventKind.runFinished(run: run, outcome: "reported a broken test: \(report.testName)")
 
-        // Not one of this ticket's acceptance tests: neither agent may change it, so only a person can decide.
-        if !isOwnTest(report.testName, of: node) {
-            let reason = """
-            \(report.testName) isn't one of this ticket's acceptance tests, so neither the implementer nor the test \
-            author may change it. Its expectations conflict with this ticket:
-            \(report.reason)
-            Next: if that test is out of date, change it on the default branch and commit; once the harness has \
-            caught up, add harness:retry. Otherwise comment how to proceed, then add harness:retry.
-            """
+        let earlier = await brokenReportsSentBackSincePersonSteppedIn(node.id)
+        let isOther = !isOwnTest(report.testName, of: node)
+        guard earlier.count < Self.automaticTestReturns else {
+            let history = (earlier.map { "Earlier: \($0.testName): \($0.reason)" }
+                + ["Now: \(report.testName): \(report.reason)"]).joined(separator: "\n")
+            let reason = isOther ? """
+                \(report.testName) isn't one of this ticket's acceptance tests. Its expectations conflict with this \
+                ticket, and the test author couldn't settle it in \(earlier.count) tries (it may only update another \
+                item's test where this ticket's criteria deliberately change what that test checks):
+                \(history)
+                Next: if that test is out of date, change it on the default branch and commit; once the harness has \
+                caught up, add harness:retry. Otherwise comment how to proceed, then add harness:retry.
+                """ : """
+                The test author already reworked these tests \(earlier.count) times after broken-test reports:
+                \(history)
+                Next: review the reports, comment with guidance, then add harness:retry. To have the tests written \
+                again from scratch, add harness:retest instead.
+                """
             try await write(node.id, by: author, [
                 finished,
                 .brokenTestReported(report),
-                .brokenTestRouted(testName: report.testName, outcome: .otherTestWaitingForPerson),
+                .brokenTestRouted(testName: report.testName, outcome: isOther ? .otherTestWaitingForPerson : .waitingForPerson),
                 .phaseChanged(to: .ready),
                 .flagSet(.needsInput, reason: reason),
             ])
-            await tracker.comment(on: node.ticket, "\(Self.needsInputMarker): another test conflicts with this ticket.\n\(reason)")
-            return "\(node.ticket) conflicts with \(report.testName) → waiting for a person"
-        }
-
-        if let previous = await brokenReportTheTestsWereAlreadyReworkedFor(node.id) {
-            let reason = """
-            The test author already reworked these tests after a broken-test report:
-            Earlier: \(previous.testName): \(previous.reason)
-            Now: \(report.testName): \(report.reason)
-            Next: review both reports, comment with guidance, then add harness:retry. To have the tests written \
-            again from scratch, add harness:retest instead.
-            """
-            try await write(node.id, by: author, [
-                finished,
-                .brokenTestReported(report),
-                .brokenTestRouted(testName: report.testName, outcome: .waitingForPerson),
-                .phaseChanged(to: .ready),
-                .flagSet(.needsInput, reason: reason),
-            ])
-            await tracker.comment(on: node.ticket, """
+            await tracker.comment(on: node.ticket, isOther
+                ? "\(Self.needsInputMarker): another test conflicts with this ticket.\n\(reason)"
+                : """
                 \(Self.needsInputMarker): broken acceptance test \(report.testName): \(report.reason)
                 waiting for a person: the test author already reworked these tests.
                 \(reason)
                 """)
-            return "\(node.displayName) broken test \(report.testName) → waiting for a person"
+            return isOther
+                ? "\(node.ticket) conflicts with \(report.testName) → waiting for a person"
+                : "\(node.displayName) broken test \(report.testName) → waiting for a person"
         }
 
         try await write(node.id, by: author, [
@@ -79,9 +73,13 @@ extension Reconciler {
             .brokenTestRouted(testName: report.testName, outcome: .sentBackToTestAuthor),
             .phaseChanged(to: .specified),
         ])
+        let otherNote = isOther
+            ? "\nIt isn't one of this ticket's tests: the test author may update it only where this ticket's criteria "
+                + "deliberately change what it checks."
+            : ""
         await tracker.comment(on: node.ticket, """
             🔁 Broken acceptance test \(report.testName): \(report.reason)
-            sent back to the test author.
+            sent back to the test author.\(otherNote)
             """)
         return "\(node.displayName) broken test \(report.testName) → sent back to the test author"
     }
@@ -97,22 +95,15 @@ extension Reconciler {
         return leading == suite
     }
 
-    /// The broken-test report the current tests were rewritten for, unless a person stepped in since then
-    /// (an answer, a retry, a retest). Nil means the test author hasn't had a chance to fix a report yet.
-    private func brokenReportTheTestsWereAlreadyReworkedFor(_ id: NodeID) async -> BrokenTestReport? {
+    /// How often broken-test reports go back to the test author before a person is asked: one rewrite can fix a
+    /// test and still leave another one broken, so the second try is worth more than a person's wait.
+    static let automaticTestReturns = 2
+
+    /// The broken-test reports sent back to the test author since a person last stepped in (an answer, a retry,
+    /// a retest), oldest first.
+    private func brokenReportsSentBackSincePersonSteppedIn(_ id: NodeID) async -> [BrokenTestReport] {
         let records = await ledger.records(for: id)
-        guard let testsFixed = records.last(where: {
-            if case .testsFixed = $0.event.kind { return true }
-            return false
-        }), let previousRecord = records.last(where: {
-            guard $0.position < testsFixed.position else { return false }
-            if case .brokenTestReported = $0.event.kind { return true }
-            return false
-        }), case .brokenTestReported(let previous) = previousRecord.event.kind else {
-            return nil
-        }
-        let personSteppedIn = records.contains {
-            guard $0.position > previousRecord.position else { return false }
+        let steppedIn = records.lastIndex {
             guard case .human = $0.event.by else { return false }
             switch $0.event.kind {
             case .questionsAnswered, .attemptsReset:
@@ -123,6 +114,15 @@ extension Reconciler {
                 return false
             }
         }
-        return personSteppedIn ? nil : previous
+        var reports: [BrokenTestReport] = []
+        var latest: BrokenTestReport?
+        for record in records[(steppedIn.map { $0 + 1 } ?? 0)...] {
+            switch record.event.kind {
+            case .brokenTestReported(let report): latest = report
+            case .brokenTestRouted(_, .sentBackToTestAuthor): if let latest { reports.append(latest) }
+            default: continue
+            }
+        }
+        return reports
     }
 }

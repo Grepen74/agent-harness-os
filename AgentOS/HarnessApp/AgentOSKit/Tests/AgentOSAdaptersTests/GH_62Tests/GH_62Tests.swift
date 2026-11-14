@@ -124,22 +124,23 @@ import AgentOSCore
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func anotherSuitesBrokenTestWaitsForAPersonInsteadOfBeingRewritten() async throws {
+    func anotherSuitesBrokenTestGoesToTheTestAuthorWithItsName() async throws {
         let fixture = try Fixture(brokenTest: BrokenTestReport(
             testName: "OtherTests.greeting", reason: "An existing requirement disagrees."
         ))
         defer { fixture.removeFiles() }
         await fixture.tracker.request(.go)
-        let state = try await fixture.until { $0.node(forTicket: "GH-62")?.flags[.needsInput] != nil }
+        let state = try await fixture.until { $0.node(forTicket: "GH-62")?.phase == .proven }
         let leaf = try #require(state.node(forTicket: "GH-62"))
 
-        #expect(leaf.phase == .ready)
-        #expect(leaf.flags[.needsInput]?.contains("OtherTests.greeting") == true)
-        #expect(leaf.flags[.needsInput]?.contains("harness:retry") == true)
-        #expect(await fixture.author.calls == 1)
-        #expect(await fixture.workspace.landed.isEmpty)
+        #expect(leaf.flags[.needsInput] == nil)
+        #expect(await fixture.author.calls == 2)
+        // The test author doesn't know other work's tests, so the feedback names it.
+        #expect(await fixture.author.feedback.contains {
+            $0?.contains("OtherTests.greeting: An existing requirement disagrees.") == true
+        })
         #expect(await fixture.tracker.comments.contains {
-            $0.text.contains("neither the implementer nor the test author may change it")
+            $0.text.contains("sent back to the test author") && $0.text.contains("isn't one of this ticket's tests")
         })
     }
 
