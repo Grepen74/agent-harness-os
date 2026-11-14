@@ -488,6 +488,26 @@ struct GH_28Tests {
     }
 
     @Test
+    func testsThatDontCompileGoBackToTheirAuthorBeforeTheReviewUsesARound() async throws {
+        let mistake = CompilerDiagnostic(file: "Tests/GH_28Tests/GH_28Tests.swift", line: 6,
+                                         message: "Attribute 'Test' cannot be applied to a function within function 'a()'",
+                                         classification: .testAuthorMistake)
+        let fixture = try await Fixture(preflight: QueuedPreflight([.diagnostics([mistake], fullLog: "")]))
+        defer { fixture.cleanUp() }
+        try await fixture.advanceUntil { await fixture.workspace.landedCount == 1 }
+        #expect(await fixture.author.tasks.count == 2)
+        #expect(await fixture.reviewer.requests.filter { $0.stage == .acceptanceTests }.count == 1)
+    }
+
+    actor QueuedPreflight: AcceptanceTestPreflight {
+        private var results: [AcceptanceTestPreflightResult]
+        init(_ results: [AcceptanceTestPreflightResult]) { self.results = results }
+        func compileTests(in directory: URL, testFolder: String, expectedAPI: [String]) async -> AcceptanceTestPreflightResult {
+            results.isEmpty ? .compiled : results.removeFirst()
+        }
+    }
+
+    @Test
     func afterARetestOnlyReviewsOfTheNewWorkCountTowardsMaxRounds() async throws {
         let old = ["The old test pins scheduling order.", "The old test sleeps."]
         let testFinding = "The new test skips the waiting branch."
@@ -741,7 +761,8 @@ private extension GH_28Tests {
             testSource: String = "@Test func windowRemainsUsable() { /* exercise real window */ }",
             testResults: [ReviewResult] = [], changeResults: [ReviewResult] = [],
             builderReports: [AgentReport] = [],
-            ui: Bool = false, evidence: UIReviewEvidence? = nil, checksPass: Bool = true
+            ui: Bool = false, evidence: UIReviewEvidence? = nil, checksPass: Bool = true,
+            preflight: any AcceptanceTestPreflight = SkippedAcceptanceTestPreflight()
         ) async throws {
             directory = FileManager.default.temporaryDirectory.appending(path: "agentos-gh28-\(UUID().uuidString)")
             try FileManager.default.createDirectory(at: directory.appending(path: ".agentos"), withIntermediateDirectories: true)
@@ -764,7 +785,8 @@ private extension GH_28Tests {
             team.reviewer = reviewer
             reconciler = Reconciler(
                 ledger: ledger, tracker: tracker, external: Services(), workspace: workspace,
-                artifacts: Services(), checks: checks, team: team, policy: policy
+                artifacts: Services(), checks: checks, team: team, policy: policy,
+                acceptanceTestPreflight: preflight
             )
             try await ledger.append([
                 LedgerEvent(node: Self.spec.id, by: .human("Alice"), kind: .nodeCreated(spec: Self.spec, ticket: "GH-28")),

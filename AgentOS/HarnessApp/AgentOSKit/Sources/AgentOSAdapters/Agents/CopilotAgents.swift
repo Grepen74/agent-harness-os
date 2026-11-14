@@ -394,8 +394,9 @@ public struct CopilotTestAuthor: TestAuthor {
         let suite = task.spec.testTarget
         // Set when earlier work came back: an implementer's broken-test report, compiler errors or a failed attempt.
         let feedback = task.previousFailure.map {
-            "\n\nEarlier work on this item ran into the problem below. If it lies in the acceptance tests, write " +
-            "them so it can't happen again:\n\($0)"
+            "\n\nEarlier work on this item ran into the problem below. If it lies in the acceptance tests, fix it " +
+            "with the smallest change that does, and leave the rest of the tests as they are: you can't compile " +
+            "them, so every line you rewrite risks a new mistake:\n\($0)"
         } ?? ""
         return """
         You are the test author agent in an agent harness. \(task.context)
@@ -411,7 +412,9 @@ public struct CopilotTestAuthor: TestAuthor {
         explicit signals with a timeout instead. Other work will change timing and scheduling later, and \
         your tests must still hold. Test lasting behaviour, not this item's scope: never pin files by checksum \
         or assert that unrelated files stay unchanged, because that blocks every later change to them. \
-        Only create or change files under \(task.testFolder)/, plus the report below. \
+        Only create or change files under \(task.testFolder)/, plus the report below. Name any other file you add \
+        after the suite (e.g. \(suite)Support.swift): files in one test target need unique names, even in different \
+        folders. \
         Do not run the tests. The tests must compile once the API they expect exists: other test files share the \
         same test target, so make helper types and functions `private` or nest them in the suite, and qualify a \
         name with its module when more than one imported module declares it (e.g. a type that Testing also has).\(feedback)

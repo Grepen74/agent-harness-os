@@ -56,6 +56,40 @@ struct AcceptanceTestFeedbackTests {
         #expect(result.diagnostics.map(\.classification) == [.expected, .expected, .testAuthorMistake])
     }
 
+    @Test func aTestNestedInAnotherTestIsTheTestsOwnMistake() throws {
+        let root = try tempRoot()
+        let file = root.appending(path: "Tests/GH_1Tests/GH_1Tests.swift").path
+        let log = "\(file):6:5: error: Attribute 'Test' cannot be applied to a function within function 'outer()' (from macro 'Test ')"
+
+        let result = SwiftAcceptanceTestPreflight.classify(log: log, in: root, testFolder: "Tests/GH_1Tests", expectedAPI: [])
+
+        #expect(result.diagnostics.map(\.classification) == [.testAuthorMistake])
+    }
+
+    @Test func aFileNamedLikeAnotherInTheTargetIsTheTestsOwnMistakeOnlyWhenItIsTheirs() throws {
+        let root = try tempRoot()
+        let target = root.appending(path: "Kit/Tests/KitTests")
+        for folder in ["GH_1Tests", "GH_2Tests", "GH_3Tests"] {
+            try FileManager.default.createDirectory(at: target.appending(path: folder), withIntermediateDirectories: true)
+        }
+        try "// swift-tools-version:6.0".write(to: root.appending(path: "Kit/Package.swift"), atomically: true, encoding: .utf8)
+        for file in ["GH_1Tests/Support.swift", "GH_2Tests/Support.swift", "GH_2Tests/Helpers.swift", "GH_3Tests/Helpers.swift"] {
+            try "import Testing".write(to: target.appending(path: file), atomically: true, encoding: .utf8)
+        }
+        let log = ["Support", "Helpers"].map {
+            "error: couldn't build \(root.path)/Kit/.build/debug/KitTests.build/\($0).swift.o because of multiple producers: "
+                + "Compiling Swift Module 'KitTests' (4 sources), Compiling Swift Module 'KitTests' (4 sources)"
+        }.joined(separator: "\n")
+
+        let result = SwiftAcceptanceTestPreflight.classify(log: log, in: root, testFolder: "Kit/Tests/KitTests/GH_1Tests",
+                                                           expectedAPI: [])
+
+        let mistake = try #require(result.testAuthorMistakes.first)
+        #expect(result.diagnostics.count == 1)
+        #expect(mistake.file == "Kit/Tests/KitTests/GH_1Tests/Support.swift")
+        #expect(mistake.message.contains("Kit/Tests/KitTests/GH_2Tests/Support.swift"))
+    }
+
     @Test func theTestAuthorIsToldWhyItsTestsCameBack() {
         let directory = URL(filePath: "/worktrees/wn-GH-1", directoryHint: .isDirectory)
         let spec = NodeSpec(id: "wn-GH-1", parent: nil, kind: .leaf, title: "Greeting", intent: "Say hi",
@@ -71,6 +105,7 @@ struct AcceptanceTestFeedbackTests {
         #expect(prompt.contains("Earlier work on this item"))
         #expect(prompt.contains("'Comment' is ambiguous between AgentOSCore.Comment and Testing.Comment"))
         #expect(prompt.contains("`private`"))
+        #expect(prompt.contains("smallest change"))
     }
 
     @Test(arguments: Guesswork.allCases)

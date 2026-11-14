@@ -239,6 +239,10 @@ The strictest level among the overall policy and every declared or actually chan
 A lower repo level, including an area below the overall level, is a start blocker. The effective
 Review level and Reviewer rows each retain their own harness/repo source.
 
+Before the acceptance-test review, a Swift package's tests are compiled. Errors only the tests can cause (syntax, clashing
+names, a test nested in another test, a file named like another in the same test target) send them back to
+the test author without using a review round; errors from API that doesn't exist yet are expected. On such
+a return the test author is told to make the smallest fix, because it can't compile its tests itself.
 The reviewer checks authored acceptance tests against the ticket before implementation starts. Weak
 tests return to their author with findings. Criteria that behavioural tests in the test folder can't
 prove (file layout, code moved unchanged, access levels, build settings) aren't held against the tests;

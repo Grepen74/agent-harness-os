@@ -62,7 +62,42 @@ public struct SwiftAcceptanceTestPreflight: AcceptanceTestPreflight {
                 classification: classification
             )
         }
-        return Classification(diagnostics: diagnostics)
+        return Classification(diagnostics: diagnostics + sameNamedFiles(in: log, root: root, testFolder: testFolder))
+    }
+
+    /// SwiftPM names each object file after its source file, so two same-named files in one target stop the whole
+    /// build ("multiple producers") without pointing at a source line. When one of them is the tests' own, renaming
+    /// it is the test author's job.
+    private static func sameNamedFiles(in log: String, root: URL, testFolder: String) -> [CompilerDiagnostic] {
+        guard let regex = try? NSRegularExpression(pattern: #"couldn't build .*/([^/]+\.swift)\.o because of multiple producers"#)
+        else { return [] }
+        let names = Set(regex.matches(in: log, range: NSRange(log.startIndex..., in: log)).compactMap {
+            Range($0.range(at: 1), in: log).map { String(log[$0]) }
+        })
+        guard !names.isEmpty else { return [] }
+        let package = packageRoot(for: testFolder, in: root) ?? root
+        let prefix = root.standardizedFileURL.path + "/"
+        var found: [String: [String]] = [:]
+        if let enumerator = FileManager.default.enumerator(at: package.appending(path: "Tests"),
+                                                           includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
+            for case let file as URL in enumerator where names.contains(file.lastPathComponent) {
+                let path = file.standardizedFileURL.path
+                found[file.lastPathComponent, default: []].append(path.hasPrefix(prefix) ? String(path.dropFirst(prefix.count)) : path)
+            }
+        }
+        let own = testFolder + "/"
+        return names.sorted().flatMap { name -> [CompilerDiagnostic] in
+            let paths = (found[name] ?? []).sorted()
+            return paths.filter { $0.hasPrefix(own) }.map { path in
+                CompilerDiagnostic(
+                    file: path, line: 1,
+                    message: "another file in the same test target is also named \(name) ("
+                        + paths.filter { $0 != path }.joined(separator: ", ")
+                        + "), so the target can't build. Rename yours to a name unique to this work item, "
+                        + "e.g. prefixed with the suite name",
+                    classification: .testAuthorMistake)
+            }
+        }
     }
 
     /// The Swift package the test folder belongs to: the nearest folder at or above it, within the working copy,
@@ -103,7 +138,7 @@ public struct SwiftAcceptanceTestPreflight: AcceptanceTestPreflight {
         testFolder: String,
         expectedAPI: [String]
     ) -> CompilerDiagnosticClassification {
-        if isSyntaxError(message) || isOwnNamingMistake(message) { return .testAuthorMistake }
+        if isSyntaxError(message) || isOwnNamingMistake(message) || isMisplacedTest(message) { return .testAuthorMistake }
 
         let quoted = quotedSymbols(in: message)
         let member = memberReference(in: message)
@@ -146,6 +181,11 @@ public struct SwiftAcceptanceTestPreflight: AcceptanceTestPreflight {
     /// Names that clash with existing ones: missing code can't cause these, so the tests themselves are wrong.
     private static func isOwnNamingMistake(_ message: String) -> Bool {
         ["is ambiguous for type lookup", "ambiguous use of '", "invalid redeclaration of '"].contains { message.contains($0) }
+    }
+
+    /// A test declared where Swift Testing can't run it, e.g. nested in another test by a misplaced brace.
+    private static func isMisplacedTest(_ message: String) -> Bool {
+        message.contains("Attribute 'Test' cannot be applied") || message.contains("Attribute 'Suite' cannot be applied")
     }
 
     private static func matchesMissingProductionAPIPattern(_ message: String) -> Bool {

@@ -46,16 +46,7 @@ extension Reconciler {
             return "\(node.displayName) test authoring failed → escalated"
         }
 
-        if team.reviewer != nil, policy.review.requiresReview {
-            let context = try await workspace.reviewContext(in: directory, against: policy.review.baseBranch)
-            if policy.review.level(for: node.spec.touches + context.changedFiles) != .none {
-                let result = try await review(node, stage: .acceptanceTests, context: context, in: directory, run: run)
-                if !result.passed {
-                    return try await returnReviewFindings(result, stage: .acceptanceTests, node: node, run: run)
-                }
-            }
-        }
-
+        // Before the review: tests that can't compile come straight back, without using up a review round.
         let preflight = await acceptanceTestPreflight.compileTests(
             in: directory,
             testFolder: workspace.testFolder(for: node.spec),
@@ -76,6 +67,16 @@ extension Reconciler {
                 author: author,
                 directory: directory
             )
+        }
+
+        if team.reviewer != nil, policy.review.requiresReview {
+            let context = try await workspace.reviewContext(in: directory, against: policy.review.baseBranch)
+            if policy.review.level(for: node.spec.touches + context.changedFiles) != .none {
+                let result = try await review(node, stage: .acceptanceTests, context: context, in: directory, run: run)
+                if !result.passed {
+                    return try await returnReviewFindings(result, stage: .acceptanceTests, node: node, run: run)
+                }
+            }
         }
 
         // Under "assume and report", a leaf whose work rests on assumptions waits for a person to see its tests,
