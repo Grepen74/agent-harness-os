@@ -101,7 +101,7 @@ public actor Reconciler {
     public func runRound(waitForAgents: Bool) async -> RoundReport {
         var report = RoundReport()
         guard shutdownReason == nil, !Task.isCancelled else { return finish(report) }
-        let chain = await ledger.verifyChain()
+        let chain = await ledger.verifyIncrementally()
         if let problem = chain.problem {
             report.safeStop = "Ledger integrity check failed at #\(problem.position): \(problem.reason). " +
                 "Safe stop: nothing will happen until a human investigates."

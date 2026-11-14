@@ -11,6 +11,8 @@ public protocol LedgerStore: Sendable {
     func loadAll() throws -> [RecordedEvent]
     /// Appends all records or none.
     func append(_ records: [RecordedEvent]) throws
+    /// Rechecks the prefix digest and returns only unverified records when supported.
+    func readForVerification(after checkpoint: LedgerStorageCheckpoint?) throws -> LedgerStorageRead
 }
 
 /// The local tracker's tickets, used when a repo has no tracker adapter (doc 03).
@@ -42,10 +44,30 @@ public struct StoredArtifact: Codable, Sendable, Hashable {
 
 /// Keeps records in memory only: for tests and throwaway runs.
 public final class InMemoryLedgerStore: LedgerStore {
-    private let records = Mutex<[RecordedEvent]>([])
+    private struct Storage {
+        var records: [RecordedEvent] = []
+        var bytes = Data()
+    }
+    private let storage = Mutex(Storage())
 
     public init() {}
 
-    public func loadAll() -> [RecordedEvent] { records.withLock { $0 } }
-    public func append(_ new: [RecordedEvent]) { records.withLock { $0 += new } }
+    public func loadAll() -> [RecordedEvent] { storage.withLock { $0.records } }
+    public func append(_ new: [RecordedEvent]) {
+        storage.withLock {
+            $0.records += new
+            $0.bytes.append(LedgerStorageRead.bytes(for: new))
+        }
+    }
+
+    public func readForVerification(after checkpoint: LedgerStorageCheckpoint?) throws -> LedgerStorageRead {
+        try storage.withLock {
+            try checkpoint?.validatePrefix(in: $0.bytes)
+            let start = checkpoint?.recordCount ?? 0
+            return LedgerStorageRead(
+                records: Array($0.records.dropFirst(start)), startPosition: start,
+                checkpoint: LedgerStorageCheckpoint(recordCount: $0.records.count, bytes: $0.bytes),
+                decodedRecords: 0)
+        }
+    }
 }

@@ -37,14 +37,17 @@ public actor Ledger {
     private var knownIDs: Set<UUID> = []
     private var state = WorkingState()
     private var subscribers: [UUID: AsyncStream<RecordedEvent>.Continuation] = [:]
+    private var verification = LedgerVerification()
 
     public init(store: any LedgerStore = InMemoryLedgerStore()) throws {
         self.store = store
-        for record in try store.loadAll() {
+        let stored = try store.readForVerification(after: nil)
+        for record in stored.records {
             records.append(record)
             knownIDs.insert(record.event.id)
             state.apply(record)
         }
+        _ = verification.check(stored, expectedCount: records.count)
     }
 
     // MARK: Reading
@@ -143,27 +146,25 @@ public actor Ledger {
     /// Re-reads every stored record and checks that each matches its hash and links to the one before.
     /// Production: also compare the last hash with an anchor stored outside the ledger (doc: `isIntact` discussion).
     public func verifyChain() -> ChainReport {
-        let stored: [RecordedEvent]
-        do { stored = try store.loadAll() } catch {
-            return ChainReport(checked: 0, problem: .init(position: -1, reason: "\(error)"))
+        do {
+            return verification.check(try store.readForVerification(after: nil), expectedCount: records.count)
+        } catch {
+            return verification.fail(reason: "\(error)")
         }
+    }
 
-        var previous: RecordedEvent?
-        for record in stored {
-            if !record.isIntact {
-                return ChainReport(checked: record.position, problem: .init(
-                    position: record.position, reason: "record content doesn't match its hash (changed after writing)"))
-            }
-            if !record.follows(previous) {
-                return ChainReport(checked: record.position, problem: .init(
-                    position: record.position, reason: "chain broken: record doesn't follow the one before"))
-            }
-            previous = record
+    public func verifyIncrementally() -> ChainReport {
+        if let failure = verification.failure { return failure }
+        do {
+            return verification.check(
+                try store.readForVerification(after: verification.checkpoint), expectedCount: records.count)
+        } catch {
+            return verification.fail(reason: "\(error)")
         }
-        if stored.count != records.count {
-            return ChainReport(checked: stored.count, problem: .init(
-                position: stored.count, reason: "\(records.count - stored.count) records missing from storage"))
-        }
-        return ChainReport(checked: stored.count, problem: nil)
+    }
+
+    public func verificationStatistics() -> LedgerVerificationStatistics {
+        LedgerVerificationStatistics(
+            decodedRecords: verification.decodedRecords, hashedRecords: verification.hashedRecords)
     }
 }

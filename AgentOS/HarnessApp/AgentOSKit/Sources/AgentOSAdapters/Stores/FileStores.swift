@@ -8,14 +8,29 @@ public struct FileLedgerStore: LedgerStore {
     public init(fileURL: URL) { self.fileURL = fileURL }
 
     public func loadAll() throws -> [RecordedEvent] {
-        guard FileManager.default.fileExists(atPath: fileURL.path) else { return [] }
-        let text = try String(contentsOf: fileURL, encoding: .utf8)
+        try readForVerification(after: nil).records
+    }
+
+    public func readForVerification(after checkpoint: LedgerStorageCheckpoint?) throws -> LedgerStorageRead {
+        let bytes: Data
+        if FileManager.default.fileExists(atPath: fileURL.path) {
+            bytes = try Data(contentsOf: fileURL)
+        } else {
+            bytes = Data()
+        }
+        try checkpoint?.validatePrefix(in: bytes)
+        let offset = checkpoint?.byteCount ?? 0
+        let start = checkpoint?.recordCount ?? 0
         let decoder = Hashing.decoder()
-        return try text.split(separator: "\n").enumerated().map { index, line in
-            do { return try decoder.decode(RecordedEvent.self, from: Data(line.utf8)) } catch {
-                throw LedgerError.unreadable("line \(index + 1): \(error)")
+        let records = try bytes.dropFirst(offset).split(separator: 0x0A).enumerated().map { index, line in
+            do { return try decoder.decode(RecordedEvent.self, from: Data(line)) } catch {
+                throw LedgerError.unreadable("line \(start + index + 1): \(error)")
             }
         }
+        return LedgerStorageRead(
+            records: records, startPosition: start,
+            checkpoint: LedgerStorageCheckpoint(recordCount: start + records.count, bytes: bytes),
+            decodedRecords: records.count)
     }
 
     public func append(_ records: [RecordedEvent]) throws {
