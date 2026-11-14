@@ -29,6 +29,9 @@ extension Reconciler {
                         expecting: node.version)
         let directory = workspace.worktree(for: node.id)
         do {
+            // Start from the latest landing branch, so work landed since the tests were written (a dependency's,
+            // say) is there to build on. On a conflict the branch stays as it was; the landing queue deals with it.
+            _ = try await workspace.rebaseOntoMain(directory)
             try await workspace.prepareBuild(in: directory)
             let task = await makeTask(node, run: run, in: directory, log: agentLog(node, run), for: .implementer)
             let implementationResult = try await withScratchDirectory(task.scratchDirectory) {

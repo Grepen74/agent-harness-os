@@ -359,7 +359,10 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
   `agentos/leaf/<node>`, started from the landing branch. The landing branch is created from the default
   branch the first time. Git runs with the harness's own exclude file, so build output is never committed
   even if the repo's `.gitignore` misses it. Uncommitted leftovers (e.g. a regenerated project file) are
-  discarded before a rebase or rework.
+  discarded before a rebase or rework. Every implementer run starts by rebasing the leaf onto the latest
+  landing branch: its tests may have been written long before, and work landed since (often a dependency
+  it waited for) must be there to build on. On a conflict the branch stays as it was and the landing queue
+  sends it to rework.
 - **Agents** get the repo's context in their prompt: the configured commands, where their tests go, and the
   protected paths. The test author may only add files in the leaf's own test folder; anything else fails
   the run.
