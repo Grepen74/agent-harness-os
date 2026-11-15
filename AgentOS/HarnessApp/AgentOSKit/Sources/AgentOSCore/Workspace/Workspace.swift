@@ -63,11 +63,25 @@ public protocol Workspace: Sendable {
     /// Keeps a failed implementer run's uncommitted changes (say, it ran out of time) outside the working copy,
     /// which the next run's rebase and catch-up clean. Returns the changed paths; empty when there were none.
     func saveUnfinishedWork(_ directory: URL, for id: NodeID) async throws -> [String]
-    /// Puts saved unfinished work back into the working copy, uncommitted. Returns its paths; empty when nothing
-    /// was saved or it no longer applies to the branch (then it's forgotten). It stays saved until the resumed
-    /// run ends: a failure saves over it, anything else forgets it. A new worktree forgets it too.
+    /// Puts saved unfinished work (or else a kept implementation) back into the working copy, uncommitted. Returns
+    /// its paths; empty when nothing was saved or it no longer applies to the branch (then it's forgotten). It stays
+    /// saved until the resumed run ends: a failure saves over it, anything else forgets it. A new worktree forgets
+    /// unfinished work too, but not a kept implementation.
     func restoreUnfinishedWork(for id: NodeID, in directory: URL) async throws -> [String]
     func forgetUnfinishedWork(for id: NodeID) async throws
+    /// Keeps the branch's implementation (everything after its acceptance-tests commit) before the tests go back to
+    /// the test author. New worktrees don't forget it; the next implementer run gets it back as unfinished work
+    /// when there is none of its own. Returns its paths; empty when there was no implementation.
+    func keepImplementation(_ directory: URL, for id: NodeID) async throws -> [String]
+    /// Keeps a failed test-author run's uncommitted changes (its tests, placeholders, kept earlier tests) outside
+    /// the working copy. Unlike unfinished work, a new or removed worktree doesn't forget it: the next test-author
+    /// run starts from a fresh worktree and puts the draft back. Returns the changed paths; empty when there were none.
+    func saveTestDraft(_ directory: URL, for id: NodeID) async throws -> [String]
+    /// Puts a saved test draft back into the working copy, uncommitted, and returns its paths. When it no longer
+    /// applies as a whole (the landing branch changed under it), only its files in the test area come back.
+    /// Empty when nothing was saved.
+    func restoreTestDraft(for id: NodeID, in directory: URL) async throws -> [String]
+    func forgetTestDraft(for id: NodeID) async throws
     /// Moves `main` to the leaf's (already rebased and checked) branch. Returns the new `main`.
     func landOnMain(_ id: NodeID) async throws -> String
 
@@ -93,6 +107,10 @@ public extension Workspace {
     func saveUnfinishedWork(_ directory: URL, for id: NodeID) async throws -> [String] { [] }
     func restoreUnfinishedWork(for id: NodeID, in directory: URL) async throws -> [String] { [] }
     func forgetUnfinishedWork(for id: NodeID) async throws {}
+    func keepImplementation(_ directory: URL, for id: NodeID) async throws -> [String] { [] }
+    func saveTestDraft(_ directory: URL, for id: NodeID) async throws -> [String] { [] }
+    func restoreTestDraft(for id: NodeID, in directory: URL) async throws -> [String] { [] }
+    func forgetTestDraft(for id: NodeID) async throws {}
 }
 
 extension Workspace {

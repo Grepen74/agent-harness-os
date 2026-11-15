@@ -428,8 +428,8 @@ struct GH_30_1Tests {
             _ = try await team.testAuthor.writeAcceptanceTests(task)
         case .implementer:
             _ = try await team.implementer.implement(task)
-        case .verifier:
-            throw AgentFailure("The verifier is not a Copilot agent role")
+        case .verifier, .diagnoser:
+            throw AgentFailure("The \(role) is not a role this fixture captures")
         }
         return (
             try String(contentsOf: root.appending(path: "captured-prompt.txt"), encoding: .utf8),

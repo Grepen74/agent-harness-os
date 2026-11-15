@@ -37,6 +37,7 @@ struct SettingsView: View {
             Section("Limits a repo may lower, never raise") {
                 Stepper("Max attempts per leaf: \(model.settings.maxAttempts)", value: $model.settings.maxAttempts, in: 1...10)
                 Stepper("Max reworks per leaf: \(model.settings.maxReworks)", value: $model.settings.maxReworks, in: 1...10)
+                Stepper("Max agent runs per ticket: \(model.settings.maxAgentRuns)", value: $model.settings.maxAgentRuns, in: 2...50)
                 Stepper("Max parallel agents: \(model.settings.maxParallelAgents)", value: $model.settings.maxParallelAgents, in: 1...8)
                 Picker("Guesswork", selection: $model.settings.guesswork) {
                     ForEach(Guesswork.allCases, id: \.self) { Text($0.title).tag($0) }

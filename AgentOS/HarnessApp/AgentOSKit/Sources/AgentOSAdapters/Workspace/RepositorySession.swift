@@ -53,15 +53,24 @@ public final class RepositorySession: Sendable {
     public static func copilotTeam(executable: String, policy: EffectivePolicy) -> AgentTeam {
         var team = AgentTeam.copilot(
             CopilotCLI(executable: executable, deniedTools: policy.deniedTools, protectedPaths: policy.protectedPaths),
-            models: policy.agentModels)
+            models: policy.agentModels, timeouts: policy.agentTimeouts)
+        func timeout(_ agent: String) -> Duration {
+            .seconds(policy.agentTimeouts[agent] ?? EffectivePolicy.defaultAgentTimeouts[agent] ?? 1200)
+        }
         let selection = policy.policy.review.reviewer
         if let command = selection.command {
             team.reviewer = CommandReviewer(command: command)
         } else {
             team.reviewer = CopilotReviewer(cli: CopilotCLI(
                 executable: executable, model: selection.model, fallbackModels: policy.policy.review.reviewerFallbacks,
-                deniedTools: policy.deniedTools + ["write", "git"], protectedPaths: policy.protectedPaths))
+                timeout: timeout("reviewer"), deniedTools: policy.deniedTools + ["write", "git"],
+                protectedPaths: policy.protectedPaths))
         }
+        // Read-only: no file writes and no shell at all, so it can read the worktree it diagnoses but not change
+        // it. The CLI's default model.
+        team.diagnoser = CopilotDiagnoser(cli: CopilotCLI(
+            executable: executable, timeout: timeout("diagnoser"), deniedTools: policy.deniedTools + ["write", "shell"],
+            protectedPaths: policy.protectedPaths))
         return team
     }
 

@@ -20,6 +20,9 @@ extension BreakdownFinding {
             "Children \(first) \"\(firstTitle)\" and \(second) \"\(secondTitle)\" overlap without order on: "
                 + shared.joined(separator: ", ")
                 + ". Ownership wording may explain an acceptable division, but does not suppress this advisory warning."
+        case .tooManyCriteria(let child, let title, let count, let limit):
+            "Child \(child) \"\(title)\" has \(count) acceptance criteria, more than \(limit): too much for one agent run "
+                + "to prove. Split it into smaller children, each with a few related criteria."
         }
     }
 }

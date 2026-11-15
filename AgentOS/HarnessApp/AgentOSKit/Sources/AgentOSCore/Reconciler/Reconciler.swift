@@ -41,7 +41,7 @@ public actor Reconciler {
     public var busyNodes: Set<NodeID> { Set(tasks.keys) }
     private var completedActions: [String] = []
     var ownedRuns: [NodeID: RunID] = [:]
-    private var stopReasons: [RunID: String] = [:]
+    private(set) var stopReasons: [RunID: String] = [:]
     private var shutdownReason: String?
     private var lifecycleFailure: String?
     /// Set while a round works through the landing queue; another round meanwhile skips landing.
@@ -282,14 +282,14 @@ public actor Reconciler {
                 ?? (Task.isCancelled ? "stopped: task cancelled" : nil)
             let outcome = stopped ?? "failed: \(failure ?? "task ended without recording a finish")"
             let reason = "\(outcome). Check the run, then add harness:retry."
-            var kinds: [EventKind] = [
-                .runFinished(run: active.run, outcome: outcome),
-                .flagSet(.escalated, reason: reason)
-            ]
+            var kinds: [EventKind] = [.runFinished(run: active.run, outcome: outcome)]
+            // Already escalated (a diagnosis run, say): its reason stays.
+            let escalate = current.flags[.escalated] == nil
+            if escalate { kinds.append(.flagSet(.escalated, reason: reason)) }
             if current.phase == .building { kinds.append(.phaseChanged(to: .ready)) }
             do {
                 try await ledger.append(kinds.map { LedgerEvent(node: id, by: .reconciler, kind: $0) })
-                await tracker.comment(on: current.ticket, reason)
+                if escalate { await tracker.comment(on: current.ticket, reason) }
                 await projectStatus(of: id)
             } catch {
                 lifecycleFailure = "Couldn't finish \(active.run): \(error)"
@@ -300,6 +300,7 @@ public actor Reconciler {
     }
 
     private func canAdvance(_ node: NodeState, in state: WorkingState) -> Bool {
+        if wantsDiagnosis(node) { return true }
         guard node.flags[.escalated] == nil, node.flags[.needsInput] == nil, node.activeRun == nil,
               !node.ticketClosed else { return false }
         // The parent was replanned: its children wait for its new breakdown.
@@ -325,6 +326,7 @@ public actor Reconciler {
 
     private func advance(_ node: NodeState, in state: WorkingState) async throws -> String? {
         guard canAdvance(node, in: state) else { return nil }
+        if wantsDiagnosis(node) { return try await diagnose(node) }
 
         switch (node.spec.kind, node.phase) {
         case (.composite, .specified):
@@ -337,6 +339,7 @@ public actor Reconciler {
             return "\(node.displayName) proven (all children proven)"
 
         case (.leaf, .specified):
+            if let stopped = try await stopForRunBudget(node) { return stopped }
             return try await authorTests(node)
 
         case (.leaf, .ready):
@@ -348,6 +351,7 @@ public actor Reconciler {
                 await tracker.comment(on: node.ticket, "⏸ Blocked: \(reason).")
                 return "\(node.displayName) blocked"
             }
+            if let stopped = try await stopForRunBudget(node) { return stopped }
             return try await build(node)
 
         case (.leaf, .checking):

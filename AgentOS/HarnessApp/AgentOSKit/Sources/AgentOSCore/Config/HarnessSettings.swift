@@ -7,6 +7,8 @@ public struct HarnessSettings: Codable, Sendable, Equatable {
     public var landingBranch = "agentos/main"
     public var maxAttempts = 3
     public var maxReworks = 3
+    /// Test-author and implementer runs per ticket before a person must look.
+    public var maxAgentRuns = 12
     public var maxParallelAgents = 2
     /// The signals people may use at all (doc 05 §3).
     public var offeredSignals: Set<HarnessCommand> = Set(HarnessCommand.allCases)
@@ -40,6 +42,7 @@ public struct HarnessSettings: Codable, Sendable, Equatable {
         landingBranch = try container.decodeIfPresent(String.self, forKey: .landingBranch) ?? defaults.landingBranch
         maxAttempts = try container.decodeIfPresent(Int.self, forKey: .maxAttempts) ?? defaults.maxAttempts
         maxReworks = try container.decodeIfPresent(Int.self, forKey: .maxReworks) ?? defaults.maxReworks
+        maxAgentRuns = try container.decodeIfPresent(Int.self, forKey: .maxAgentRuns) ?? defaults.maxAgentRuns
         maxParallelAgents = try container.decodeIfPresent(Int.self, forKey: .maxParallelAgents) ?? defaults.maxParallelAgents
         let known = try container.decodeIfPresent(Set<HarnessCommand>.self, forKey: .knownSignals)
             ?? [.preview, .breakdown, .build, .go, .retry, .retest]
@@ -93,6 +96,12 @@ public struct EffectivePolicy: Sendable, Equatable {
     public var protectedPaths: [String]
     /// The model per agent role.
     public var agentModels = AgentModels()
+    /// Seconds each agent may run before it is stopped, per agent ("testAuthor", "reviewer", …).
+    public var agentTimeouts = Self.defaultAgentTimeouts
+    public static let defaultAgentTimeouts = ["decomposer": 1200, "testAuthor": 1200, "implementer": 1200,
+                                              "reviewer": 1200, "diagnoser": 600]
+    /// The harness's outer limit for any agent's timeout.
+    public static let maxAgentTimeout = 3600
     /// The repo config tried to loosen a limit or set something invalid; the harness's value applies instead.
     public var problems: [Finding] = []
     var overrideHarness = HarnessSettings()
@@ -162,6 +171,8 @@ public struct EffectivePolicy: Sendable, Equatable {
                                           harness: harness.maxAttempts, repo: repo?.limits?.maxAttempts)
         result.policy.maxReworks = limit("Max reworks per leaf", key: "maxReworks",
                                          harness: harness.maxReworks, repo: repo?.limits?.maxReworks)
+        result.policy.maxAgentRuns = limit("Max agent runs per ticket", key: "maxAgentRuns",
+                                           harness: harness.maxAgentRuns, repo: repo?.limits?.maxAgentRuns)
         result.maxParallelAgents = limit("Max parallel agents", key: "maxParallelAgents",
                                           harness: harness.maxParallelAgents, repo: repo?.limits?.maxParallelAgents)
 
@@ -185,6 +196,27 @@ public struct EffectivePolicy: Sendable, Equatable {
             }
         }
         result.policy.guesswork = guesswork
+
+        // Agent timeouts: a repo whose work takes longer may raise them, up to the harness's limit.
+        var timeoutsFromRepo = false
+        for (agent, seconds) in (repo?.agents?.timeouts ?? [:]).sorted(by: { $0.key < $1.key }) {
+            guard defaultAgentTimeouts[agent] != nil else {
+                refuse("Repo config sets a timeout for an unknown agent: \(agent)",
+                       "Known agents: \(defaultAgentTimeouts.keys.sorted().joined(separator: ", ")).")
+                continue
+            }
+            guard (60...maxAgentTimeout).contains(seconds) else {
+                refuse("Repo config sets the \(agent) timeout to \(seconds) seconds",
+                       "It must be 60 to \(maxAgentTimeout) seconds.")
+                continue
+            }
+            result.agentTimeouts[agent] = seconds
+            timeoutsFromRepo = true
+        }
+        result.settings.append(EffectiveSetting(
+            name: "Agent timeouts",
+            value: result.agentTimeouts.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value) s" }.joined(separator: ", "),
+            source: timeoutsFromRepo ? .repo : .harness, note: nil))
         result.settings.append(EffectiveSetting(
             name: "Guesswork", value: "\(guesswork.title) (`\(guesswork.rawValue)`)",
             source: guessworkFromRepo ? .repo : .harness, note: guessworkNote,

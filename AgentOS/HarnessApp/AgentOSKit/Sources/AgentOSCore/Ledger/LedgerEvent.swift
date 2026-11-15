@@ -88,6 +88,12 @@ public enum EventKind: Codable, Sendable {
     case runFinished(run: RunID, outcome: String)
     case changeSubmitted(run: RunID, commit: String)
     case attemptFailed(summary: String)
+    /// What a failed test-author run (one that ran out of time, say) had written, kept outside the working copy
+    /// for the next run to continue. Empty: nothing to continue. Tests written, a retest, a replan or questions
+    /// make it obsolete.
+    case testDraftKept(run: RunID, files: [String])
+    /// The diagnoser's reading of an escalation, for the person who picks it up. The node stays escalated.
+    case diagnosisRecorded(run: RunID, diagnosis: Diagnosis)
     /// Compiler output from acceptance-test authoring. This is evidence, but not an implementation attempt.
     case acceptanceTestPreflightFailed(Evidence)
     /// The main commit beneath a successful branch or landing check.
@@ -232,6 +238,9 @@ extension EventKind {
         case .runFinished(let run, let outcome): "run \(run) finished: \(outcome)"
         case .changeSubmitted(let run, let commit): "change submitted by \(run) (\(commit.prefix(8)))"
         case .attemptFailed(let summary): "attempt failed: \(summary)"
+        case .testDraftKept(let run, let files):
+            files.isEmpty ? "\(run) left no test draft" : "test draft of \(run) kept: \(files.count) files"
+        case .diagnosisRecorded(let run, let diagnosis): "diagnosis by \(run): \(diagnosis.cause)"
         case .acceptanceTestPreflightFailed(let evidence):
             "acceptance tests don't compile: \(evidence.summary)"
         case .passingCheckRecorded(let kind, let mainCommit):

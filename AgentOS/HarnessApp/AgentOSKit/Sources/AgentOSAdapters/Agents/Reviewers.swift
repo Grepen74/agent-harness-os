@@ -65,7 +65,9 @@ public struct CopilotReviewer: Reviewer {
         Each finding must explain the problem.
         At the change stage the implementer may not edit the acceptance tests listed below: put problems in those \
         tests in testFindings (they go to the test author) and everything else in findings (they go to the \
-        implementer). At the acceptanceTests stage leave testFindings empty. passed is false if either has a finding.
+        implementer). Only the test author writes tests, so tests that are missing go in testFindings too: when a \
+        problem needs a code fix and a test that proves it, put the fix in findings and the test in testFindings. \
+        At the acceptanceTests stage leave testFindings empty. passed is false if either has a finding.
         findings and testFindings block this ticket: use them only for problems in what this ticket changes or \
         must deliver. Put improvements, problems outside the ticket's scope and touched areas, and problems that \
         were there before this change in followUps: a person files those as new tickets, and they never fail \

@@ -670,6 +670,6 @@ import Testing
         "landingReworkNeeded", "landingRerunRequested", "reworkNeeded", "landed", "questionsRaised",
         "assumptionsReported", "suggestionsReported", "questionsAnswered", "externalDependencyResolved",
         "ticketClosed", "ticketReopened", "readinessScanned", "baselineChecked", "catchUpConflicted",
-        "catchUpSucceeded", "caughtUp",
+        "catchUpSucceeded", "caughtUp", "testDraftKept", "diagnosisRecorded",
     ]
 }

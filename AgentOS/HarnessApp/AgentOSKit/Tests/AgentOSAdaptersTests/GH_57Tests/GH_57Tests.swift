@@ -78,6 +78,7 @@ import Testing
             ("limits.maxAttempts", defaults.maxAttempts),
             ("limits.maxReworks", defaults.maxReworks),
             ("limits.maxParallelAgents", defaults.maxParallelAgents),
+            ("limits.maxAgentRuns", defaults.maxAgentRuns),
         ] {
             let row = try entry(path, in: rows)
             #expect(hasAny(row.accepted, ["integer", "int"]))
@@ -348,7 +349,7 @@ import Testing
             if ignoringNulls && value is NSNull { continue }
             let path = prefix.isEmpty ? key : "\(prefix).\(key)"
             result.insert(path)
-            if ["review.areas", "tracker.project.statusMap"].contains(path) { continue }
+            if ["review.areas", "tracker.project.statusMap", "agents.timeouts"].contains(path) { continue }
             if let nested = value as? [String: Any] {
                 result.formUnion(paths(in: nested, prefix: path, ignoringNulls: ignoringNulls))
             } else if let entries = value as? [[String: Any]] {
@@ -423,10 +424,11 @@ import Testing
       "components": ["Sources/App"],
       "landing": {"branch": "agentos/main"},
       "signals": {"disable": ["go"]},
-      "limits": {"maxAttempts": 2, "maxReworks": 2, "maxParallelAgents": 1},
+      "limits": {"maxAttempts": 2, "maxReworks": 2, "maxAgentRuns": 8, "maxParallelAgents": 1},
       "agents": {
         "deny": ["custom-tool"],
         "models": {"decomposer": "model-a", "testAuthor": "model-b", "implementer": "model-c"},
+        "timeouts": {"testAuthor": 1800},
         "guesswork": "ask", "context": ["README.md", "docs/*.md"]
       },
       "protectedPaths": ["Secrets/"],

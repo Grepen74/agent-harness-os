@@ -7,6 +7,8 @@ public enum BreakdownFinding: Codable, Hashable, Sendable {
     case unorderedOverlap(firstChildPosition: Int, firstChildTitle: String,
                           secondChildPosition: Int, secondChildTitle: String,
                           sharedComponents: [String])
+    /// More criteria than one agent run reliably proves: such leaves time out and keep coming back from review.
+    case tooManyCriteria(childPosition: Int, childTitle: String, count: Int, limit: Int)
 
     public var severity: Finding.Severity { .warning }
 }
@@ -17,6 +19,7 @@ public enum BreakdownChecker {
         "existing rule", "as agreed", "same as", "as before", "the agreed", "see child"
     ]
     private static let scopePhrases = ["doesn't change", "does not change", "unchanged"]
+    public static let maxCriteriaPerChild = 6
 
     public static func check(_ children: [ChildProposal]) -> [BreakdownFinding] {
         var findings: [BreakdownFinding] = []
@@ -26,6 +29,10 @@ public enum BreakdownChecker {
         }
 
         for (childIndex, child) in children.enumerated() {
+            if child.acceptanceCriteria.count > maxCriteriaPerChild {
+                findings.append(.tooManyCriteria(childPosition: childIndex + 1, childTitle: child.title,
+                                                 count: child.acceptanceCriteria.count, limit: maxCriteriaPerChild))
+            }
             for (criterionIndex, criterion) in child.acceptanceCriteria.enumerated() {
                 let text = criterion.lowercased()
                 if vaguePhrases.contains(where: { text.contains($0) }) {

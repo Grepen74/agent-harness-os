@@ -137,6 +137,7 @@ is configured, Copilot CLI chooses its own default. Display titles are not confi
 | `limits` | Object containing optional integer limits | Inherit current harness limits | Repo limits may only tighten the harness settings |
 | `limits.maxAttempts` | Integer: maximum attempts per leaf | Inherit harness setting; built-in 3 | At least 1 and at most the current harness setting |
 | `limits.maxReworks` | Integer: maximum reworks per leaf | Inherit harness setting; built-in 3 | At least 1 and at most the current harness setting |
+| `limits.maxAgentRuns` | Integer: test-author and implementer runs per ticket since a person last acted on it | Inherit harness setting; built-in 12 | At least 1 and at most the current harness setting; any human action on the ticket starts a new budget |
 | `limits.maxParallelAgents` | Integer: maximum concurrent harness-started agents | Inherit harness setting; built-in 2 | At least 1 and at most the current harness setting; does not count agents' sub-agents |
 | `agents` | Object containing agent policy and context options | Inherit harness agent policy and default context | May only tighten policy; provider remains Copilot CLI |
 | `agents.deny` | Array of strings naming additional denied tools or commands | No additions to the harness deny list | Additive union with harness denials; cannot remove them |
@@ -144,6 +145,7 @@ is configured, Copilot CLI chooses its own default. Display titles are not confi
 | `agents.models.decomposer` | String: exact model identifier for the breakdown role | Inherit harness breakdown model; otherwise CLI default | Choose the current role model or an alternative offered in Settings |
 | `agents.models.testAuthor` | String: exact model identifier for the acceptance-test role | Inherit harness test-author model; otherwise CLI default | Choose the current role model or an alternative offered in Settings |
 | `agents.models.implementer` | String: exact model identifier for the implementation role | Inherit harness implementer model; otherwise CLI default | Choose the current role model or an alternative offered in Settings |
+| `agents.timeouts` | Object from agent role (`decomposer`, `testAuthor`, `implementer`, `reviewer`, `diagnoser`) to seconds | 1200 for each role, 600 for the diagnoser | 60 to 3600 seconds; unknown roles and values out of range are refused, and that role keeps its default |
 | `agents.guesswork` | String: `ask`, `assume-and-report`, or `autonomous` | Inherit harness setting; built-in `assume-and-report` | Same or stricter than current harness setting; strictest to loosest: `ask`, `assume-and-report`, `autonomous` |
 | `agents.context` | Array of repository-relative tracked file paths or globs; only tracked matches are read | `["README.md", "AGENTS.md"]` | None beyond tracked-file selection; explicit list replaces default context, and an empty list selects none |
 | `protectedPaths` | Array of strings: additional protected file paths, folder prefixes or globs | No additions to harness protected paths | Additive union; cannot remove harness protection or approved leaf-test protection |
@@ -278,9 +280,15 @@ rules. The built-in checklist covers regressions and loosened constraints, per-l
 allocation, duplicated logic, and tests that fail to prove the requirement. Rejected changes return to
 the implementer without unlocking the acceptance tests. Their findings stay with the leaf until a new change
 is submitted, so an implementer run that fails (a timeout, say) doesn't leave the retry without them. Since the implementer may not change them, the
-reviewer lists problems in the ticket's own acceptance tests separately (`testFindings`): those send the
+reviewer lists problems in the ticket's own acceptance tests separately (`testFindings`), tests that are
+missing included (a fix that needs a test to prove it is split: the fix in `findings`, the test in
+`testFindings`): those send the
 ticket back to the test author, keeping only its tests commit, and the implementer then builds again with
-the remaining findings. If the implementer changes nothing for a review's findings (it may think they are
+the remaining findings. Its implementation isn't lost: it's kept on `agentos/kept-implementation/<node>`,
+and the implementer gets it back, uncommitted, to continue from once the tests are fixed. If it can't be
+kept, the tests aren't sent back: the ticket goes to a person with the branch unchanged. Test findings go
+to the test author even in the last review round, since the implementer couldn't act on them; only the
+implementation findings count towards escalation then. If the implementer changes nothing for a review's findings (it may think they are
 wrong, or about the tests), the harness doesn't submit the same branch for another review: it stops with
 "Needs input". `harness:retest` then sends the ticket to the test author; a comment plus `harness:retry`
 sends the answer to the implementer. After `maxRounds` reviews with findings at
@@ -304,6 +312,21 @@ implementer is told to fix findings with the simplest correct change, without ne
 or concurrency unless a finding asks for them. The harness posts follow-ups on the ticket for a
 person to file as new tickets; they never fail the review. When the round limit is reached, the
 escalation suggests splitting the ticket into smaller tickets.
+
+**Run budget.** However its rounds are counted, a ticket that goes round between the test author and the
+implementer stops once agents have run on it `limits.maxAgentRuns` times (default 12) since a person last
+acted on it: it escalates with "Agents ran N times on this ticket since a person last acted on it". Any human
+event on the ticket (a label such as `harness:retry`, an answer) starts a new budget.
+
+**Diagnosis.** When a ticket escalates, a diagnoser agent reads its ledger history, copies of the last few
+agent logs (not the rest of the log folder) and its worktree, and comments "🩺 Diagnosis" with a likely cause
+and a suggested next step, such as splitting the ticket or giving the test author longer. It can't write
+files or run commands. The ticket and logs are given to it as data, not instructions, and since the comment
+is public it's told not to quote log lines, secrets, paths or environment variables; each part of its answer
+is cut to 800 characters. Comments aren't held for approval, so on a public repo read diagnoses as you would
+any agent output. It runs once per escalation and changes nothing: the ticket stays escalated, with its
+original reason, until a person acts. A diagnoser that fails, times out or is stopped by a person is
+recorded as such and not retried; one interrupted by closing the window or quitting runs again next time.
 
 UI changes must include snapshot evidence and confirmation that windows actually open and close.
 The implementer supplies `.agentos-ui-evidence.json` with `snapshotPaths`, `windowsOpened`,
@@ -484,7 +507,8 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
   Post-start errors always finish their run with the diagnostic. Checks that write nothing for
   10 minutes are ended as hung and retain their log; `CommandCheckRunner.idleTimeout` configures this
   limit independently of the 30-minute total timeout. Any output, including partial lines, resets it.
-  A Copilot agent run is stopped after 20 minutes and fails as "copilot timed out". Commands the agent
+  A Copilot agent run is stopped after 20 minutes (10 for the diagnoser; a repo can change this per role
+  with `agents.timeouts`, up to an hour) and fails as "copilot timed out". Commands the agent
   started in their own process groups (Copilot runs each shell command in one) are ended with it, so a hung
   `swift test` can't keep holding the worktree's build lock for the next run.
   An implementer run that fails or is stopped before submitting (out of time, say) doesn't lose its work: its
@@ -495,6 +519,13 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
   that no longer apply after the rebase are dropped. A new worktree (new tests, `harness:retest`) forgets
   them. If the changes can't be kept, the ticket goes to a person rather than to a retry that would clean
   them away.
+  The test author's work is kept the same way: a test-author run that fails or is stopped leaves its test
+  files as a draft in the worktree, recorded in the ledger (also when a person stops it). If tests an
+  earlier run left uncommitted can't be kept as a draft, the ticket goes to a person and the worktree
+  holding them stays as it is. Before the next attempt the harness checks the
+  draft itself (does it build, which tests fail), and the test author is told to continue from the draft with
+  that result instead of starting over. A draft that is accepted, or replaced by `harness:retest`, is
+  forgotten.
 
 Known limits: a leaf's tests go in the one configured test target, so if that target needs a simulator,
 every leaf's checks do; picking a target per leaf (e.g. a package's tests for service-layer work) would
@@ -598,7 +629,8 @@ Each phase is usable on its own.
    - **Checked breakdowns:** after readiness and question handling, every fresh proposal is checked for
      vague rule references (such as "existing rule", "as agreed" or "see child"), path-based scope criteria
      (such as "Sources/Reader.swift is unchanged"), and siblings touching the same component without direct
-     or transitive `after` ordering. Findings trigger exactly one decomposer retry with the prior proposal
+     or transitive `after` ordering, and children with more than 6 acceptance criteria (more than one agent run
+     can prove; even a single-child "leaf" proposal is checked for this). Findings trigger exactly one decomposer retry with the prior proposal
      and structured findings, separate from human answers. A clean first proposal needs no retry.
      The second eligible proposal is used even if findings remain; there is never a third checker-driven call.
      Ownership wording does not suppress overlap findings: they remain advisory, so a person can accept

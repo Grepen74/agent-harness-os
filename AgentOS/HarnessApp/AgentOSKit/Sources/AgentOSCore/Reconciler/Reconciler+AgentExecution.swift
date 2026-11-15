@@ -87,7 +87,8 @@ extension Reconciler {
     }
 
     func makeTask(_ node: NodeState, run: RunID, in directory: URL, log: URL?,
-                          for role: AgentRole, includeComments: Bool = true, unfinishedWork: [String] = []) async -> AgentTask {
+                          for role: AgentRole, includeComments: Bool = true, unfinishedWork: [String] = [],
+                          draftCheck: String? = nil) async -> AgentTask {
         let labels = await tracker.ticket(node.ticket)?.labels.map(\.name) ?? []
         let state = await ledger.workingState()
         let context = await makeAgentContext(node.ticket)
@@ -102,7 +103,8 @@ extension Reconciler {
             simulationHints: Set(labels.filter { $0.hasPrefix("sim:") }), log: log,
             clarifications: state.clarifications(for: node.id), guesswork: policy.guesswork,
             expectedAPI: node.expectedAPI, ticketKey: node.ticket,
-            agentContext: includeComments ? context : context.withoutComments(), unfinishedWork: unfinishedWork)
+            agentContext: includeComments ? context : context.withoutComments(), unfinishedWork: unfinishedWork,
+            draftCheck: draftCheck)
     }
 
     static func newRunID() -> RunID { "run-" + UUID().uuidString.prefix(6).lowercased() }

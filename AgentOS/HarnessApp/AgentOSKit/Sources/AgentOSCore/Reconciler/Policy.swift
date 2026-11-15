@@ -33,6 +33,9 @@ public struct Policy: Sendable, Equatable {
     public var maxAttempts = 3
     /// Merge-conflict reworks per leaf before a human (or a smarter planner) should order the work (doc 08 §5).
     public var maxReworks = 3
+    /// Test-author and implementer runs on one ticket before a person must look, whatever each run's outcome:
+    /// bounds loops no other limit catches (tests and review findings going back and forth, say).
+    public var maxAgentRuns = 12
     /// Nodes worked on at the same time in a round: the agents the harness starts, not the sub-agents they use.
     /// Landing is always one at a time.
     public var maxParallelAgents = 1
@@ -44,11 +47,12 @@ public struct Policy: Sendable, Equatable {
     public var protectedPaths: [String]
     public var guesswork: Guesswork
 
-    public init(maxAttempts: Int = 3, maxReworks: Int = 3, maxParallelAgents: Int = 1,
+    public init(maxAttempts: Int = 3, maxReworks: Int = 3, maxAgentRuns: Int = 12, maxParallelAgents: Int = 1,
                 allowedSignals: Set<HarnessCommand> = Set(HarnessCommand.allCases), protectedPaths: [String] = [],
                 guesswork: Guesswork = .assumeAndReport) {
         self.maxAttempts = maxAttempts
         self.maxReworks = maxReworks
+        self.maxAgentRuns = maxAgentRuns
         self.maxParallelAgents = maxParallelAgents
         self.allowedSignals = allowedSignals
         self.protectedPaths = protectedPaths

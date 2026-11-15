@@ -87,6 +87,12 @@ public struct NodeState: Sendable, Identifiable {
     public var awaitingHumanReview: Bool { pendingHumanReview != nil }
     public var failedAttempts = 0
     public var recentFailures: [String] = []
+    /// Files of a failed test-author run's kept draft, for the next test-author run to continue from.
+    public var testDraft: [String]?
+    /// Escalated since the diagnoser last looked (cleared with the escalation).
+    public var needsDiagnosis = false
+    /// Test-author and implementer runs since a person last acted on the node: the ticket's run budget.
+    public var agentRunsSinceHuman = 0
     public var landingReworkPending = false
     public var landingRerunPending = false
     public var reworks = 0
@@ -103,7 +109,7 @@ public struct NodeState: Sendable, Identifiable {
 
     /// Every assumption on this node, decomposer first.
     public var allAssumptions: [String] {
-        [AgentRole.decomposer, .testAuthor, .implementer, .verifier].flatMap { assumptions[$0] ?? [] }
+        [AgentRole.decomposer, .testAuthor, .implementer, .verifier, .diagnoser].flatMap { assumptions[$0] ?? [] }
     }
 }
 
@@ -255,6 +261,7 @@ public struct WorkingState: Sendable {
 
         guard let id = event.node, var node = nodes[id] else { return }
         node.version = record.position
+        if event.by.isHuman { node.agentRunsSinceHuman = 0 }
 
         switch event.kind {
         case .linkAdded(let link): node.links.append(link)
@@ -265,8 +272,13 @@ public struct WorkingState: Sendable {
         case .phaseChanged(let phase):
             node.phase = phase
             node.queuedAt = phase == .landing ? record.position : nil
-        case .flagSet(let flag, let reason): node.flags[flag] = reason
-        case .flagCleared(let flag): node.flags[flag] = nil
+        case .flagSet(let flag, let reason):
+            if flag == .escalated, node.flags[.escalated] == nil { node.needsDiagnosis = true }
+            node.flags[flag] = reason
+        case .flagCleared(let flag):
+            if flag == .escalated { node.needsDiagnosis = false }
+            node.flags[flag] = nil
+        case .diagnosisRecorded: node.needsDiagnosis = false
         case .ticketClosed: node.ticketClosed = true
         case .ticketReopened: node.ticketClosed = false
         case .attemptsReset:
@@ -274,6 +286,7 @@ public struct WorkingState: Sendable {
             node.recentFailures = []
         case .testsFixed(let digest):
             node.testsDigest = digest
+            node.testDraft = nil
             node.openTestProblem = nil
             node.updatedOtherTests = []
             node.updatedOtherTestsDigest = nil
@@ -307,7 +320,11 @@ public struct WorkingState: Sendable {
             // With the name: a test of other work is one the test author may not know.
             node.latestTestFeedback = "\(report.testName): \(report.reason)"
             node.openTestProblem = report.reason
-        case .runStarted(let run, let role): node.activeRun = ActiveRun(run: run, role: role, since: event.at)
+        case .runStarted(let run, let role):
+            node.activeRun = ActiveRun(run: run, role: role, since: event.at)
+            if role == .testAuthor || role == .implementer { node.agentRunsSinceHuman += 1 }
+            // The new run took the draft over: it keeps its own if it fails too.
+            if role == .testAuthor { node.testDraft = nil }
         case .runFinished: node.activeRun = nil
         case .changeSubmitted(let run, let commit):
             node.latestReviewFeedback = nil
@@ -331,7 +348,12 @@ public struct WorkingState: Sendable {
             node.landedCommit = commit
             node.landingReworkPending = false
             node.landingRerunPending = false
-        case .questionsRaised(_, let questions): node.openQuestions = questions
+        case .questionsRaised(let role, let questions):
+            node.openQuestions = questions
+            // Tests written on a guess aren't kept: they start over once the questions are answered.
+            if role == .testAuthor { node.testDraft = nil }
+        case .testDraftKept(_, let files): node.testDraft = files.isEmpty ? nil : files
+        case .signalAccepted(_, .retest, _): node.testDraft = nil
         case .assumptionsReported(let role, let assumptions): node.assumptions[role] = assumptions.isEmpty ? nil : assumptions
         case .suggestionsReported(let role, let questions):
             node.suggestedAnswers[role] = questions.isEmpty ? nil : SuggestedAnswers(questions: questions, reportedAt: event.at)

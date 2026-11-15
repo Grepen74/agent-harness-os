@@ -63,6 +63,8 @@ extension GH_69Tests {
             .catchUpSucceeded(main: "main", newAgentOSMainTip: "new-tip", method: .automatic),
             .caughtUp(targetMain: "main", oldLandingTip: "old-tip", newLandingTip: "new-tip",
                       method: .rebase, commitMappings: ["old": "new"]),
+            .testDraftKept(run: "run", files: ["Tests/AppTests/Draft.swift"]),
+            .diagnosisRecorded(run: "run", diagnosis: Diagnosis(cause: "Too big", nextStep: "Split it")),
         ]
     }
 }

@@ -67,6 +67,7 @@ restart.
 | Branch per leaf, parallel build, optimistic landing queue (08 §4) | `Workspace/Workspace.swift` (protocol), `AgentOSSimulation/Workspace/SimulationWorkspace.swift`, `Reconciler.land`, `WorkingState.landingQueue` |
 | Rework on merge conflict; requirements conflict → human (08 §5) | `Reconciler.land`, `Policy.maxReworks` |
 | Escalation: attempt limit and the no-progress rule (02 §7) | `Policy.escalationReason` |
+| Run budget per ticket; a diagnoser explains escalations | `Policy.maxAgentRuns`, `Reconciler+Diagnosis.swift`, `AgentOSAdapters/Agents/CopilotDiagnoser.swift` |
 | External dependency in another system (03) | `Tracker/ExternalDependencySource.swift`, `AgentOSSimulation/External/MockExternalSystem.swift` |
 | Observability: tree, attention list, ledger log (06) | `AgentOSUI/` |
 | Readiness scan of a real repo: read-only, findings recorded in the ledger (01) | `Model/Readiness.swift`, `Ledger.record(_:)`, `AgentOSAdapters/Readiness/`, `AgentOSUI/FindingsPane.swift` |

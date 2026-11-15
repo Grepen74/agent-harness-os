@@ -2,7 +2,7 @@
 // and overrideActionTitle is nil or "Override in repo config…". EffectivePolicy.resolve supplies these
 // from the same constraints it validates. AgentOSUI.PolicyOverrideControl.init(setting:pasteboard:)
 // constructs an NSView with an NSPopUpButton offering those choices; choosing one shows a read-only,
-// selectable NSTextView and an NSButton("Copy"). The pane uses this control for these four settings.
+// selectable NSTextView and an NSButton("Copy"). The pane uses this control for these settings.
 
 import AgentOSCore
 import AgentOSUI
@@ -15,7 +15,7 @@ import Testing
 @Suite
 struct GH_54Tests {
     private enum Setting: String, CaseIterable {
-        case guesswork, maxAttempts, maxReworks, maxParallelAgents
+        case guesswork, maxAttempts, maxReworks, maxParallelAgents, maxAgentRuns
 
         var name: String {
             switch self {
@@ -23,6 +23,7 @@ struct GH_54Tests {
             case .maxAttempts: "Max attempts per leaf"
             case .maxReworks: "Max reworks per leaf"
             case .maxParallelAgents: "Max parallel agents"
+            case .maxAgentRuns: "Max agent runs per ticket"
             }
         }
 
@@ -34,6 +35,7 @@ struct GH_54Tests {
             case .maxAttempts: String(policy.policy.maxAttempts)
             case .maxReworks: String(policy.policy.maxReworks)
             case .maxParallelAgents: String(policy.policy.maxParallelAgents)
+            case .maxAgentRuns: String(policy.policy.maxAgentRuns)
             }
         }
     }
@@ -52,7 +54,7 @@ struct GH_54Tests {
     }
 
     @Test
-    func allFourRowsOfferTheOverrideActionAndNoOtherSettingsAreRequired() throws {
+    func everyOverridableRowOffersTheOverrideActionAndNoOtherSettingsAreRequired() throws {
         let policy = resolve(harness())
         for setting in Setting.allCases {
             let row = try row(setting, in: policy)
@@ -120,7 +122,7 @@ struct GH_54Tests {
     func choicesUseTheHarnessCeilingNotAnAlreadyTightenedRepoValue() throws {
         let settings = harness(guesswork: .autonomous, attempts: 5, reworks: 4, parallel: 3)
         let repo = RepoConfig(test: .init(command: "swift test"),
-                              limits: .init(maxAttempts: 1, maxReworks: 1, maxParallelAgents: 1),
+                              limits: .init(maxAttempts: 1, maxReworks: 1, maxAgentRuns: 1, maxParallelAgents: 1),
                               agents: .init(guesswork: "ask"))
         let inherited = resolve(settings)
         let tightened = resolve(settings, repo: repo)
@@ -308,6 +310,7 @@ struct GH_54Tests {
         case .maxAttempts: harness.maxAttempts = value
         case .maxReworks: harness.maxReworks = value
         case .maxParallelAgents: harness.maxParallelAgents = value
+        case .maxAgentRuns: harness.maxAgentRuns = value
         }
     }
 

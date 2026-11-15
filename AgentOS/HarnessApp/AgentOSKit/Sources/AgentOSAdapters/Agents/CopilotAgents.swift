@@ -18,6 +18,8 @@ public struct CopilotCLI: Sendable {
     /// Policy names ("git push", "network installs") or Copilot patterns ("shell(rm)", "write(.env)").
     public var deniedTools: [String]
     public var protectedPaths: [String]
+    /// Folders outside the job's directory the agent may read too (`--add-dir`), e.g. the harness's logs.
+    public var extraDirectories: [URL] = []
 
     public init(executable: String, model: String? = nil, fallbackModels: [String?] = [], timeout: Duration = .seconds(1200),
                 deniedTools: [String] = HarnessSettings.deniedTools, protectedPaths: [String] = []) {
@@ -39,6 +41,7 @@ public struct CopilotCLI: Sendable {
     /// shows each step as it happens, which is what you follow in the live log.
     public func arguments(prompt: String, in directory: URL, silent: Bool = true) -> [String] {
         var arguments = ["-p", prompt] + (silent ? ["-s"] : []) + ["--allow-all-tools", "--disable-builtin-mcps", "-C", directory.path]
+        for extra in extraDirectories { arguments += ["--add-dir", extra.path] }
         for pattern in Self.denyPatterns(tools: deniedTools, protectedPaths: protectedPaths) {
             arguments += ["--deny-tool", pattern]
         }
@@ -56,6 +59,9 @@ public struct CopilotCLI: Sendable {
                              "brew install", "curl", "wget"].map { "shell(\($0))" }
             case let pattern where pattern.contains("("):
                 patterns.append(pattern)
+            case "write", "shell":
+                // Whole permission kinds: every file write, every shell command.
+                patterns.append(tool)
             default:
                 patterns.append("shell(\(tool))")
             }
@@ -445,6 +451,21 @@ public struct CopilotTestAuthor: TestAuthor {
             "in the acceptance tests, fix it with the smallest change that does, and leave the rest of the tests " +
             "as they are: every line you rewrite risks a new mistake. Run them again before finishing:\n\($0)"
         } ?? ""
+        let draftFiles = task.unfinishedWork.prefix(40).joined(separator: ", ") + (task.unfinishedWork.count > 40 ? ", …" : "")
+        let draftCheck = task.draftCheck.map {
+            " The harness already built and ran \(suite) on the draft, so you don't need to start by doing that:\n\($0)\n"
+        } ?? ""
+        let draft = task.unfinishedWork.isEmpty ? "" : """
+
+
+            An earlier test-author run on this item stopped before finishing (it may have run out of time). Its \
+            draft is back in your working copy, uncommitted: \(draftFiles). Continue from it instead of starting \
+            over: keep what is right, add what is missing and fix the rest. Where it changed other work's tests, keep \
+            only the changes a criterion of this item asks for, undo the others, and list the kept ones in updatedTests.\
+            \(draftCheck) Make one bounded pass: fix what doesn't compile and helpers that don't work, check that each \
+            failing test fails because the work item isn't built yet, then write the report and stop. Time is limited: \
+            build and run only your suite, and don't start over.
+            """
         return """
         You are the test author agent in an agent harness. \(task.context)
         The work item is \(task.identity.displayName).
@@ -480,7 +501,7 @@ public struct CopilotTestAuthor: TestAuthor {
         same test target, so make helper types and functions `private` or nest them in the suite, and qualify a \
         name with its module when more than one imported module declares it (e.g. a type that Testing also has). \
         Call a static helper from inside a test as `Self.helper(…)`, or it won't compile. \
-        \(CopilotCLI.noScreenCaptureRule)\(feedback)
+        \(CopilotCLI.noScreenCaptureRule)\(feedback)\(draft)
 
         \(CopilotCLI.guessingRules(task.guesswork, repositoryConventions: true)) Report them in \(AgentReportFile.name) at the top of your \
         working directory, as {"questions": [string or {"question": string, "suggestion": string}], \
@@ -508,8 +529,8 @@ public struct CopilotImplementer: Implementer {
         let unfinishedFiles = task.unfinishedWork.prefix(40).joined(separator: ", ") + (task.unfinishedWork.count > 40 ? ", …" : "")
         let unfinished = task.unfinishedWork.isEmpty ? "" : """
 
-            An earlier attempt failed before submitting (it may have run out of time). Its unfinished, unverified \
-            changes are back in your working copy, uncommitted: \(unfinishedFiles). Continue from them instead of \
+            An earlier attempt's work wasn't accepted: it failed before submitting (it may have run out of time), or \
+            its tests were sent back to be fixed. Its unverified changes are back in your working copy, uncommitted: \(unfinishedFiles). Continue from them instead of \
             starting over: check them, keep what is right, and fix or undo the rest. Reuse before screenshots it \
             already captured in .agentos-ui-evidence/, since the code no longer shows the state before the change.
 
@@ -564,10 +585,12 @@ public struct CopilotImplementer: Implementer {
 
 extension AgentTeam {
     /// One CLI configuration for every role, each with its own model (nil: the CLI's default or `cli.model`).
-    public static func copilot(_ cli: CopilotCLI, models: AgentModels = AgentModels()) -> AgentTeam {
+    /// - `timeouts`: seconds per role (its raw value), e.g. `["testAuthor": 1800]`; others keep the CLI's.
+    public static func copilot(_ cli: CopilotCLI, models: AgentModels = AgentModels(), timeouts: [String: Int] = [:]) -> AgentTeam {
         func forRole(_ role: AgentRole) -> CopilotCLI {
             var configured = cli
             configured.model = models[role] ?? cli.model
+            if let seconds = timeouts[role.rawValue] { configured.timeout = .seconds(seconds) }
             // A configured model your account has lost: work on with the CLI's default rather than stop.
             if configured.model != nil, configured.fallbackModels.isEmpty { configured.fallbackModels = [nil] }
             return configured

@@ -189,6 +189,9 @@ extension GH_65Tests {
                             && shared.allSatisfy { explanation.localizedCaseInsensitiveContains($0) }
                             && matches(explanation, #"overlap|unordered|without.{0,40}order|no.{0,40}(after|order)"#)
                     }, "Explain the overlap and identify both siblings and every shared component")
+                case .tooManyCriteria(_, let title, _, _):
+                    #expect(explanations.contains { $0.contains(title) && matches($0, #"split|too many"#) },
+                            "Explain why the oversized child should be split")
                 }
             }
         }

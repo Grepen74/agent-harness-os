@@ -893,6 +893,465 @@ struct RepositoryWorkspaceTests {
 
     // MARK: Helpers
 
+    @Test("A test author that runs out of time leaves its draft to the next run, which starts from the harness's run of it")
+    func theNextTestAuthorContinuesTheDraft() async throws {
+        let repo = try await makeRepo()
+        let author = TimesOutOnce()
+        let session = try await session(repo, team: AgentTeam(name: "Fake", decomposer: Leaf(), testAuthor: author,
+                                                              implementer: Implementer()))
+        let key = await ticket(session)
+
+        let reports = await session.runUntilFinished()
+
+        let node = try #require(await session.ledger.workingState().node(forTicket: key))
+        #expect(node.phase == .proven, "\(reports.flatMap(\.actions))")
+        #expect(await author.carriedOver == ["Tests/AppTests/\(node.spec.testTarget)/check.sh", "app.txt"])
+        let check = try #require(await author.draftCheck)
+        #expect(check.contains("\(node.spec.testTarget) failed") && check.contains("Full log:"), "\(check)")
+        let kinds = await session.ledger.records(for: node.id).map(\.event.kind)
+        #expect(kinds.contains { if case .attemptsReset = $0 { return true }; return false })
+        #expect(try await git(["for-each-ref", "refs/heads/agentos/drafts/"], in: repo).isEmpty)
+    }
+
+    actor TimesOutOnce: TestAuthor {
+        private(set) var carriedOver: [String]?
+        private(set) var draftCheck: String?
+        func writeAcceptanceTests(_ task: AgentTask) async throws -> AgentReport {
+            let test = task.directory.appending(path: "\(task.testFolder)/check.sh")
+            guard FileManager.default.fileExists(atPath: test.path) else {
+                try FileManager.default.createDirectory(at: test.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try "grep -q hello app.txt\n".write(to: test, atomically: true, encoding: .utf8)
+                try "placeholder\n".write(to: task.directory.appending(path: "app.txt"), atomically: true, encoding: .utf8)
+                throw AgentFailure("copilot timed out after 1200.0 seconds: still building")
+            }
+            carriedOver = task.unfinishedWork.sorted()
+            draftCheck = task.draftCheck
+            return AgentReport()
+        }
+    }
+
+    @Test("A test author that leaves the same draft twice goes to a person")
+    func anUnchangedDraftEscalates() async throws {
+        let repo = try await makeRepo()
+        let session = try await session(repo, team: AgentTeam(name: "Fake", decomposer: Leaf(), testAuthor: AlwaysTimesOut(),
+                                                              implementer: Implementer()))
+        let key = await ticket(session)
+
+        _ = await session.runUntilFinished()
+
+        let node = try #require(await session.ledger.workingState().node(forTicket: key))
+        #expect(node.flags[.escalated]?.contains("No progress") == true, "\(node.flags)")
+        #expect(node.failedAttempts == 2)
+        #expect(node.testDraft == ["Tests/AppTests/\(node.spec.testTarget)/check.sh"])
+    }
+
+    struct AlwaysTimesOut: TestAuthor {
+        func writeAcceptanceTests(_ task: AgentTask) async throws -> AgentReport {
+            let test = task.directory.appending(path: "\(task.testFolder)/check.sh")
+            try FileManager.default.createDirectory(at: test.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try "grep -q hello app.txt\n".write(to: test, atomically: true, encoding: .utf8)
+            throw AgentFailure("copilot timed out after 1200.0 seconds: \(UUID().uuidString)")
+        }
+    }
+
+    @Test("Tests a failed run left uncommitted without a kept draft are continued after harness:retry")
+    func leftoverTestsAreAdoptedAsADraft() async throws {
+        let repo = try await makeRepo()
+        let author = LocksTheIndexOnce()
+        let session = try await session(repo, team: AgentTeam(name: "Fake", decomposer: Leaf(), testAuthor: author,
+                                                              implementer: Implementer()))
+        let key = await ticket(session)
+        _ = await session.runUntilFinished()
+        let stopped = try #require(await session.ledger.workingState().node(forTicket: key))
+        #expect(stopped.flags[.escalated]?.contains("Couldn't keep the failed test author's draft") == true, "\(stopped.flags)")
+        #expect(stopped.testDraft == nil)
+
+        let gitDirectory = try await git(["rev-parse", "--absolute-git-dir"], in: session.workspace.worktree(for: stopped.id))
+        try FileManager.default.removeItem(atPath: gitDirectory + "/index.lock")
+        await session.tracker.addLabel("harness:retry", to: key, by: .human("Alice"))
+        let reports = await session.runUntilFinished()
+
+        #expect(await session.ledger.workingState().node(forTicket: key)?.phase == .proven, "\(reports.flatMap(\.actions))")
+        #expect(await author.carriedOver == ["Tests/AppTests/\(stopped.spec.testTarget)/check.sh"])
+    }
+
+    actor LocksTheIndexOnce: TestAuthor {
+        private var locked = false
+        private(set) var carriedOver: [String]?
+        func writeAcceptanceTests(_ task: AgentTask) async throws -> AgentReport {
+            guard !locked else {
+                carriedOver = task.unfinishedWork.sorted()
+                return AgentReport()
+            }
+            locked = true
+            let test = task.directory.appending(path: "\(task.testFolder)/check.sh")
+            try FileManager.default.createDirectory(at: test.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try "grep -q hello app.txt\n".write(to: test, atomically: true, encoding: .utf8)
+            let gitDirectory = try await ProcessRunner.run("/usr/bin/env", ["git", "rev-parse", "--absolute-git-dir"], in: task.directory)
+                .output.trimmingCharacters(in: .whitespacesAndNewlines)
+            FileManager.default.createFile(atPath: gitDirectory + "/index.lock", contents: nil)
+            throw AgentFailure("copilot timed out after 1200.0 seconds")
+        }
+    }
+
+    @Test("A test draft outlives new worktrees; when the landing branch changed under it, only its tests come back")
+    func aTestDraftKeepsItsTestsWhenItNoLongerFits() async throws {
+        let repo = try await makeRepo()
+        let storage = FileManager.default.temporaryDirectory.appending(path: "agentos-storage-\(UUID().uuidString)")
+        let workspace = try RepositoryWorkspace(root: repo, storage: storage, config: Self.config,
+                                                landingBranch: "agentos/main", defaultBranch: "main")
+        try await workspace.prepare()
+        var directory = try await workspace.createWorktree(for: "wn-1")
+        let test = "Tests/AppTests/WORK_1Tests/check.sh"
+        try FileManager.default.createDirectory(at: directory.appending(path: "Tests/AppTests/WORK_1Tests"), withIntermediateDirectories: true)
+        try "grep -q hello app.txt\n".write(to: directory.appending(path: test), atomically: true, encoding: .utf8)
+        try "placeholder\n".write(to: directory.appending(path: "app.txt"), atomically: true, encoding: .utf8)
+        #expect(try await workspace.saveTestDraft(directory, for: "wn-1") == [test, "app.txt"].sorted())
+
+        directory = try await workspace.createWorktree(for: "wn-1")
+        try await workspace.removeWorktree(for: "wn-1")
+        directory = try await workspace.createWorktree(for: "wn-1")
+        #expect(try await workspace.restoreTestDraft(for: "wn-1", in: directory) == [test, "app.txt"].sorted())
+        #expect(try String(contentsOf: directory.appending(path: "app.txt"), encoding: .utf8) == "placeholder\n")
+
+        // Other work lands on the placeholder's file.
+        try await git(["checkout", "-q", "agentos/main"], in: repo)
+        try "landed\n".write(to: repo.appending(path: "app.txt"), atomically: true, encoding: .utf8)
+        try await git(["-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-qam", "landed"], in: repo)
+        try await git(["checkout", "-q", "main"], in: repo)
+        directory = try await workspace.createWorktree(for: "wn-1")
+
+        #expect(try await workspace.restoreTestDraft(for: "wn-1", in: directory) == [test])
+        #expect(try String(contentsOf: directory.appending(path: "app.txt"), encoding: .utf8) == "landed\n")
+        #expect(try String(contentsOf: directory.appending(path: test), encoding: .utf8) == "grep -q hello app.txt\n")
+        try await workspace.forgetTestDraft(for: "wn-1")
+        #expect(try await workspace.restoreTestDraft(for: "wn-1", in: directory).isEmpty)
+    }
+
+    @Test("When the change review sends the tests back, the implementer continues from its kept implementation")
+    func theImplementationIsKeptWhileTheTestsAreFixed() async throws {
+        let repo = try await makeRepo()
+        let implementer = RecordsUnfinishedWork()
+        var team = AgentTeam(name: "Fake", decomposer: Leaf(), testAuthor: ShellTestAuthor(), implementer: implementer)
+        team.reviewer = FindsTestFaultOnce()
+        let session = try await session(repo, team: team)
+        let key = await ticket(session)
+
+        let reports = await session.runUntilFinished()
+
+        let node = try #require(await session.ledger.workingState().node(forTicket: key))
+        #expect(node.phase == .proven, "\(node.flags) \(reports.flatMap(\.actions))")
+        #expect(await implementer.unfinishedWork == [[], ["app.txt"]])
+        #expect(try await git(["for-each-ref", "refs/heads/agentos/kept-implementation/"], in: repo).isEmpty)
+    }
+
+    actor RecordsUnfinishedWork: AgentOSCore.Implementer {
+        private(set) var unfinishedWork: [[String]] = []
+        func implement(_ task: AgentTask) async throws {
+            unfinishedWork.append(task.unfinishedWork.sorted())
+            try await Implementer().implement(task)
+        }
+    }
+
+    actor FindsTestFaultOnce: Reviewer {
+        private var found = false
+        func review(_ request: ReviewRequest) async throws -> ReviewResult {
+            guard request.stage == .change, !found else { return ReviewResult(passed: true, findings: []) }
+            found = true
+            return ReviewResult(passed: false, findings: [], testFindings: ["The test doesn't name the greeting."])
+        }
+    }
+
+    @Test("A ticket going round stops at its run budget; a person acting on it starts a new one")
+    func theRunBudgetStopsATicketGoingRound() async throws {
+        let repo = try await makeRepo()
+        let implementer = RecordsUnfinishedWork()
+        var team = AgentTeam(name: "Fake", decomposer: Leaf(), testAuthor: ShellTestAuthor(), implementer: implementer)
+        team.reviewer = AlwaysFindsTestFault()
+        var harness = HarnessSettings()
+        harness.maxAgentRuns = 3
+        let session = try await session(repo, team: team, harness: harness)
+        let key = await ticket(session)
+
+        _ = await session.runUntilFinished()
+
+        let node = try #require(await session.ledger.workingState().node(forTicket: key))
+        #expect(node.flags[.escalated]?.contains("Agents ran 3 times") == true, "\(node.flags)")
+        #expect(await implementer.unfinishedWork.count == 1)
+        await session.tracker.addLabel("harness:retry", to: key, by: .human("Alice"))
+        _ = await session.runUntilFinished()
+        #expect(await implementer.unfinishedWork.count == 3)
+    }
+
+    struct AlwaysFindsTestFault: Reviewer {
+        func review(_ request: ReviewRequest) async throws -> ReviewResult {
+            guard request.stage == .change else { return ReviewResult(passed: true, findings: []) }
+            return ReviewResult(passed: false, findings: [], testFindings: ["The test doesn't name the greeting."])
+        }
+    }
+
+    @Test("An escalation gets one diagnosis on its ticket, read-only; the ticket stays with the person")
+    func anEscalationIsDiagnosedOnce() async throws {
+        let repo = try await makeRepo()
+        let diagnoser = RecordingDiagnoser()
+        var team = AgentTeam(name: "Fake", decomposer: Leaf(), testAuthor: AlwaysTimesOut(), implementer: Implementer())
+        team.diagnoser = diagnoser
+        let session = try await session(repo, team: team)
+        let key = await ticket(session)
+
+        _ = await session.runUntilFinished()
+        _ = await session.runUntilFinished()
+
+        let node = try #require(await session.ledger.workingState().node(forTicket: key))
+        #expect(node.flags[.escalated]?.contains("No progress") == true, "\(node.flags)")
+        #expect(!node.needsDiagnosis)
+        let requests = await diagnoser.requests
+        #expect(requests.count == 1)
+        let request = try #require(requests.first)
+        #expect(request.escalation == node.flags[.escalated])
+        #expect(request.history.contains { $0.contains("test draft of") })
+        #expect(request.directory == session.workspace.worktree(for: node.id))
+        let comments = await session.tracker.ticket(key)?.comments.map(\.text) ?? []
+        #expect(comments.contains { $0.contains("🩺") && $0.contains("Split it in two.") }, "\(comments)")
+    }
+
+    @Test("A diagnoser that fails is recorded and not retried; the escalation keeps its reason")
+    func aFailedDiagnosisIsNotRetried() async throws {
+        let repo = try await makeRepo()
+        let diagnoser = RecordingDiagnoser(fails: true)
+        var team = AgentTeam(name: "Fake", decomposer: Leaf(), testAuthor: AlwaysTimesOut(), implementer: Implementer())
+        team.diagnoser = diagnoser
+        let session = try await session(repo, team: team)
+        let key = await ticket(session)
+
+        _ = await session.runUntilFinished()
+        _ = await session.runUntilFinished()
+
+        let node = try #require(await session.ledger.workingState().node(forTicket: key))
+        #expect(node.flags[.escalated]?.contains("No progress") == true, "\(node.flags)")
+        #expect(await diagnoser.requests.count == 1)
+        let kinds = await session.ledger.records(for: node.id).map(\.event.kind)
+        #expect(kinds.contains { if case .diagnosisRecorded(_, let diagnosis) = $0 { diagnosis.cause.contains("couldn't finish") } else { false } })
+    }
+
+    actor RecordingDiagnoser: Diagnoser {
+        let fails: Bool
+        private(set) var requests: [DiagnosisRequest] = []
+        init(fails: Bool = false) { self.fails = fails }
+        func diagnose(_ request: DiagnosisRequest) async throws -> Diagnosis {
+            requests.append(request)
+            if fails { throw AgentFailure("copilot timed out after 600.0 seconds") }
+            return Diagnosis(cause: "The ticket is too big for one run.", nextStep: "Split it in two.")
+        }
+    }
+
+    @Test("A repo may give its agents longer, up to the harness's limit; the team runs with it")
+    func agentTimeoutsComeFromTheRepoConfig() throws {
+        var config = Self.config
+        config.agents = RepoConfig.Agents(timeouts: ["testAuthor": 1800, "reviewer": 7200, "planner": 600])
+        let policy = EffectivePolicy.resolve(harness: HarnessSettings(), repo: config, defaultBranch: "main")
+        #expect(policy.agentTimeouts["testAuthor"] == 1800)
+        #expect(policy.agentTimeouts["reviewer"] == 1200)
+        #expect(policy.problems.map(\.title).sorted() == ["Repo config sets a timeout for an unknown agent: planner",
+                                                           "Repo config sets the reviewer timeout to 7200 seconds"])
+        let team = RepositorySession.copilotTeam(executable: "/not-executed/copilot", policy: policy)
+        #expect((team.testAuthor as? CopilotTestAuthor)?.cli.timeout == .seconds(1800))
+        #expect((team.implementer as? CopilotImplementer)?.cli.timeout == .seconds(1200))
+        #expect((team.reviewer as? CopilotReviewer)?.cli.timeout == .seconds(1200))
+        #expect((team.diagnoser as? CopilotDiagnoser)?.cli.timeout == .seconds(600))
+    }
+
+    @Test("A proposed child with more criteria than one run proves gets a finding that asks to split it")
+    func oversizedChildrenAreFound() {
+        let criteria = (1...7).map { "Criterion \($0) holds." }
+        #expect(BreakdownChecker.check([ChildProposal(title: "Everything", acceptanceCriteria: criteria)])
+                == [.tooManyCriteria(childPosition: 1, childTitle: "Everything", count: 7, limit: 6)])
+        #expect(BreakdownChecker.check([ChildProposal(title: "Enough", acceptanceCriteria: Array(criteria.prefix(6)))]).isEmpty)
+    }
+
+    @Test("A stopped test author's draft is kept and recorded, and continued after harness:retry")
+    func aStoppedTestAuthorKeepsItsDraft() async throws {
+        let repo = try await makeRepo()
+        let author = WritesTestsThenWaits()
+        let session = try await session(repo, team: AgentTeam(name: "Fake", decomposer: Leaf(), testAuthor: author,
+                                                              implementer: Implementer()))
+        let key = await ticket(session)
+        var rounds = 0
+        while await !author.wrote, rounds < 200 {
+            _ = await session.step(waitForAgents: false)
+            try await Task.sleep(for: .milliseconds(50))
+            rounds += 1
+        }
+        let run = try #require(await session.ledger.workingState().node(forTicket: key)?.activeRun?.run)
+
+        try await session.reconciler.stopRun(run, by: "Morgan")
+
+        let stopped = try #require(await session.ledger.workingState().node(forTicket: key))
+        let test = "Tests/AppTests/\(stopped.spec.testTarget)/check.sh"
+        #expect(stopped.testDraft == [test])
+        await session.tracker.addLabel("harness:retry", to: key, by: .human("Alice"))
+        _ = await session.runUntilFinished()
+        #expect(await session.ledger.workingState().node(forTicket: key)?.phase == .proven)
+        #expect(await author.carriedOver == [test])
+    }
+
+    actor WritesTestsThenWaits: TestAuthor {
+        private(set) var wrote = false
+        private(set) var carriedOver: [String]?
+        func writeAcceptanceTests(_ task: AgentTask) async throws -> AgentReport {
+            guard !wrote else {
+                carriedOver = task.unfinishedWork.sorted()
+                return AgentReport()
+            }
+            let test = task.directory.appending(path: "\(task.testFolder)/check.sh")
+            try FileManager.default.createDirectory(at: test.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try "grep -q hello app.txt\n".write(to: test, atomically: true, encoding: .utf8)
+            wrote = true
+            try await Task.sleep(for: .seconds(60))
+            return AgentReport()
+        }
+    }
+
+    @Test("Tests left by an earlier run that still can't be kept go to a person; the worktree holding them stays")
+    func leftoverTestsThatCantBeKeptEscalate() async throws {
+        let repo = try await makeRepo()
+        let author = LocksTheIndexOnce()
+        let session = try await session(repo, team: AgentTeam(name: "Fake", decomposer: Leaf(), testAuthor: author,
+                                                              implementer: Implementer()))
+        let key = await ticket(session)
+        _ = await session.runUntilFinished()
+        // Held open, so the harness doesn't take the lock for one a killed git left behind.
+        let stopped = try #require(await session.ledger.workingState().node(forTicket: key))
+        let gitDirectory = try await git(["rev-parse", "--absolute-git-dir"], in: session.workspace.worktree(for: stopped.id))
+        let lock = try #require(FileHandle(forReadingAtPath: gitDirectory + "/index.lock"))
+        defer { try? lock.close() }
+
+        await session.tracker.addLabel("harness:retry", to: key, by: .human("Alice"))
+        _ = await session.runUntilFinished()
+
+        let node = try #require(await session.ledger.workingState().node(forTicket: key))
+        #expect(node.flags[.escalated]?.contains("Couldn't keep the tests an earlier run left") == true, "\(node.flags)")
+        #expect(await author.carriedOver == nil)
+        let test = session.workspace.worktree(for: node.id).appending(path: "Tests/AppTests/\(node.spec.testTarget)/check.sh")
+        #expect(try String(contentsOf: test, encoding: .utf8) == "grep -q hello app.txt\n")
+    }
+
+    @Test("When the implementation can't be kept, the tests aren't sent back over it: the branch stays for a person")
+    func anImplementationThatCantBeKeptIsntReset() async throws {
+        let repo = try await makeRepo()
+        let implementer = RecordsUnfinishedWork()
+        var team = AgentTeam(name: "Fake", decomposer: Leaf(), testAuthor: ShellTestAuthor(), implementer: implementer)
+        team.reviewer = BlocksKeptImplementations()
+        let session = try await session(repo, team: team)
+        let key = await ticket(session)
+
+        _ = await session.runUntilFinished()
+
+        let node = try #require(await session.ledger.workingState().node(forTicket: key))
+        #expect(node.flags[.escalated]?.contains("couldn't be kept before sending them back") == true, "\(node.flags)")
+        let directory = session.workspace.worktree(for: node.id)
+        #expect(try String(contentsOf: directory.appending(path: "app.txt"), encoding: .utf8) == "hello\n")
+        #expect(try await git(["rev-list", "--count", "agentos/main..HEAD"], in: directory) == "2")
+        #expect(await implementer.unfinishedWork.count == 1)
+    }
+
+    /// Finds a problem in the tests, after locking the ref the implementation would be kept in.
+    struct BlocksKeptImplementations: Reviewer {
+        func review(_ request: ReviewRequest) async throws -> ReviewResult {
+            guard request.stage == .change else { return ReviewResult(passed: true, findings: []) }
+            let common = try await ProcessRunner.run("/usr/bin/env", ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+                                                     in: request.directory).output.trimmingCharacters(in: .whitespacesAndNewlines)
+            let refs = URL(filePath: common).appending(path: "refs/heads/agentos/kept-implementation")
+            try FileManager.default.createDirectory(at: refs, withIntermediateDirectories: true)
+            FileManager.default.createFile(atPath: refs.appending(path: request.spec.id + ".lock").path, contents: nil)
+            return ReviewResult(passed: false, findings: [], testFindings: ["The test doesn't name the greeting."])
+        }
+    }
+
+    @Test("A diagnoser a person stops isn't started again")
+    func aStoppedDiagnosisIsNotRestarted() async throws {
+        let repo = try await makeRepo()
+        let diagnoser = WaitingDiagnoser()
+        var team = AgentTeam(name: "Fake", decomposer: Leaf(), testAuthor: AlwaysTimesOut(), implementer: Implementer())
+        team.diagnoser = diagnoser
+        let session = try await session(repo, team: team)
+        let key = await ticket(session)
+        var rounds = 0
+        while await diagnoser.started == 0, rounds < 400 {
+            _ = await session.step(waitForAgents: false)
+            try await Task.sleep(for: .milliseconds(50))
+            rounds += 1
+        }
+        let run = try #require(await session.ledger.workingState().node(forTicket: key)?.activeRun?.run)
+
+        try await session.reconciler.stopRun(run, by: "Morgan")
+        _ = await session.runUntilFinished()
+
+        #expect(await diagnoser.started == 1)
+        let node = try #require(await session.ledger.workingState().node(forTicket: key))
+        #expect(!node.needsDiagnosis)
+        #expect(node.flags[.escalated]?.contains("No progress") == true, "\(node.flags)")
+        let kinds = await session.ledger.records(for: node.id).map(\.event.kind)
+        #expect(kinds.contains { if case .diagnosisRecorded(_, let diagnosis) = $0 { diagnosis.cause.contains("stopped by Morgan") } else { false } })
+    }
+
+    actor WaitingDiagnoser: Diagnoser {
+        private(set) var started = 0
+        func diagnose(_ request: DiagnosisRequest) async throws -> Diagnosis {
+            started += 1
+            try await Task.sleep(for: .seconds(60))
+            return Diagnosis(cause: "late", nextStep: "late")
+        }
+    }
+
+    @Test("The diagnoser can't write or run commands, and sees copies of only the logs it was given")
+    func theDiagnoserIsReadOnlyAndSeesOnlyItsLogs() async throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "agentos-diagnoser-\(UUID().uuidString)")
+        let logs = folder.appending(path: "logs")
+        try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        for name in ["a.log", "b.log", "unrelated.log"] {
+            try "log \(name)\n".write(to: logs.appending(path: name), atomically: true, encoding: .utf8)
+        }
+        let copilot = folder.appending(path: "copilot")
+        try """
+            #!/bin/sh
+            here="$(dirname "$0")"; prev=""
+            for a in "$@"; do
+              [ "$prev" = "--add-dir" ] && { ls "$a" > "$here/seen.txt"; echo "$a" > "$here/copies.txt"; }
+              prev="$a"
+            done
+            printf '%s\n' "$@" > "$here/args.txt"
+            printf '%s\n' '{"cause":"Too big.","nextStep":"Split it."}'
+            """.write(to: copilot, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: copilot.path)
+        let policy = EffectivePolicy.resolve(harness: HarnessSettings(), repo: Self.config, defaultBranch: "main")
+        let team = RepositorySession.copilotTeam(executable: copilot.path, policy: policy)
+        let diagnoser = try #require(team.diagnoser)
+
+        let diagnosis = try await diagnoser.diagnose(DiagnosisRequest(
+            ticketKey: "GH-1", title: "Greeting", acceptanceCriteria: ["Says hello"], escalation: "No progress",
+            history: [], logs: [logs.appending(path: "a.log"), logs.appending(path: "b.log")], directory: folder, log: nil))
+
+        #expect(diagnosis == Diagnosis(cause: "Too big.", nextStep: "Split it."))
+        let seen = try String(contentsOf: folder.appending(path: "seen.txt"), encoding: .utf8)
+        #expect(seen == "1-a.log\n2-b.log\n")
+        let copies = try String(contentsOf: folder.appending(path: "copies.txt"), encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        #expect(!FileManager.default.fileExists(atPath: copies))
+        let args = try String(contentsOf: folder.appending(path: "args.txt"), encoding: .utf8).split(separator: "\n").map(String.init)
+        let denied = zip(args, args.dropFirst()).filter { $0.0 == "--deny-tool" }.map(\.1)
+        #expect(denied.contains("write") && denied.contains("shell"), "\(denied)")
+    }
+
+    @Test("A diagnosis posted on the ticket is cut to a readable length")
+    func aLongDiagnosisIsCut() throws {
+        let long = String(repeating: "x", count: 5000)
+        let diagnosis = try CopilotDiagnoser.diagnosis(from: #"{"cause":"\#(long)","nextStep":"Split it."}"#)
+        #expect(diagnosis.cause.count == 800)
+        #expect(diagnosis.nextStep == "Split it.")
+    }
+
     private func makeRepo() async throws -> URL {
         let repo = FileManager.default.temporaryDirectory.appending(path: "agentos-repo-\(UUID().uuidString)")
         let files = ["app.txt": "hi\n", "run-tests.sh": Self.runner, "AGENTS.md": "# Rules\n", "Tests/AppTests/Existing/check.sh": "true\n"]

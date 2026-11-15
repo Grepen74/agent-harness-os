@@ -102,7 +102,10 @@ extension Reconciler {
         let failures = await failedReviews(of: node.id, stage: stage)
         let converging = failures.count >= policy.review.maxRounds && Self.isConverging(failures)
             && failures.count < Self.convergingRoundLimit(policy.review.maxRounds)
-        let escalated = failures.count >= policy.review.maxRounds && !converging
+        // Problems in the tests go back to the test author even in the last round: the implementer can't fix them,
+        // and a person would only send them there too. The ticket's run budget bounds the rounds.
+        let testProblems = stage == .change && !(result.testFindings ?? []).isEmpty
+        let escalated = failures.count >= policy.review.maxRounds && !converging && !testProblems
         let findings = result.allFindings.joined(separator: "\n")
         // Each round repeats the earlier findings still unfixed, so only the last round's are open.
         let earlier = failures.dropLast().flatMap(\.result.allFindings)
@@ -121,7 +124,23 @@ extension Reconciler {
                 + "Comment with guidance, then add harness:retry."
         // The implementer may not change the ticket's acceptance tests: problems in them go to the test author.
         let toTestAuthor = stage == .acceptanceTests || (result.testFindings != nil && !escalated)
-        if stage == .change, toTestAuthor, let directory { try await workspace.resetForRework(directory) }
+        var keptImplementation: [String] = []
+        if stage == .change, toTestAuthor, let directory {
+            // The implementation may be fine: the implementer continues from it once the tests are fixed.
+            do {
+                keptImplementation = try await workspace.keepImplementation(directory, for: node.id)
+            } catch {
+                // Resetting now would lose the implementation: the branch stays as it is, for a person.
+                let reason = "Change review found problems in this ticket's acceptance tests, but the implementation "
+                    + "couldn't be kept before sending them back (\(error)). The branch is unchanged.\nFindings:\n"
+                    + "\(findings)\nCheck the repo, then add harness:retest (or comment and add harness:retry)."
+                try await write(node.id, by: .reconciler, [.runFinished(run: run, outcome: "review findings"),
+                                                           .phaseChanged(to: .ready), .flagSet(.escalated, reason: reason)])
+                await tracker.comment(on: node.ticket, "⚠️ Needs a human: " + reason)
+                return "\(node.displayName) review findings → Needs human (implementation not kept)"
+            }
+            try await workspace.resetForRework(directory)
+        }
         var kinds: [EventKind] = [
             .runFinished(run: run, outcome: "review findings"),
             .phaseChanged(to: toTestAuthor ? .specified : .ready),
@@ -130,7 +149,9 @@ extension Reconciler {
         try await write(node.id, by: .reconciler, kinds)
         if stage == .change, toTestAuthor {
             await tracker.comment(on: node.ticket, "🔁 Change review found problems in this ticket's acceptance tests, "
-                + "sent back to the test author:\n\(findings)")
+                + "sent back to the test author:\n\(findings)"
+                + (keptImplementation.isEmpty ? "" : "\nThe implementation (\(keptImplementation.count) files) is kept: "
+                    + "the implementer continues from it once the tests are fixed."))
         } else {
             await tracker.comment(on: node.ticket, reason)
         }

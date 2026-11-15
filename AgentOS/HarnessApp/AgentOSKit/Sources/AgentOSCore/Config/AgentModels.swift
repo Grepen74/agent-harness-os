@@ -22,7 +22,7 @@ public struct AgentModels: Codable, Sendable, Equatable {
             case .decomposer: decomposer
             case .testAuthor: testAuthor
             case .implementer: implementer
-            case .verifier: nil
+            case .verifier, .diagnoser: nil
             }
         }
         set {
@@ -30,7 +30,7 @@ public struct AgentModels: Codable, Sendable, Equatable {
             case .decomposer: decomposer = newValue
             case .testAuthor: testAuthor = newValue
             case .implementer: implementer = newValue
-            case .verifier: break
+            case .verifier, .diagnoser: break
             }
         }
     }
@@ -44,6 +44,7 @@ extension AgentRole {
         case .testAuthor: "Acceptance tests"
         case .implementer: "Implementation"
         case .verifier: "Verification"
+        case .diagnoser: "Diagnosis"
         }
     }
 }

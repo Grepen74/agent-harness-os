@@ -45,6 +45,8 @@ public enum Participant: Codable, Sendable, Hashable {
 
 public enum AgentRole: String, Codable, Sendable {
     case decomposer, testAuthor, implementer, verifier
+    /// Reads why a ticket went to a person and suggests what to do; never changes the work.
+    case diagnoser
 
     /// For people: "test author" rather than "testAuthor".
     public var title: String { self == .testAuthor ? "test author" : rawValue }

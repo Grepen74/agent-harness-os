@@ -69,11 +69,14 @@ public struct RepoConfig: Codable, Sendable, Equatable {
     public struct Limits: Codable, Sendable, Equatable {
         public var maxAttempts: Int?
         public var maxReworks: Int?
+        /// Test-author and implementer runs per ticket before a person must look.
+        public var maxAgentRuns: Int?
         public var maxParallelAgents: Int?
 
-        public init(maxAttempts: Int? = nil, maxReworks: Int? = nil, maxParallelAgents: Int? = nil) {
+        public init(maxAttempts: Int? = nil, maxReworks: Int? = nil, maxAgentRuns: Int? = nil, maxParallelAgents: Int? = nil) {
             self.maxAttempts = maxAttempts
             self.maxReworks = maxReworks
+            self.maxAgentRuns = maxAgentRuns
             self.maxParallelAgents = maxParallelAgents
         }
     }
@@ -87,13 +90,17 @@ public struct RepoConfig: Codable, Sendable, Equatable {
         public var guesswork: String?
         /// Tracked repository-relative paths or globs for design documents agents should read.
         public var context: [String]?
+        /// Seconds an agent may run, per agent (`decomposer`, `testAuthor`, `implementer`, `reviewer`,
+        /// `diagnoser`), up to 3600. Defaults: 1200, the diagnoser 600.
+        public var timeouts: [String: Int]?
 
         public init(deny: [String]? = nil, models: AgentModels? = nil, guesswork: String? = nil,
-                    context: [String]? = nil) {
+                    context: [String]? = nil, timeouts: [String: Int]? = nil) {
             self.deny = deny
             self.models = models
             self.guesswork = guesswork
             self.context = context
+            self.timeouts = timeouts
         }
 
         /// Tracked files selected by the configured repository-relative paths and globs.

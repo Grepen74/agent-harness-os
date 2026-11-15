@@ -29,13 +29,15 @@ public struct AgentTask: Sendable {
     public let agentContext: AgentContext
     /// Files an earlier, failed attempt changed and never submitted; they are back in `directory`, uncommitted.
     public let unfinishedWork: [String]
+    /// The harness's own run of a restored test draft's suite before the agent starts: what still fails, and why.
+    public let draftCheck: String?
 
     public init(spec: NodeSpec, run: RunID, directory: URL, testFolder: String, scratchDirectory: URL,
                 context: String = "", attempt: Int = 1, previousFailure: String? = nil,
                 simulationHints: Set<String> = [], log: URL? = nil,
                 clarifications: [Clarification] = [], guesswork: Guesswork = .assumeAndReport,
                 expectedAPI: [String] = [], ticketKey: String? = nil, agentContext: AgentContext = AgentContext(),
-                unfinishedWork: [String] = []) {
+                unfinishedWork: [String] = [], draftCheck: String? = nil) {
         self.spec = spec
         let inferredTicket = spec.id.hasPrefix("wn-") ? String(spec.id.dropFirst(3)) : spec.id
         self.identity = NodeIdentity(ticketKey: ticketKey ?? inferredTicket, nodeID: spec.id)
@@ -53,6 +55,7 @@ public struct AgentTask: Sendable {
         self.expectedAPI = expectedAPI
         self.agentContext = agentContext
         self.unfinishedWork = unfinishedWork
+        self.draftCheck = draftCheck
     }
 }
 
@@ -280,6 +283,51 @@ public protocol Implementer: Sendable {
     func implement(_ task: AgentTask) async throws -> ImplementationReport
 }
 
+/// Reads why a ticket went to a person (the escalation, the ledger history, the agents' logs and the work so far)
+/// and suggests the next step. Read-only: it never changes the work, and only a person acts on its suggestion.
+public protocol Diagnoser: Sendable {
+    func diagnose(_ request: DiagnosisRequest) async throws -> Diagnosis
+}
+
+public struct DiagnosisRequest: Sendable {
+    public let ticketKey: String
+    public let title: String
+    public let acceptanceCriteria: [String]
+    /// Why it went to a person.
+    public let escalation: String
+    /// The node's ledger history, oldest first, one line per event.
+    public let history: [String]
+    /// Logs of the node's recent agent runs, newest last.
+    public let logs: [URL]
+    /// The node's worktree, or else a snapshot of the landing branch.
+    public let directory: URL?
+    public let log: URL?
+
+    public init(ticketKey: String, title: String, acceptanceCriteria: [String], escalation: String, history: [String],
+                logs: [URL], directory: URL?, log: URL?) {
+        self.ticketKey = ticketKey
+        self.title = title
+        self.acceptanceCriteria = acceptanceCriteria
+        self.escalation = escalation
+        self.history = history
+        self.logs = logs
+        self.directory = directory
+        self.log = log
+    }
+}
+
+public struct Diagnosis: Codable, Sendable, Equatable {
+    /// What most likely went wrong.
+    public var cause: String
+    /// What a person should do next, e.g. split the ticket, answer a question, or comment and add harness:retry.
+    public var nextStep: String
+
+    public init(cause: String, nextStep: String) {
+        self.cause = cause
+        self.nextStep = nextStep
+    }
+}
+
 /// Verification runs checks independently of implementation. Repository teams also assign a reviewer;
 /// scripted and legacy teams may omit it.
 public struct AgentTeam: Sendable {
@@ -288,6 +336,8 @@ public struct AgentTeam: Sendable {
     public let testAuthor: any TestAuthor
     public let implementer: any Implementer
     public var reviewer: (any Reviewer)?
+    /// Explains escalations; without one they wait for a person unexplained.
+    public var diagnoser: (any Diagnoser)?
 
     public init(name: String, decomposer: any Decomposer, testAuthor: any TestAuthor, implementer: any Implementer) {
         self.name = name

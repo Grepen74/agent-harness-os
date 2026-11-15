@@ -349,6 +349,7 @@ struct GH_28Tests {
         }
         #expect(CopilotReviewer.prompt(for: request).contains(Fixture.fullDiff))
         #expect(CopilotReviewer.prompt(for: request).contains("by absolute path"))
+        #expect(CopilotReviewer.prompt(for: request).contains("tests that are missing go in testFindings"))
     }
 
     @Test(arguments: [0, 1, 2])
@@ -443,6 +444,20 @@ struct GH_28Tests {
         #expect(rebuild.previousFailure?.contains(testFinding) != true)
         try await fixture.advanceUntil { await fixture.workspace.landedCount == 1 }
         #expect(await fixture.tracker.comments.contains { $0.contains("sent back to the test author") && $0.contains(testFinding) })
+    }
+
+    @Test
+    func problemsInTheTestsFoundInTheLastReviewRoundStillGoToTheTestAuthor() async throws {
+        let testFinding = "The test requires B to start before C, though the ticket only bounds concurrency."
+        let fixture = try await Fixture(
+            review: ["maxRounds": 2],
+            changeResults: [.init(passed: false, findings: ["The scheduler ignores the limit."]),
+                            .init(passed: false, findings: [], testFindings: [testFinding])])
+        defer { fixture.cleanUp() }
+        try await fixture.advanceUntil { await fixture.workspace.landedCount == 1 }
+        #expect(await fixture.author.tasks.count == 2)
+        #expect(await fixture.author.tasks.last?.previousFailure?.contains(testFinding) == true)
+        #expect(await fixture.node()?.flags[.escalated] == nil)
     }
 
     @Test
