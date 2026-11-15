@@ -863,6 +863,34 @@ struct RepositoryWorkspaceTests {
         #expect(error?.description.hasPrefix("copilot timed out after") == true)
     }
 
+    @Test func theAgentLogEndsWithTheRequestsDeniedForWantOfAnApprover() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "agentos-denials-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let copilot = directory.appending(path: "copilot")
+        try """
+        #!/bin/sh
+        if [ "$2" = quiet ]; then echo done; exit 0; fi
+        echo '  └ ✗ Denied, no one to approve shell path (../../../.agentos/scratch/run-1/a.log)'
+        echo '  └ ✗ Denied, no one to approve shell path (../../../.agentos/scratch/run-1/a.log)'
+        echo '  └ ✗ Denied, no one to approve read path (/tmp/x.swift)'
+        echo done
+        """.write(to: copilot, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: copilot.path)
+        let log = directory.appending(path: "agent.log")
+        try "an earlier run: Denied, no one to approve shell path (/old)\n".write(to: log, atomically: true, encoding: .utf8)
+
+        let cli = CopilotCLI(executable: copilot.path, timeout: .seconds(10))
+        _ = try await cli.run("implement", in: directory, log: log, silent: false)
+        let last = try #require(try String(contentsOf: log, encoding: .utf8).split(separator: "\n").last)
+        #expect(last.contains("Harness: 3 requests were denied"))
+        #expect(last.contains("shell path (../../../.agentos/scratch/run-1/a.log); read path (/tmp/x.swift)."))
+        #expect(!last.contains("/old"))
+
+        _ = try await cli.run("quiet", in: directory, log: log, silent: false)
+        #expect(try String(contentsOf: log, encoding: .utf8).split(separator: "\n").last?.hasSuffix("done") == true)
+    }
+
     // MARK: Helpers
 
     private func makeRepo() async throws -> URL {

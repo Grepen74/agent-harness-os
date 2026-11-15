@@ -301,7 +301,9 @@ struct AgentRuns: View {
         let runs = Self.runs(of: node.id, in: model)
         if !runs.isEmpty {
             Text("Agent runs").font(.caption.bold()).padding(.top, 4)
-            ForEach(runs, id: \.run) { item in
+            ForEach(runs.sorted(by: { item1, item2 in
+                item1.date > item2.date
+            }), id: \.run) { item in
                 HStack {
                     Text(item.date.formatted(date: .omitted, time: .standard))
                     Text(item.role.rawValue)

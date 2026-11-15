@@ -50,6 +50,16 @@ struct GH_29_3Tests {
     }
 
     @Test
+    func agentsThatRunCommandsAreToldToNamePathsOutsideTheirDirectoryAbsolutely() {
+        let task = taskForPrompt()
+
+        for prompt in [CopilotImplementer.prompt(for: task), CopilotTestAuthor.prompt(for: task)] {
+            #expect(prompt.contains("ignores any cd"))
+            #expect(prompt.contains("by absolute path"))
+        }
+    }
+
+    @Test
     func theTestAuthorRunsItsSuiteAgainstPlaceholdersThatAreThrownAway() {
         let task = taskForPrompt()
 

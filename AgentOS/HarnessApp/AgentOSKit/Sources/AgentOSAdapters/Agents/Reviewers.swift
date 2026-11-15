@@ -60,6 +60,7 @@ public struct CopilotReviewer: Reviewer {
     public static func prompt(for request: ReviewRequest) -> String {
         """
         Independently review the \(request.stage.rawValue). Read only; never edit files or run git.
+        \(CopilotCLI.unattendedPathRule)
         Return only JSON: {"passed": Bool, "findings": [String], "testFindings": [String], "followUps": [String]}. \
         Each finding must explain the problem.
         At the change stage the implementer may not edit the acceptance tests listed below: put problems in those \
@@ -89,7 +90,9 @@ public struct CopilotReviewer: Reviewer {
         Runtime UI evidence is required at the change stage, not before implementation.
         Built-in quality checklist:
         - Regressions and loosened constraints, including smaller minimum window sizes and wider permissions.
-        - I/O and allocation per line or loop iteration; avoid repeated file opens and formatter construction.
+        - I/O and allocation per line or loop iteration; avoid repeated file opens and formatter construction. \
+        These go in followUps unless they make an acceptance criterion fail: fixing them mid-review (with a \
+        cache, say) tends to bring new defects.
         - Logic duplicating existing or recently landed code; inspect same-file recent changes.
         - Growing files that are already large (several hundred lines or more) with a new responsibility: \
         it belongs in a new file or extension, since large files are where parallel work conflicts.

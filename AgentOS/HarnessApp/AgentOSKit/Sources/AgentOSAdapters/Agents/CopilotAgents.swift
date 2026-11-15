@@ -116,8 +116,13 @@ public struct CopilotCLI: Sendable {
         Design documents: \(agentContext.designDocumentPaths.joined(separator: ", "))
 
         """
+        let logStart = log.flatMap { try? FileManager.default.attributesOfItem(atPath: $0.path)[.size] as? Int } ?? 0
         let result = try await ProcessRunner.run(executable, arguments(prompt: prompt, in: directory, silent: silent), in: directory,
                                                  timeout: timeout, log: log, timeZone: .current, logPreamble: inventory)
+        if let log, let data = try? Data(contentsOf: log), data.count > logStart,
+           let summary = Self.unattendedDenialSummary(String(decoding: data.dropFirst(logStart), as: UTF8.self)) {
+            AgentLog.append(summary, to: log, producedAt: Date(), timeZone: .current)
+        }
         guard result.status == 0 else {
             if let unavailable = Self.unavailableModel(in: result.output) { throw UnavailableModel(model: unavailable) }
             if result.crashSignal == SIGKILL && result.output.hasSuffix("Timed out after \(timeout)\n") {
@@ -127,6 +132,29 @@ public struct CopilotCLI: Sendable {
         }
         return result.output
     }
+
+    /// Agents run unattended, so the CLI denies anything that would need a person's approval and the agent tries
+    /// another way. Each denial costs a turn; the summary at the end of the agent log shows what to allow up front.
+    static func unattendedDenialSummary(_ log: String) -> String? {
+        let marker = "Denied, no one to approve "
+        let denied = log.components(separatedBy: "\n").compactMap { line -> String? in
+            guard let range = line.range(of: marker) else { return nil }
+            return line[range.upperBound...].trimmingCharacters(in: .whitespaces)
+        }
+        guard !denied.isEmpty else { return nil }
+        var seen: Set<String> = []
+        let unique = denied.filter { seen.insert($0).inserted }
+        return "Harness: \(denied.count) request\(denied.count == 1 ? " was" : "s were") denied because no one can "
+            + "approve them in an unattended run: \(unique.joined(separator: "; ")). Unattended agents can't ask, "
+            + "so allow what they need up front (see \"Unattended permissions\" in docs/real-repo-mode.md)."
+    }
+
+    /// The CLI's path check resolves relative paths from the session directory and ignores `cd`, so
+    /// `cd Sub && cmd > ../log` is denied as outside the worktree although it isn't.
+    static let unattendedPathRule = "Nobody can approve anything during this run: shell commands that name a " +
+        "path outside your working directory are denied. The check resolves relative paths from your working " +
+        "directory and ignores any cd in the command, so name files anywhere else, such as the scratch folder, " +
+        "by absolute path, and don't use /tmp."
 
     /// The model named in the CLI's `Model "…" is not available` error, if that's why it stopped.
     static func unavailableModel(in output: String) -> String? {
@@ -447,7 +475,7 @@ public struct CopilotTestAuthor: TestAuthor {
         from a rendered view), check it once against something that already exists, because a broken helper \
         stops the implementer later and only you can fix it. Don't implement the work item, and stop after a few \
         rounds of building and fixing. For experiments, use the writable scratch folder at \
-        \(task.scratchDirectory.path) instead of /tmp. \
+        \(task.scratchDirectory.path) instead of /tmp. \(CopilotCLI.unattendedPathRule) \
         The tests must also compile once the real API exists: other test files share the \
         same test target, so make helper types and functions `private` or nest them in the suite, and qualify a \
         name with its module when more than one imported module declares it (e.g. a type that Testing also has). \
@@ -472,7 +500,11 @@ public struct CopilotImplementer: Implementer {
     let cli: CopilotCLI
 
     static func prompt(for task: AgentTask) -> String {
-        let failure = task.previousFailure.map { "\nThe previous attempt failed verification with: \($0)\n" } ?? ""
+        let failure = task.previousFailure.map {
+            "\nThe previous attempt failed verification with: \($0)\n" +
+            "Fix each problem with the simplest correct change. Don't add caches, extra shared state or " +
+            "concurrency unless a problem asks for it: each new mechanism tends to bring new review findings.\n"
+        } ?? ""
         let unfinishedFiles = task.unfinishedWork.prefix(40).joined(separator: ", ") + (task.unfinishedWork.count > 40 ? ", …" : "")
         let unfinished = task.unfinishedWork.isEmpty ? "" : """
 
@@ -495,7 +527,7 @@ public struct CopilotImplementer: Implementer {
         passing too. Run the tests before finishing. You only submit; an independent verifier decides if it's done.
         Do not change behavior outside the ticket's requested scope. For experiments, use the writable scratch folder \
         at \(task.scratchDirectory.path) instead of /tmp. You may write experiments there without approval; its \
-        contents are excluded from the submitted implementation.
+        contents are excluded from the submitted implementation. \(CopilotCLI.unattendedPathRule)
         For UI changes, capture snapshot-test evidence and actually open and close the affected windows. \
         Capture before and after screenshots. Write .agentos-ui-evidence.json at the worktree root as \
         {"snapshotPaths": [string], "windowsOpened": Bool, "windowsClosed": Bool, \

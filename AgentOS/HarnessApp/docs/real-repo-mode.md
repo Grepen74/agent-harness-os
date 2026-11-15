@@ -159,7 +159,7 @@ is configured, Copilot CLI chooses its own default. Display titles are not confi
 | `review.level` | String: `none`, `agent`, or `agent+human` | Inherit current harness level; built-in `agent` | Same or stricter than harness level; strictest is `agent+human` |
 | `review.areas` | Object/map from area names, path prefixes or globs to review-level strings: `none`, `agent`, `agent+human` | No additional area rules | Each level must be at least as strict as the effective overall level; strictest matching declared or changed area applies |
 | `review.instructions` | String: repository-relative path to a review instructions file | No additional instructions file | Adds repository review context; does not replace the built-in checklist |
-| `review.maxRounds` | Integer: reviews with findings allowed at each review stage before escalation | 2 | Must be positive; `harness:retry` resets the limit |
+| `review.maxRounds` | Integer: reviews with findings allowed at each review stage before escalation | 2 | Must be positive; `harness:retry` resets the limit; converging reviews carry on up to twice this |
 | `review.model` | String: exact reviewer model identifier | Inherit the harness reviewer selection; default reviewer uses the first offered reviewer model that differs from the implementer's, else the agent CLI's default model | Must be in the review-specific offered models in Settings, not merely the agent model list |
 
 Commands are run with `/bin/sh -c` from the repo's top folder, not from the config's folder.
@@ -284,7 +284,10 @@ the remaining findings. If the implementer changes nothing for a review's findin
 wrong, or about the tests), the harness doesn't submit the same branch for another review: it stops with
 "Needs input". `harness:retest` then sends the ticket to the test author; a comment plus `harness:retry`
 sends the answer to the implementer. After `maxRounds` reviews with findings at
-either stage (default 2), work escalates; the escalation lists the last round's findings as still open
+either stage (default 2), work escalates, unless the reviews are converging: the latest round repeated
+none of the earlier findings (all it found starts with "New:") and found fewer problems than the round
+before. Converging work carries on, with a note on the ticket, up to twice `maxRounds`. Otherwise
+the escalation lists the last round's findings as still open
 and earlier rounds' as history, since the reviewer repeats any it still finds unfixed. A human
 `harness:retry` resets the limit (from an escalation or from "Needs input"), and so does
 `harness:retest`, since reviews of the discarded tests and code no longer count. A passing review at a
@@ -295,7 +298,10 @@ So that reviews converge, every review is asked to report all the blocking probl
 and a later review round gets the findings of the earlier rounds at that stage.
 The reviewer first checks each earlier finding is fixed. A new finding must be a defect that makes an
 acceptance criterion fail or a regression the change introduced, and starts with "New:". Improvements,
-out-of-scope and pre-existing problems go in `followUps`. The harness posts follow-ups on the ticket for a
+out-of-scope and pre-existing problems go in `followUps`, and so does per-line or per-loop I/O unless it
+makes a criterion fail: fixing it mid-review (with a cache, say) tends to bring new defects. The
+implementer is told to fix findings with the simplest correct change, without new caches, shared state
+or concurrency unless a finding asks for them. The harness posts follow-ups on the ticket for a
 person to file as new tickets; they never fail the review. When the round limit is reached, the
 escalation suggests splitting the ticket into smaller tickets.
 
@@ -410,6 +416,13 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
 - **Copilot agents** run with `--allow-all-tools` plus a `--deny-tool` per effective denied tool (network
   installs as one `shell(…)` pattern) and per protected file (`write(AGENTS.md)`), and `--model` per role.
   Copilot's `write()` patterns only cover file names; folders and globs are enforced by the check above.
+- **Unattended permissions.** Nobody can approve anything during a run, so the CLI denies whatever would
+  need approval, and the agent tries another way at the cost of a turn. Paths are what gets denied: file
+  paths are only checked to stay inside the worktree, not allowed outright (`--allow-all-paths` would remove
+  the only file boundary on an unsandboxed machine). The CLI resolves a relative path from the worktree root
+  and ignores `cd`, so `cd Sub && swift test > ../log` counts as outside. Agents are told to name such files,
+  like their scratch folder, by absolute path. Each agent log ends with a line counting the run's denials and
+  what they were, so anything agents keep needing shows up and can be allowed up front.
 - **Your git state** is fingerprinted before and compared after each test-author and implementer run: refs
   outside `agentos/` (tags, remote-tracking refs, the stash; for local branches only whether they exist,
   since you may commit while agents work), and the shared git config, hooks and `info/` files. Worktrees

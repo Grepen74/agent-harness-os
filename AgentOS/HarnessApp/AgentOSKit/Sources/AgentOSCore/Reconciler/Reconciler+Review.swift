@@ -100,7 +100,9 @@ extension Reconciler {
     func returnReviewFindings(_ result: ReviewResult, stage: ReviewStage,
                                      node: NodeState, run: RunID, directory: URL? = nil) async throws -> String {
         let failures = await failedReviews(of: node.id, stage: stage)
-        let escalated = failures.count >= policy.review.maxRounds
+        let converging = failures.count >= policy.review.maxRounds && Self.isConverging(failures)
+            && failures.count < Self.convergingRoundLimit(policy.review.maxRounds)
+        let escalated = failures.count >= policy.review.maxRounds && !converging
         let findings = result.allFindings.joined(separator: "\n")
         // Each round repeats the earlier findings still unfixed, so only the last round's are open.
         let earlier = failures.dropLast().flatMap(\.result.allFindings)
@@ -113,7 +115,10 @@ extension Reconciler {
                 + "If each round found new problems, the ticket is probably too big for one change: split it into "
                 + "smaller tickets (narrow its criteria and add the rest as new tickets, or harness:replan its parent "
                 + "before building starts). Otherwise comment with guidance, then add harness:retry."
-            : "\(stage.rawValue) review findings:\n\(findings)\nComment with guidance, then add harness:retry."
+            : "\(stage.rawValue) review findings:\n\(findings)\n"
+                + (converging ? "Review round \(failures.count) of at most \(Self.convergingRoundLimit(policy.review.maxRounds)): "
+                    + "every earlier finding was fixed and fewer new ones were found, so it carries on.\n" : "")
+                + "Comment with guidance, then add harness:retry."
         // The implementer may not change the ticket's acceptance tests: problems in them go to the test author.
         let toTestAuthor = stage == .acceptanceTests || (result.testFindings != nil && !escalated)
         if stage == .change, toTestAuthor, let directory { try await workspace.resetForRework(directory) }
@@ -131,4 +136,18 @@ extension Reconciler {
         }
         return "\(node.displayName) review findings → \(escalated ? "Needs human" : toTestAuthor ? "test author" : "implementer")"
     }
+
+    /// Whether reviews are converging: the latest round repeated none of the earlier findings (each was fixed, so
+    /// all it found starts with "New:") and found fewer problems than the round before. Past `maxRounds`, such
+    /// work carries on instead of escalating, up to `convergingRoundLimit`.
+    static func isConverging(_ failures: [ReviewRecord]) -> Bool {
+        guard failures.count >= 2 else { return false }
+        let latest = failures[failures.count - 1].result.allFindings
+        let before = failures[failures.count - 2].result.allFindings
+        return latest.count < before.count && latest.allSatisfy {
+            $0.trimmingCharacters(in: .whitespaces).lowercased().hasPrefix("new:")
+        }
+    }
+
+    static func convergingRoundLimit(_ maxRounds: Int) -> Int { maxRounds * 2 }
 }

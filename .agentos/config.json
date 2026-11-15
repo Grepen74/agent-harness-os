@@ -34,5 +34,8 @@
   },
   "agents": {
       "guesswork": "autonomous"
+  },
+  "review": {
+      "maxRounds": 3
   }
 }

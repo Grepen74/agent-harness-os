@@ -348,6 +348,7 @@ struct GH_28Tests {
             #expect(prompt.contains(required), "The reviewer must be instructed about \(required)")
         }
         #expect(CopilotReviewer.prompt(for: request).contains(Fixture.fullDiff))
+        #expect(CopilotReviewer.prompt(for: request).contains("by absolute path"))
     }
 
     @Test(arguments: [0, 1, 2])
@@ -597,6 +598,51 @@ struct GH_28Tests {
         #expect(comments.contains("split it into smaller tickets"))
         #expect(await fixture.reviewer.requests.filter { $0.stage == .change }.count == 2)
         #expect(await fixture.builder.tasks.count == 2)
+        #expect(await fixture.workspace.landedCount == 0)
+    }
+
+    @Test
+    func convergingReviewsCarryOnPastMaxRoundsAndLand() async throws {
+        let fixture = try await Fixture(
+            review: ["maxRounds": 2],
+            changeResults: [.init(passed: false, findings: ["The overlap check reads a stale snapshot.", "It never clears the failure."]),
+                            .init(passed: false, findings: ["New: the cache isn't invalidated after catch-up."])]
+        )
+        defer { fixture.cleanUp() }
+        try await fixture.advanceUntil { await fixture.workspace.landedCount == 1 }
+        #expect(await fixture.node()?.flags[.escalated] == nil)
+        #expect(await fixture.builder.tasks.count == 3)
+        #expect(await fixture.tracker.comments.contains { $0.contains("carries on") })
+    }
+
+    @Test
+    func convergingReviewsStillEscalateAtTwiceMaxRounds() async throws {
+        let counts = [5, 4, 3, 2]
+        let fixture = try await Fixture(
+            review: ["maxRounds": 2],
+            changeResults: counts.enumerated().map { round, count in
+                .init(passed: false, findings: (0..<count).map { "New: problem \($0) of round \(round + 1)." })
+            }
+        )
+        defer { fixture.cleanUp() }
+        try await fixture.advanceUntil { await fixture.node()?.flags[.escalated] != nil }
+        await fixture.rounds(3)
+        #expect(await fixture.reviewer.requests.filter { $0.stage == .change }.count == 4)
+        #expect(await fixture.workspace.landedCount == 0)
+    }
+
+    @Test
+    func aRepeatedFindingEscalatesAtMaxRoundsEvenWithFewerFindings() async throws {
+        let repeated = "The minimum window size clips the Done button."
+        let fixture = try await Fixture(
+            review: ["maxRounds": 2],
+            changeResults: [.init(passed: false, findings: [repeated, "Timestamp logic duplicates landed code."]),
+                            .init(passed: false, findings: [repeated])]
+        )
+        defer { fixture.cleanUp() }
+        try await fixture.advanceUntil { await fixture.node()?.flags[.escalated] != nil }
+        await fixture.rounds(3)
+        #expect(await fixture.reviewer.requests.filter { $0.stage == .change }.count == 2)
         #expect(await fixture.workspace.landedCount == 0)
     }
 
