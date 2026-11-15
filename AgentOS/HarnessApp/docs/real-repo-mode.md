@@ -472,6 +472,14 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
   A Copilot agent run is stopped after 20 minutes and fails as "copilot timed out". Commands the agent
   started in their own process groups (Copilot runs each shell command in one) are ended with it, so a hung
   `swift test` can't keep holding the worktree's build lock for the next run.
+  An implementer run that fails or is stopped before submitting (out of time, say) doesn't lose its work: its
+  uncommitted changes are kept on the branch `agentos/unfinished/<node>`, out of reach of the next run's
+  rebase and of catch-up. The next attempt gets them back, uncommitted, and is told to continue from them
+  and to reuse the before screenshots already taken. They stay kept until that attempt ends: failing again
+  keeps its changes instead; submitting, asking questions or reporting a broken test forgets them. Changes
+  that no longer apply after the rebase are dropped. A new worktree (new tests, `harness:retest`) forgets
+  them. If the changes can't be kept, the ticket goes to a person rather than to a retry that would clean
+  them away.
 
 Known limits: a leaf's tests go in the one configured test target, so if that target needs a simulator,
 every leaf's checks do; picking a target per leaf (e.g. a package's tests for service-layer work) would

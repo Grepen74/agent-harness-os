@@ -502,6 +502,157 @@ struct RepositoryWorkspaceTests {
         #expect(!FileManager.default.fileExists(atPath: directory.appending(path: folder).path))
     }
 
+    @Test("An implementer that fails before submitting leaves its unfinished work to the next attempt")
+    func theNextAttemptContinuesUnfinishedWork() async throws {
+        let repo = try await makeRepo()
+        let implementer = StopsHalfwayOnce()
+        let session = try await session(repo, team: AgentTeam(name: "Fake", decomposer: Leaf(), testAuthor: ShellTestAuthor(),
+                                                              implementer: implementer))
+        let key = await ticket(session)
+
+        let reports = await session.runUntilFinished()
+
+        let node = try #require(await session.ledger.workingState().node(forTicket: key))
+        #expect(node.phase == .proven, "\(reports.flatMap(\.actions))")
+        #expect(await implementer.carriedOver == ["Sources/Greeting.swift", "app.txt"])
+        #expect(try await git(["show", "agentos/main:Sources/Greeting.swift"], in: repo) == "let greeting = \"hello\"")
+        #expect(try await git(["for-each-ref", "refs/heads/agentos/unfinished/"], in: repo).isEmpty)
+    }
+
+    actor StopsHalfwayOnce: AgentOSCore.Implementer {
+        private(set) var carriedOver: [String]?
+        func implement(_ task: AgentTask) async throws {
+            let source = task.directory.appending(path: "Sources/Greeting.swift")
+            guard carriedOver == nil, !FileManager.default.fileExists(atPath: source.path) else {
+                carriedOver = task.unfinishedWork.sorted()
+                try "hello\n".write(to: task.directory.appending(path: "app.txt"), atomically: true, encoding: .utf8)
+                return
+            }
+            try FileManager.default.createDirectory(at: source.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try "let greeting = \"hello\"\n".write(to: source, atomically: true, encoding: .utf8)
+            try "hel\n".write(to: task.directory.appending(path: "app.txt"), atomically: true, encoding: .utf8)
+            try "{}".write(to: task.directory.appending(path: ".agentos-report.json"), atomically: true, encoding: .utf8)
+            try "probe\n".write(to: task.scratchDirectory.appending(path: "probe.txt"), atomically: true, encoding: .utf8)
+            throw AgentFailure("copilot timed out after 1200.0 seconds")
+        }
+    }
+
+    @Test("A stopped implementer's unfinished work is kept for the next attempt")
+    func aStoppedRunKeepsItsUnfinishedWork() async throws {
+        let repo = try await makeRepo()
+        let implementer = WritesThenWaits()
+        let session = try await session(repo, team: AgentTeam(name: "Fake", decomposer: Leaf(), testAuthor: ShellTestAuthor(),
+                                                              implementer: implementer))
+        let key = await ticket(session)
+        var rounds = 0
+        while await !implementer.wrote, rounds < 200 {
+            _ = await session.step(waitForAgents: false)
+            try await Task.sleep(for: .milliseconds(50))
+            rounds += 1
+        }
+        let run = try #require(await session.ledger.workingState().node(forTicket: key)?.activeRun?.run)
+
+        try await session.reconciler.stopRun(run, by: "Morgan")
+
+        let ref = try await git(["for-each-ref", "--format=%(refname)", "refs/heads/agentos/unfinished/"], in: repo)
+        #expect(try await git(["show", "\(ref):app.txt"], in: repo) == "hel")
+    }
+
+    actor WritesThenWaits: AgentOSCore.Implementer {
+        private(set) var wrote = false
+        func implement(_ task: AgentTask) async throws {
+            try "hel\n".write(to: task.directory.appending(path: "app.txt"), atomically: true, encoding: .utf8)
+            wrote = true
+            try await Task.sleep(for: .seconds(60))
+        }
+    }
+
+    @Test("A failed run whose work can't be kept goes to a person instead of being retried over it")
+    func unfinishedWorkThatCantBeKeptEscalates() async throws {
+        let repo = try await makeRepo()
+        let session = try await session(repo, team: AgentTeam(name: "Fake", decomposer: Leaf(), testAuthor: ShellTestAuthor(),
+                                                              implementer: LocksTheIndex()))
+        let key = await ticket(session)
+
+        _ = await session.runUntilFinished()
+
+        let node = try #require(await session.ledger.workingState().node(forTicket: key))
+        #expect(node.flags[.escalated]?.contains("Couldn't keep the failed run's unfinished work") == true)
+        #expect(node.failedAttempts == 1)
+        let directory = session.workspace.worktree(for: node.id)
+        #expect(try String(contentsOf: directory.appending(path: "app.txt"), encoding: .utf8) == "hel\n")
+    }
+
+    struct LocksTheIndex: AgentOSCore.Implementer {
+        func implement(_ task: AgentTask) async throws {
+            try "hel\n".write(to: task.directory.appending(path: "app.txt"), atomically: true, encoding: .utf8)
+            let gitDirectory = try await ProcessRunner.run("/usr/bin/env", ["git", "rev-parse", "--absolute-git-dir"], in: task.directory)
+                .output.trimmingCharacters(in: .whitespacesAndNewlines)
+            FileManager.default.createFile(atPath: gitDirectory + "/index.lock", contents: nil)
+            throw AgentFailure("copilot timed out after 1200.0 seconds")
+        }
+    }
+
+    @Test("Unfinished work survives catch-up, is dropped when it no longer fits, and a new worktree forgets it")
+    func unfinishedWorkIsKeptOutsideTheWorktree() async throws {
+        let repo = try await makeRepo()
+        let storage = FileManager.default.temporaryDirectory.appending(path: "agentos-storage-\(UUID().uuidString)")
+        let workspace = try RepositoryWorkspace(root: repo, storage: storage, config: Self.config,
+                                                landingBranch: "agentos/main", defaultBranch: "main")
+        try await workspace.prepare()
+        var directory = try await workspace.createWorktree(for: "wn-1")
+        func leaveWork() throws {
+            try "hello\n".write(to: directory.appending(path: "app.txt"), atomically: true, encoding: .utf8)
+            try "new\n".write(to: directory.appending(path: "new.txt"), atomically: true, encoding: .utf8)
+            try FileManager.default.removeItem(at: directory.appending(path: "run-tests.sh"))
+        }
+        try leaveWork()
+        #expect(try await workspace.saveUnfinishedWork(directory, for: "wn-1") == ["app.txt", "new.txt", "run-tests.sh"])
+        #expect(try await git(["status", "--porcelain"], in: directory).contains("?? new.txt"))
+
+        // The landing branch moves on, and catching up cleans the worktree.
+        try await git(["-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "later"], in: directory)
+        try await git(["update-ref", "refs/heads/agentos/main", "HEAD"], in: directory)
+        try await git(["reset", "-q", "--hard", "HEAD~1"], in: directory)
+        _ = try await workspace.catchUpActiveLeaves(["wn-1"])
+        #expect(try await git(["status", "--porcelain"], in: directory).isEmpty)
+
+        #expect(try await workspace.restoreUnfinishedWork(for: "wn-1", in: directory) == ["app.txt", "new.txt", "run-tests.sh"])
+        #expect(try String(contentsOf: directory.appending(path: "app.txt"), encoding: .utf8) == "hello\n")
+        #expect(try await git(["status", "--porcelain"], in: directory).split(separator: "\n")
+                    .map { $0.trimmingCharacters(in: .whitespaces) }.sorted()
+                == ["?? new.txt", "D run-tests.sh", "M app.txt"])
+
+        // It stays saved while the resumed attempt runs, so a crash doesn't lose it; done with, it's forgotten.
+        _ = try await workspace.rebaseOntoMain(directory)
+        #expect(try await workspace.restoreUnfinishedWork(for: "wn-1", in: directory) == ["app.txt", "new.txt", "run-tests.sh"])
+        try await workspace.forgetUnfinishedWork(for: "wn-1")
+        _ = try await workspace.rebaseOntoMain(directory)
+        #expect(try await workspace.restoreUnfinishedWork(for: "wn-1", in: directory).isEmpty)
+
+        // An attempt that undoes everything it was left leaves nothing to come back.
+        try leaveWork()
+        _ = try await workspace.saveUnfinishedWork(directory, for: "wn-1")
+        _ = try await workspace.rebaseOntoMain(directory)
+        #expect(try await workspace.saveUnfinishedWork(directory, for: "wn-1").isEmpty)
+        #expect(try await workspace.restoreUnfinishedWork(for: "wn-1", in: directory).isEmpty)
+        try leaveWork()
+
+        // Work that conflicts with the branch it comes back to is dropped.
+        _ = try await workspace.saveUnfinishedWork(directory, for: "wn-1")
+        _ = try await workspace.rebaseOntoMain(directory)
+        try "bye\n".write(to: directory.appending(path: "app.txt"), atomically: true, encoding: .utf8)
+        _ = try await workspace.commitAll(in: directory, message: "other", author: "run-2")
+        #expect(try await workspace.restoreUnfinishedWork(for: "wn-1", in: directory).isEmpty)
+        #expect(try await git(["status", "--porcelain"], in: directory).isEmpty)
+
+        directory = try await workspace.createWorktree(for: "wn-1")
+        try leaveWork()
+        _ = try await workspace.saveUnfinishedWork(directory, for: "wn-1")
+        directory = try await workspace.createWorktree(for: "wn-1")
+        #expect(try await workspace.restoreUnfinishedWork(for: "wn-1", in: directory).isEmpty)
+    }
+
     @Test("A leaf's UI evidence is reviewed with it but never lands; evidence it didn't write isn't its own")
     func uiEvidenceIsReviewedButNeverLands() async throws {
         let repo = try await makeRepo()

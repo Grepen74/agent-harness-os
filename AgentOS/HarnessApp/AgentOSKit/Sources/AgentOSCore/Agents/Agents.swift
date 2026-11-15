@@ -27,12 +27,15 @@ public struct AgentTask: Sendable {
     /// Public production symbols the acceptance-test author expects the implementation to provide.
     public let expectedAPI: [String]
     public let agentContext: AgentContext
+    /// Files an earlier, failed attempt changed and never submitted; they are back in `directory`, uncommitted.
+    public let unfinishedWork: [String]
 
     public init(spec: NodeSpec, run: RunID, directory: URL, testFolder: String, scratchDirectory: URL,
                 context: String = "", attempt: Int = 1, previousFailure: String? = nil,
                 simulationHints: Set<String> = [], log: URL? = nil,
                 clarifications: [Clarification] = [], guesswork: Guesswork = .assumeAndReport,
-                expectedAPI: [String] = [], ticketKey: String? = nil, agentContext: AgentContext = AgentContext()) {
+                expectedAPI: [String] = [], ticketKey: String? = nil, agentContext: AgentContext = AgentContext(),
+                unfinishedWork: [String] = []) {
         self.spec = spec
         let inferredTicket = spec.id.hasPrefix("wn-") ? String(spec.id.dropFirst(3)) : spec.id
         self.identity = NodeIdentity(ticketKey: ticketKey ?? inferredTicket, nodeID: spec.id)
@@ -49,6 +52,7 @@ public struct AgentTask: Sendable {
         self.guesswork = guesswork
         self.expectedAPI = expectedAPI
         self.agentContext = agentContext
+        self.unfinishedWork = unfinishedWork
     }
 }
 

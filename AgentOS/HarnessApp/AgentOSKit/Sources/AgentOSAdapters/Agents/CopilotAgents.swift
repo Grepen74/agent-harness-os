@@ -473,6 +473,15 @@ public struct CopilotImplementer: Implementer {
 
     static func prompt(for task: AgentTask) -> String {
         let failure = task.previousFailure.map { "\nThe previous attempt failed verification with: \($0)\n" } ?? ""
+        let unfinishedFiles = task.unfinishedWork.prefix(40).joined(separator: ", ") + (task.unfinishedWork.count > 40 ? ", …" : "")
+        let unfinished = task.unfinishedWork.isEmpty ? "" : """
+
+            An earlier attempt failed before submitting (it may have run out of time). Its unfinished, unverified \
+            changes are back in your working copy, uncommitted: \(unfinishedFiles). Continue from them instead of \
+            starting over: check them, keep what is right, and fix or undo the rest. Reuse before screenshots it \
+            already captured in .agentos-ui-evidence/, since the code no longer shows the state before the change.
+
+            """
         let expected = task.expectedAPI.isEmpty
             ? ""
             : "\nThe test author expects these public APIs:\n" + task.expectedAPI.map { "- \($0)" }.joined(separator: "\n") + "\n"
@@ -494,7 +503,7 @@ public struct CopilotImplementer: Implementer {
         .agentos-ui-evidence/ in this worktree. They are committed with your work for the review and removed \
         before it lands. Tests must not write into the repository. Do not claim evidence you did not produce. \
         \(CopilotCLI.noScreenCaptureRule)
-        \(failure)\(expected)
+        \(failure)\(unfinished)\(expected)
         If an acceptance test itself is impossible or contradicts the available public contract, report a broken \
         acceptance test instead of changing it or working around it. Write \(AgentReportFile.name) as \
         {"questions": [], "assumptions": [], "brokenTest": \

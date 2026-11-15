@@ -32,8 +32,11 @@ extension Reconciler {
             // Start from the latest landing branch, so work landed since the tests were written (a dependency's,
             // say) is there to build on. On a conflict the branch stays as it was; the landing queue deals with it.
             _ = try await workspace.rebaseOntoMain(directory)
+            // An earlier attempt that failed (ran out of time, say) left work to continue rather than redo.
+            let unfinished = try await workspace.restoreUnfinishedWork(for: node.id, in: directory)
             try await workspace.prepareBuild(in: directory)
-            let task = await makeTask(node, run: run, in: directory, log: agentLog(node, run), for: .implementer)
+            let task = await makeTask(node, run: run, in: directory, log: agentLog(node, run), for: .implementer,
+                                      unfinishedWork: unfinished)
             let implementationResult = try await withScratchDirectory(task.scratchDirectory) {
                 try await watchingUserGitState(node, run: run) {
                     try await team.implementer.implement(task)
@@ -43,6 +46,7 @@ extension Reconciler {
             let report = implementationResult as? AgentReport ?? AgentReport()
             let questions = policy.questions(in: report)
             guard questions.isEmpty else {
+                try await workspace.forgetUnfinishedWork(for: node.id)
                 try await workspace.resetForRework(directory)
                 return try await raise(
                     questions,
@@ -56,13 +60,17 @@ extension Reconciler {
             await postProceedingOnSuggestions(report.questions, on: node.ticket)
             let assumptions = policy.assumptions(in: report)
             if let brokenTest = report.brokenTest {
+                try await workspace.forgetUnfinishedWork(for: node.id)
                 return try await routeBrokenTest(brokenTest, from: node, run: run, author: author, directory: directory)
             }
-            guard let commit = try await workspace.commitAll(
+            let commit = try await workspace.commitAll(
                 in: directory,
                 message: "\(node.spec.id): \(node.spec.title)",
                 author: run
-            ) else {
+            )
+            // Submitted (or nothing to submit): what an earlier attempt left is in the branch now or no longer needed.
+            try await workspace.forgetUnfinishedWork(for: node.id)
+            guard let commit else {
                 if let findings = node.latestReviewFeedback, !node.reviewFeedbackAnswered, !node.landingReworkPending {
                     return try await disputeReviewFindings(findings, on: node, run: run, author: author)
                 }
@@ -91,16 +99,37 @@ extension Reconciler {
             return "\(node.displayName) implemented by \(run) → Checking"
         } catch let error as UserGitStateChanged {
             // Not something another attempt fixes: a human checks what happened to their repo first.
+            _ = try? await keepUnfinishedWork(directory, of: node)
             try await write(node.id, by: author, [
                 .runFinished(run: run, outcome: "failed: \(error)"), .attemptFailed(summary: "\(error)"), .phaseChanged(to: .ready),
                 .flagSet(.escalated, reason: "\(error)")])
             await tracker.comment(on: node.ticket, "⚠️ Needs a human: \(error)\nWhen checked, add label harness:retry.")
             return "\(node.displayName) escalated: \(error)"
         } catch {
+            let kept: [String]
+            do {
+                kept = try await keepUnfinishedWork(directory, of: node)
+            } catch let keeping {
+                // The next run would clean the worktree, and with it the only copy of this run's work.
+                let reason = "Couldn't keep the failed run's unfinished work (\(keeping)). It is still uncommitted in " +
+                    "\(directory.path). Run failure: \(error)"
+                try await write(node.id, by: author, [
+                    .runFinished(run: run, outcome: "failed: \(error)"), .attemptFailed(summary: "\(error)"),
+                    .phaseChanged(to: .ready), .flagSet(.escalated, reason: reason)])
+                await tracker.comment(on: node.ticket, "⚠️ Needs a human: \(reason)\nWhen checked, add label harness:retry.")
+                return "\(node.displayName) escalated: \(reason)"
+            }
             try await write(node.id, by: author, [
                 .runFinished(run: run, outcome: "failed: \(error)"), .attemptFailed(summary: "\(error)"), .phaseChanged(to: .ready)])
-            return try await escalateIfNeeded(node.id) ?? "\(node.displayName) implementer failed (\(error)); will retry"
+            let retry = kept.isEmpty ? "will retry" : "will retry from its \(kept.count) unfinished files"
+            return try await escalateIfNeeded(node.id) ?? "\(node.displayName) implementer failed (\(error)); \(retry)"
         }
+    }
+
+    /// Saves in a task of its own: a stopped run's task is cancelled, and its git commands would refuse to start.
+    private func keepUnfinishedWork(_ directory: URL, of node: NodeState) async throws -> [String] {
+        let workspace = workspace, id = node.id
+        return try await Task { try await workspace.saveUnfinishedWork(directory, for: id) }.value
     }
 
     /// The implementer changed nothing for the change review's findings. Submitting the same branch again would only

@@ -60,6 +60,14 @@ public protocol Workspace: Sendable {
     func abortRebase(_ directory: URL) async throws
     /// Rework: keep only the branch's acceptance tests, drop the implementation, move onto the latest `main`.
     func resetForRework(_ directory: URL) async throws
+    /// Keeps a failed implementer run's uncommitted changes (say, it ran out of time) outside the working copy,
+    /// which the next run's rebase and catch-up clean. Returns the changed paths; empty when there were none.
+    func saveUnfinishedWork(_ directory: URL, for id: NodeID) async throws -> [String]
+    /// Puts saved unfinished work back into the working copy, uncommitted. Returns its paths; empty when nothing
+    /// was saved or it no longer applies to the branch (then it's forgotten). It stays saved until the resumed
+    /// run ends: a failure saves over it, anything else forgets it. A new worktree forgets it too.
+    func restoreUnfinishedWork(for id: NodeID, in directory: URL) async throws -> [String]
+    func forgetUnfinishedWork(for id: NodeID) async throws
     /// Moves `main` to the leaf's (already rebased and checked) branch. Returns the new `main`.
     func landOnMain(_ id: NodeID) async throws -> String
 
@@ -82,6 +90,9 @@ public protocol Workspace: Sendable {
 public extension Workspace {
     func createWorktree(for id: NodeID, keeping paths: [String]) async throws -> URL { try await createWorktree(for: id) }
     func discardChanges(keeping paths: [String], in directory: URL) async throws {}
+    func saveUnfinishedWork(_ directory: URL, for id: NodeID) async throws -> [String] { [] }
+    func restoreUnfinishedWork(for id: NodeID, in directory: URL) async throws -> [String] { [] }
+    func forgetUnfinishedWork(for id: NodeID) async throws {}
 }
 
 extension Workspace {

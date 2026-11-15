@@ -98,6 +98,8 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
     }
 
     private func removeWorktreeNow(for id: NodeID) async throws {
+        // A new or removed worktree means the work starts over: unfinished work from before no longer applies.
+        _ = try? await git(["update-ref", "-d", unfinishedRef(for: id)], in: root)
         try await git(["worktree", "remove", "--force", worktree(for: id).path], in: root)
         try await git(["worktree", "prune"], in: root)
     }
@@ -275,6 +277,56 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
         guard let testsCommit = commits.first else { return }
         try await git(["reset", "-q", "--hard", String(testsCommit)], in: directory)
         try await git(["rebase", "-q", landingBranch], in: directory)
+    }
+
+    // MARK: Unfinished work
+
+    public static let unfinishedPrefix = "agentos/unfinished/"
+    private func unfinishedRef(for id: NodeID) -> String { "refs/heads/" + Self.unfinishedPrefix + id }
+
+    public func saveUnfinishedWork(_ directory: URL, for id: NodeID) async throws -> [String] {
+        // Not the run's scratch folder or report: they belong to that run only.
+        try await git(["add", "-A", "--", ".", ":(exclude).agentos/scratch", ":(exclude).agentos-report.json"], in: directory)
+        do {
+            let paths = try await git(["diff", "--cached", "--name-only", "--no-renames", "-z"], in: directory)
+                .split(separator: "\0").map(String.init)
+            if !paths.isEmpty {
+                let tree = try await git(["write-tree"], in: directory).trimmingCharacters(in: .whitespacesAndNewlines)
+                let commit = try await git(["-c", "user.name=agentos", "-c", "user.email=agentos@agents.agentos.local",
+                                            "commit-tree", tree, "-p", "HEAD", "-m", "agentos: unfinished work on \(id)"],
+                                           in: directory).trimmingCharacters(in: .whitespacesAndNewlines)
+                try await git(["update-ref", unfinishedRef(for: id), commit], in: root)
+            } else {
+                // The run undid what an earlier attempt left: that's not to come back.
+                try await git(["update-ref", "-d", unfinishedRef(for: id)], in: root)
+            }
+            try await git(["reset", "-q"], in: directory)
+            return paths
+        } catch {
+            _ = try? await git(["reset", "-q"], in: directory)
+            throw error
+        }
+    }
+
+    public func forgetUnfinishedWork(for id: NodeID) async throws {
+        try await git(["update-ref", "-d", unfinishedRef(for: id)], in: root)
+    }
+
+    public func restoreUnfinishedWork(for id: NodeID, in directory: URL) async throws -> [String] {
+        let ref = unfinishedRef(for: id)
+        guard let commit = (try? await git(["rev-parse", "--verify", "--quiet", ref + "^{commit}"], in: root))?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !commit.isEmpty else { return [] }
+        let applied = try await ProcessRunner.run("/usr/bin/env", ["git", "cherry-pick", "--no-commit", commit], in: directory)
+        guard applied.status == 0 else {
+            // It no longer fits the branch (the tests or main changed under it): start over.
+            _ = try? await ProcessRunner.run("/usr/bin/env", ["git", "cherry-pick", "--abort"], in: directory)
+            try await discardUncommitted(directory)
+            try await git(["update-ref", "-d", ref], in: root)
+            return []
+        }
+        try await git(["reset", "-q"], in: directory)
+        return try await git(["diff", "--name-only", "--no-renames", "-z", commit + "^", commit], in: root)
+            .split(separator: "\0").map(String.init)
     }
 
     /// Fast-forwards the landing branch to the leaf's branch by moving the ref only (compare-and-swap), so no
