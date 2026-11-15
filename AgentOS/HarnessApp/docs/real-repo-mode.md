@@ -77,6 +77,23 @@ The policy pane shows every effective value with its source (*harness*, *repo*).
 loosen a limit becomes a blocker finding, not a silent override, and the harness's value applies. So does
 landing directly on the default branch. Disabling a signal the harness doesn't know is a warning.
 
+**Detect models** (Settings › Agents) asks the Copilot CLI which models your account offers and which reasoning
+efforts each supports. It talks to `copilot --acp` (the Agent Client Protocol): one session in an empty temporary
+folder, switched through each model to read its efforts, with no prompt, so no model runs. The CLI keeps that
+empty session in its history. You tick which models to offer to agents and reviewers; nothing is saved until you
+press Save, and offered models stay offered. A failed or timed-out detection says why and changes nothing; so does
+cancelling it, or closing Settings while it runs, which stops the CLI. The CLI's own requests during detection (such
+as asking permission) are declined. After
+that:
+- Settings flags offered models that weren't detected as possibly unavailable, without removing them.
+- Each role's effort picker offers only the levels its model supports; the default-model choice names the CLI's
+  default seen when detecting (a repository default in a trusted folder may differ).
+- The policy pane shows when models were last detected, notes a role whose model wasn't detected, and notes an
+  effort the role's model doesn't support (the run then falls back to the CLI's default effort).
+
+Models change with the account and the CLI, so detection is a guide: runs still fall back when a model or effort
+isn't available.
+
 The repo config is the manifest from doc 01 in a simple form. It's JSON, so the app needs no extra parser;
 unknown keys are reported as likely typos. For an iOS app:
 
@@ -665,7 +682,10 @@ Each phase is usable on its own.
      comment after the question it's refused. The answer is recorded (`questionsAnswered`) and every agent
      working on the node or below it gets it as data: dated, oldest first, with later answers winning where
      they disagree. A comment containing `<!-- agentos:ignore -->` is a note for people (a diagnosis, a
-     status update): it's never taken as an answer or a correction, nor shown to agents.
+     status update): it's never taken as an answer or a correction, nor shown to agents. Apart from
+     answers, the decomposer and test author also see people's comments on the ticket and its parent
+     (the newest, within a limit); the implementer doesn't, and works from the tests and answers. To give
+     the implementer guidance, put it in the ticket's description or acceptance criteria.
    - Every leaf's tests are posted when written: files, test names and the assumptions the work rests on.
      Under `assume and report`, a leaf with assumptions waits (`needs input`). `harness:build` (or `go`)
      approves its tests as they are; a comment plus `harness:retry` has them written again with your

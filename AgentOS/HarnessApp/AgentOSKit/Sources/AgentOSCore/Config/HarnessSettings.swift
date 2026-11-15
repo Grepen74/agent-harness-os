@@ -23,6 +23,8 @@ public struct HarnessSettings: Codable, Sendable, Equatable {
     public var efforts = AgentEfforts()
     /// The highest effort a repo may choose for a role (or the role's effort above, if that is higher).
     public var maxEffort = ReasoningEffort.high
+    /// The models and efforts the agent CLI offered when last detected (nil: never detected).
+    public var modelCatalog: ModelCatalog?
     public var review = ReviewSettings()
     /// How much agents may guess before asking (a repo may only choose a stricter level).
     public var guesswork = Guesswork.assumeAndReport
@@ -56,6 +58,7 @@ public struct HarnessSettings: Codable, Sendable, Equatable {
         models = try container.decodeIfPresent(AgentModels.self, forKey: .models) ?? defaults.models
         efforts = try container.decodeIfPresent(AgentEfforts.self, forKey: .efforts) ?? defaults.efforts
         maxEffort = try container.decodeIfPresent(ReasoningEffort.self, forKey: .maxEffort) ?? defaults.maxEffort
+        modelCatalog = try container.decodeIfPresent(ModelCatalog.self, forKey: .modelCatalog)
         review = try container.decodeIfPresent(ReviewSettings.self, forKey: .review) ?? defaults.review
         guesswork = try container.decodeIfPresent(Guesswork.self, forKey: .guesswork) ?? defaults.guesswork
         githubAccount = try container.decodeIfPresent(String.self, forKey: .githubAccount)
@@ -261,6 +264,11 @@ public struct EffectivePolicy: Sendable, Equatable {
         result.protectedPaths = extend("Protected paths", HarnessSettings.protectedPaths, with: repo?.protectedPaths)
         result.policy.protectedPaths = result.protectedPaths
 
+        let catalog = harness.modelCatalog
+        result.settings.append(EffectiveSetting(
+            name: "Models detected", value: catalog?.detectedDescription ?? "never", source: .harness,
+            note: catalog == nil ? "Settings › Detect models lists your account's models and their efforts" : nil))
+
         // Agents: the harness's model per role, unless the repo picks another one the harness offers.
         for role in AgentModels.roles {
             var model = harness.models[role]
@@ -278,6 +286,10 @@ public struct EffectivePolicy: Sendable, Equatable {
                 }
             }
             result.agentModels[role] = model
+            if let catalog, let model, catalog.model(model) == nil {
+                note = [note, "not among the models detected \(catalog.detectedDescription): possibly unavailable"]
+                    .compactMap { $0 }.joined(separator: "; ")
+            }
             result.settings.append(EffectiveSetting(
                 name: "\(role.job) agent", value: "\(HarnessSettings.agentProvider) · \(model ?? "default model")",
                 source: source, note: note))
@@ -304,6 +316,11 @@ public struct EffectivePolicy: Sendable, Equatable {
                 }
             }
             result.agentEfforts[role] = effort
+            if let catalog, let effort, catalog.supports(effort, model: result.agentModels[role]) == false {
+                let model = result.agentModels[role] ?? catalog.defaultModel ?? "the default model"
+                note = [note, "\(model) doesn't support \(effort.rawValue): runs with the CLI's default effort"]
+                    .compactMap { $0 }.joined(separator: "; ")
+            }
             result.settings.append(EffectiveSetting(
                 name: "\(role.job) reasoning effort", value: effort?.rawValue ?? "default",
                 source: source, note: note,
