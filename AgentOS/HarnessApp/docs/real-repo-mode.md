@@ -450,6 +450,16 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
     files. Read with `git --no-optional-locks`, so looking never takes the index lock from an agent.
   - **Finder** and **Xcode**: the worktree itself. Look, don't change: anything changed there is committed
     as the agent's work.
+- **Ledger browsing.** Repository and simulator windows show the newest 200 matching records, newest
+  first. **Show older** adds 200 while more matches exist. **Ticket** offers **All tickets**, including
+  node-less events, and exact ledger NodeIDs, including nodes absent from the current tracker. Known
+  nodes use their canonical display names; unknown nodes show their IDs. A parent selection excludes
+  descendants. **Event kind** offers **All event kinds** and each event case without its associated
+  values. Filters combine with AND across the complete ledger before paging. Changing a filter resets
+  the limit to 200; refresh preserves filters and the expanded limit, and empty matches clear the rows.
+  The header always reports the exact complete ledger count. Refresh transfers bounded pages and new
+  history records rather than copying complete history again; agent-run history remains complete and
+  independently indexed. Simulator reset, restart and restore invalidate pages from the old ledger.
 - **Run cleanup.** Pause prevents new rounds but lets the current work finish. Closing a repository
   window or quitting the app stops and awaits all its active agents and checks, recording why they
   ended. Opening a repository durably abandons old runs before readiness blockers are considered.

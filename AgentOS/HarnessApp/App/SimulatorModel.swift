@@ -29,11 +29,13 @@ final class SimulatorModel: HarnessActions {
     /// Owns Run and the simulation's agents across rounds: pausing, draining before a reset or restore, quitting.
     @ObservationIgnored private let lifecycle: HarnessLifecycleController
     @ObservationIgnored private let follower = LedgerFollower()
+    @ObservationIgnored private let ledgerSession: HarnessLedgerSession
 
     init() {
         directory = URL.applicationSupportDirectory.appending(path: "AgentOSSimulator")
         let simulation = Self.open(directory)
         self.simulation = simulation
+        ledgerSession = HarnessLedgerSession(view: view, source: simulation.ledger)
         lifecycle = HarnessLifecycleController(reconciler: simulation.reconciler, interval: .seconds(1))
         view.actions = self
         lifecycle.runStep = { [weak self] in await self?.step() }
@@ -147,6 +149,7 @@ final class SimulatorModel: HarnessActions {
             if restored { simulation = Self.open(directory) }
         }
         guard restored else { return }
+        await ledgerSession.restore(from: simulation.ledger)
         view.activity.insert("🧑‍🔧 Ledger restored from the copy taken before the tamper.", at: 0)
         await reopened()
         await verifyChain()
@@ -177,6 +180,7 @@ final class SimulatorModel: HarnessActions {
         followLedger()
         view.activity = ["Reset."]
         view.chain = nil
+        await ledgerSession.reset(to: simulation.ledger)
         await applyAgentMode()
         await refresh()
     }
@@ -184,6 +188,7 @@ final class SimulatorModel: HarnessActions {
     /// Like restarting the harness process: reload everything from disk and reclaim unfinished runs.
     func restartHarness() async {
         await replaceSimulation { simulation = Self.open(directory) }
+        await ledgerSession.restart(from: simulation.ledger)
         await reopened()
     }
 
@@ -217,8 +222,7 @@ final class SimulatorModel: HarnessActions {
 
     func refresh() async {
         view.tickets = await simulation.tracker.tickets()
-        view.state = await simulation.ledger.workingState()
-        await view.refreshHistory(from: simulation.ledger)
+        await ledgerSession.refresh()
         view.signals = HarnessCommand.allCases.filter(simulation.reconciler.policy.allowedSignals.contains)
         externalItems = await simulation.external.items()
     }

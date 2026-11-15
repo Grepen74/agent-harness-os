@@ -10,7 +10,7 @@ public struct LedgerPane: View {
     public var body: some View {
         VSplitView {
             VStack(spacing: 0) {
-                PaneHeader(title: "Ledger", subtitle: "\(model.records.count) records. Append-only; the source of truth.")
+                PaneHeader(title: "Ledger", subtitle: "\(model.ledgerPage.totalCount) records. Append-only; the source of truth.")
                 HStack {
                     Button("Verify chain") { Task { await model.verifyChain() } }
                     if model.offersLedgerDemo {
@@ -30,19 +30,47 @@ public struct LedgerPane: View {
                     }
                 }
                 .padding(.horizontal, 12).padding(.bottom, 6)
-                List(model.records.reversed()) { record in
+                HStack {
+                    Picker("Ticket", selection: Binding(
+                        get: { model.ledgerPage.selectedNode },
+                        set: { node in Task { await model.ledgerPage.selectNode(node) } }
+                    )) {
+                        Text("All tickets").tag(nil as NodeID?)
+                        ForEach(model.ledgerPage.nodeIDs, id: \.self) { node in
+                            Text(model.ledgerNodeLabel(node)).tag(node as NodeID?)
+                        }
+                    }
+                    Picker("Event kind", selection: Binding(
+                        get: { model.ledgerPage.selectedKind },
+                        set: { kind in Task { await model.ledgerPage.selectKind(kind) } }
+                    )) {
+                        Text("All event kinds").tag(nil as LedgerEventKind?)
+                        ForEach(model.ledgerPage.eventKinds, id: \.self) { kind in
+                            Text(kind.rawValue).tag(kind as LedgerEventKind?)
+                        }
+                    }
+                    Spacer()
+                    if model.ledgerPage.canShowOlder {
+                        Button("Show older") { Task { await model.ledgerPage.showOlder() } }
+                    }
+                }
+                .pickerStyle(.menu)
+                .padding(.horizontal, 12).padding(.bottom, 6)
+                List(model.ledgerPage.records) { record in
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text("#\(record.position)").monospaced().foregroundStyle(.secondary).frame(width: 48, alignment: .trailing)
                         Image(systemName: record.event.by.icon).frame(width: 14)
                         VStack(alignment: .leading, spacing: 1) {
                             Text(record.event.kind.summary).lineLimit(2)
-                            let nodeName = record.event.node.flatMap { model.state.nodes[$0]?.displayName } ?? "–"
+                            let nodeName = record.event.node.map { model.ledgerNodeLabel($0) } ?? "–"
                             Text("\(record.event.by.label) · \(nodeName) · \(record.hash.prefix(10))")
                                 .font(.caption2).foregroundStyle(.secondary)
                         }
                     }
                     .font(.caption)
                 }
+                // Match offscreen height estimates to the two-line rows when paging and scrolling.
+                .environment(\.defaultMinListRowHeight, 35)
             }
             .frame(minHeight: 300)
 

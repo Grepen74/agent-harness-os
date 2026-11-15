@@ -1,0 +1,68 @@
+import Foundation
+@testable import AgentOSCore
+
+extension GH_69Tests {
+    static func representativeEventKinds() -> [EventKind] {
+        let spec = NodeSpec(id: "wn-GH-69", parent: nil, kind: .leaf, title: "Ledger",
+                            intent: "Filter every event case", acceptanceCriteria: ["Find older matches"])
+        let feedback = BreakdownCheckFeedback(proposal: [], findings: [])
+        let evidence = Evidence(check: "acceptance", passed: true, summary: "passed",
+                                specHash: spec.specHash, builtBy: "builder", checkedBy: "checker",
+                                artifactPath: "checks/result.log", artifactSHA256: "artifact",
+                                commit: "commit")
+        return [
+            .signalAccepted(ticket: "GH-69", command: .retry, reply: "accepted"),
+            .signalRejected(ticket: "GH-69", command: .build, reason: "review required"),
+            .previewRecorded(ticket: "GH-69", number: 1, specHash: spec.specHash, proposal: [spec]),
+            .breakdownChecked(ticket: "GH-69", check: feedback),
+            .breakdownRetryRequested(ticket: "GH-69", feedback: feedback),
+            .nodeCreated(spec: spec, ticket: "GH-69"),
+            .linkAdded(TypedLink(from: spec.id, type: .dependsOn, to: "other")),
+            .becameLeaf(touches: ["AgentOSUI"]),
+            .replanned(spec: spec),
+            .breakdownRevised(kept: [spec], dropped: ["old-child"]),
+            .gateOpened(.build),
+            .phaseChanged(to: .ready),
+            .flagSet(.blocked, reason: "waiting"),
+            .flagCleared(.blocked),
+            .attemptsReset,
+            .testsFixed(digest: "test-digest"),
+            .otherTestsUpdated(files: ["OtherWorkTests.swift"], digest: "other-test-digest"),
+            .reviewRecorded(ReviewRecord(stage: .change, result: ReviewResult(passed: true, findings: []),
+                                         commit: "commit", uiEvidence: nil)),
+            .humanReviewRequested(commit: "commit"),
+            .humanReviewApproved(commit: "commit"),
+            .expectedAPIReported(["LedgerPageSource"]),
+            .brokenTestReported(BrokenTestReport(testName: "example", reason: "wrong contract")),
+            .brokenTestRouted(testName: "example", outcome: .sentBackToTestAuthor),
+            .runStarted(run: "builder", role: .implementer),
+            .runFinished(run: "builder", outcome: "submitted"),
+            .changeSubmitted(run: "builder", commit: "commit"),
+            .attemptFailed(summary: "failed"),
+            .acceptanceTestPreflightFailed(evidence),
+            .passingCheckRecorded(kind: .preCheck, mainCommit: "main"),
+            .mainMovedRework(oldMainCommit: "old-main", newMainCommit: "new-main",
+                            landedWork: [LandedWorkItem(ticket: "GH-70", title: "Other work", commit: "other-commit")]),
+            .evidenceRecorded(evidence),
+            .landingReworkNeeded(evidence),
+            .landingRerunRequested(run: "builder"),
+            .reworkNeeded(reason: "conflict"),
+            .landed(commit: "commit"),
+            .questionsRaised(role: .implementer, questions: ["Which layout?"]),
+            .assumptionsReported(role: .implementer, assumptions: ["Keep existing rows"]),
+            .suggestionsReported(role: .implementer, questions: [
+                AgentQuestion(question: "Which layout?", suggestion: "Keep existing rows"),
+            ]),
+            .questionsAnswered(Clarification(questions: ["Which layout?"], answer: "Keep existing rows")),
+            .externalDependencyResolved(ref: "BACKEND-42"),
+            .ticketClosed,
+            .ticketReopened,
+            .readinessScanned(ReadinessScan(branch: "main", commit: "commit", findings: [])),
+            .baselineChecked(Baseline(commit: "commit", passed: true, summary: "passed", seconds: 1, log: nil)),
+            .catchUpConflicted(main: "main", files: ["File.swift"], tickets: ["GH-70"]),
+            .catchUpSucceeded(main: "main", newAgentOSMainTip: "new-tip", method: .automatic),
+            .caughtUp(targetMain: "main", oldLandingTip: "old-tip", newLandingTip: "new-tip",
+                      method: .rebase, commitMappings: ["old": "new"]),
+        ]
+    }
+}
