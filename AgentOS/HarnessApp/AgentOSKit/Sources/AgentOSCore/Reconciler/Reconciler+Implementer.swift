@@ -31,7 +31,7 @@ extension Reconciler {
         do {
             // Start from the latest landing branch, so work landed since the tests were written (a dependency's,
             // say) is there to build on. On a conflict the branch stays as it was; the landing queue deals with it.
-            _ = try await workspace.rebaseOntoMain(directory)
+            _ = try await rebaseOntoMain(node, in: directory)
             // An earlier attempt that failed (ran out of time, say) left work to continue rather than redo.
             let unfinished = try await workspace.restoreUnfinishedWork(for: node.id, in: directory)
             try await workspace.prepareBuild(in: directory)
@@ -47,7 +47,7 @@ extension Reconciler {
             let questions = policy.questions(in: report)
             guard questions.isEmpty else {
                 try await workspace.forgetUnfinishedWork(for: node.id)
-                try await workspace.resetForRework(directory)
+                try await resetForRework(node, in: directory)
                 return try await raise(
                     questions,
                     on: node,

@@ -30,7 +30,7 @@ extension Reconciler {
         author: Participant,
         directory: URL
     ) async throws -> String {
-        try await workspace.resetForRework(directory)
+        try await resetForRework(node, in: directory)
         let finished = EventKind.runFinished(run: run, outcome: "reported a broken test: \(report.testName)")
 
         let earlier = await brokenReportsSentBackSincePersonSteppedIn(node.id)

@@ -251,8 +251,10 @@ defects are found while writing the tests, not one implementer run at a time.
 The one exception is other work's existing tests that this ticket's criteria deliberately supersede (say a
 default that flips): the test author may update them with the smallest change and list them in
 `updatedTests`. Only listed files in the test area that aren't protected are kept. They're committed with
-the acceptance tests, fingerprinted and locked like them, and named in the ticket comment. The reviewer
-rejects any such change no criterion requires.
+the acceptance tests, fingerprinted and locked like them, and named in the ticket comment. Work landing on
+`agentos/main` meanwhile may change them too: when the harness moves the leaf onto it (before building,
+at landing, when catching up) and they were as locked just before, uncommitted changes aside, their lock
+moves along. The reviewer rejects any such change no criterion requires.
 When the implementer reports a broken test (its own or, by `Suite.testName`, another item's that conflicts
 with this ticket), the ticket goes back to the test author without charging an attempt. A person is asked
 only on the third report since a person last stepped in (an answer, `harness:retry` or `harness:retest`);

@@ -71,7 +71,7 @@ extension Reconciler {
             if node.flags[.escalated] != nil { kinds += [.flagCleared(.escalated), .attemptsReset] }
             // Pick up a fix to the other test made since; the implementation was already discarded, the tests are kept.
             let directory = workspace.worktree(for: node.id)
-            _ = try await workspace.rebaseOntoMain(directory)
+            _ = try await rebaseOntoMain(node, in: directory)
             try await write(node.id, by: .human(person), kinds)
             return "the implementer will try again on the latest landing branch"
         }

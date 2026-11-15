@@ -337,6 +337,13 @@ public actor CatchUpCoordinator {
                   node.activeRun == nil, !busy.contains(id) else { return nil }
             return id
         }
+        // Catching up throws uncommitted changes away first, so they don't count.
+        var intact = Set<NodeID>()
+        for id in activeLeaves {
+            let directory = workspace.worktree(for: id)
+            try await workspace.discardChanges(keeping: [], in: directory)
+            if state.nodes[id]?.updatedOtherTestsIntact(in: directory) == true { intact.insert(id) }
+        }
         let leaves = try await workspace.catchUpActiveLeaves(activeLeaves)
         var events = [
             LedgerEvent(
@@ -345,6 +352,13 @@ public actor CatchUpCoordinator {
                 kind: .catchUpSucceeded(main: main, newAgentOSMainTip: tip, method: method)
             ),
         ]
+        // Main may have changed other work's tests a leaf updated (rebased, or reset for rework): the lock moves.
+        for id in activeLeaves where leaves.rebased.contains(id) || leaves.rework[id] != nil {
+            let directory = workspace.worktree(for: id)
+            if let renewal = state.nodes[id]?.renewedOtherTestsLock(in: directory, wasIntact: intact.contains(id)) {
+                events.append(LedgerEvent(node: id, by: .adapter("Catch-up"), kind: renewal))
+            }
+        }
         var notifications: [(ticket: String, reason: String)] = []
         for id in activeLeaves {
             guard let files = leaves.rework[id], let node = state.nodes[id] else { continue }

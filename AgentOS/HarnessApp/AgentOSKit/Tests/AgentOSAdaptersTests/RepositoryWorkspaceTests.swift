@@ -46,7 +46,10 @@ struct RepositoryWorkspaceTests {
                 try "probe\n".write(to: task.scratchDirectory.appending(path: "probe.txt"), atomically: true, encoding: .utf8)
             }
             if updatesExistingTest {
-                try "grep -q hello app.txt\n".write(to: task.directory.appending(path: Self.existing), atomically: true, encoding: .utf8)
+                // Only its first line, as a ticket changing one expectation does.
+                let existing = task.directory.appending(path: Self.existing)
+                let rest = try String(contentsOf: existing, encoding: .utf8).split(separator: "\n", omittingEmptySubsequences: false).dropFirst()
+                try (["grep -q hello app.txt"] + rest).joined(separator: "\n").write(to: existing, atomically: true, encoding: .utf8)
                 try "placeholder\n".write(to: task.directory.appending(path: "app.txt"), atomically: true, encoding: .utf8)
                 return AgentReport(updatedTests: [Self.existing, "app.txt"])
             }
@@ -268,6 +271,130 @@ struct RepositoryWorkspaceTests {
         #expect(node.phase != .proven)
         #expect(node.recentFailures.first?.contains("updated were changed afterwards") == true, "\(node.recentFailures)")
         #expect(try await git(["rev-parse", "agentos/main"], in: repo) == git(["rev-parse", "main"], in: repo))
+    }
+
+    @Test("An older test a leaf updated may change on the landing branch meanwhile; the leaf still lands")
+    func updatedOlderTestsMayChangeOnTheLandingBranch() async throws {
+        let repo = try await makeRepo()
+        let existing = ShellTestAuthor.existing
+        try "true\n# a\n# b\n# c\n# d\n# e\n".write(to: repo.appending(path: existing), atomically: true, encoding: .utf8)
+        try await git(["-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-qam", "longer check"], in: repo)
+        let session = try await session(repo, team: team(authorUpdatesExistingTest: true))
+        let key = await ticket(session)
+        var rounds = 0
+        while await session.ledger.workingState().node(forTicket: key)?.lastSubmission == nil, rounds < 50 {
+            _ = await session.step(waitForAgents: true)
+            rounds += 1
+        }
+
+        // Other work lands a change to the same test, elsewhere in the file.
+        let other = FileManager.default.temporaryDirectory.appending(path: "agentos-other-\(UUID().uuidString)")
+        try await git(["worktree", "add", "-q", other.path, "agentos/main"], in: repo)
+        try "true\n# a\n# b\n# c\n# d\n# e, landed meanwhile\n".write(to: other.appending(path: existing), atomically: true, encoding: .utf8)
+        try await git(["-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-qam", "other work"], in: other)
+        try await git(["worktree", "remove", "--force", other.path], in: repo)
+
+        await session.runUntilFinished()
+
+        let node = try #require(await session.ledger.workingState().node(forTicket: key))
+        #expect(node.phase == .proven, "\(node.recentFailures)")
+        #expect(try await git(["show", "agentos/main:\(existing)"], in: repo)
+                == "grep -q hello app.txt\n# a\n# b\n# c\n# d\n# e, landed meanwhile")
+    }
+
+    @Test("Putting back the test author's version of an updated older test after main changed it counts as changing it")
+    func updatedOlderTestsMayNotDropTheLandingBranchsChange() async throws {
+        let repo = try await makeRepo()
+        let existing = ShellTestAuthor.existing
+        try "true\n# a\n# b\n# c\n# d\n# e\n".write(to: repo.appending(path: existing), atomically: true, encoding: .utf8)
+        try await git(["-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-qam", "longer check"], in: repo)
+        let implementer = RestoresExisting(content: "grep -q hello app.txt\n# a\n# b\n# c\n# d\n# e\n")
+        let session = try await session(repo, team: AgentTeam(
+            name: "Fake", decomposer: Leaf(), testAuthor: ShellTestAuthor(updatesExistingTest: true), implementer: implementer))
+        let key = await ticket(session)
+        var rounds = 0
+        while await session.ledger.workingState().node(forTicket: key)?.testsDigest == nil, rounds < 50 {
+            _ = await session.step(waitForAgents: true)
+            rounds += 1
+        }
+        #expect(await implementer.runs == 0, "main must move before the implementation starts")
+
+        let other = FileManager.default.temporaryDirectory.appending(path: "agentos-other-\(UUID().uuidString)")
+        try await git(["worktree", "add", "-q", other.path, "agentos/main"], in: repo)
+        try "true\n# a\n# b\n# c\n# d\n# e, landed meanwhile\n".write(to: other.appending(path: existing), atomically: true, encoding: .utf8)
+        try await git(["-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-qam", "other work"], in: other)
+        try await git(["worktree", "remove", "--force", other.path], in: repo)
+        let landed = try await git(["rev-parse", "agentos/main"], in: repo)
+
+        await session.runUntilFinished()
+
+        let node = try #require(await session.ledger.workingState().node(forTicket: key))
+        #expect(await implementer.runs > 0)
+        #expect(node.phase != .proven)
+        #expect(node.recentFailures.first?.contains("updated were changed afterwards") == true, "\(node.recentFailures)")
+        #expect(try await git(["rev-parse", "agentos/main"], in: repo) == landed)
+    }
+
+    @Test("An implementer's uncommitted change to an updated older test, thrown away when it asks, doesn't stop the lock moving")
+    func discardedChangesDontKeepTheLockBehind() async throws {
+        let repo = try await makeRepo()
+        let existing = ShellTestAuthor.existing
+        try "true\n# a\n# b\n# c\n# d\n# e\n".write(to: repo.appending(path: existing), atomically: true, encoding: .utf8)
+        try await git(["-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-qam", "longer check"], in: repo)
+        let session = try await session(repo, team: AgentTeam(
+            name: "Fake", decomposer: Leaf(), testAuthor: ShellTestAuthor(updatesExistingTest: true),
+            implementer: AsksOnceWhileMainMoves(repo: repo)))
+        let key = await ticket(session)
+        var rounds = 0
+        while await session.ledger.workingState().node(forTicket: key)?.openQuestions.isEmpty != false, rounds < 50 {
+            _ = await session.step(waitForAgents: true)
+            rounds += 1
+        }
+
+        await session.tracker.addComment("1. Answer: Say hello", to: key, by: .human("Alice"))
+        await session.tracker.addLabel(HarnessCommand.retry.label, to: key, by: .human("Alice"))
+        await session.runUntilFinished()
+
+        let node = try #require(await session.ledger.workingState().node(forTicket: key))
+        #expect(node.phase == .proven, "\(node.recentFailures) \(node.flags)")
+        #expect(try await git(["show", "agentos/main:\(existing)"], in: repo)
+                == "grep -q hello app.txt\n# a\n# b\n# c\n# d\n# e, landed meanwhile")
+    }
+
+    /// First run: other work lands a change to the older `Existing` suite meanwhile, and the implementer, having
+    /// started on that suite, asks a question. Later runs implement.
+    actor AsksOnceWhileMainMoves: AgentOSCore.Implementer {
+        let repo: URL
+        private var asked = false
+        init(repo: URL) { self.repo = repo }
+        func implement(_ task: AgentTask) async throws -> AgentReport {
+            guard !asked else {
+                try "hello\n".write(to: task.directory.appending(path: "app.txt"), atomically: true, encoding: .utf8)
+                return AgentReport()
+            }
+            asked = true
+            let existing = ShellTestAuthor.existing
+            let other = FileManager.default.temporaryDirectory.appending(path: "agentos-other-\(UUID().uuidString)")
+            let commit = ["-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-qam", "other work"]
+            _ = try await ProcessRunner.run("/usr/bin/env", ["git", "worktree", "add", "-q", other.path, "agentos/main"], in: repo)
+            try "true\n# a\n# b\n# c\n# d\n# e, landed meanwhile\n".write(to: other.appending(path: existing), atomically: true, encoding: .utf8)
+            _ = try await ProcessRunner.run("/usr/bin/env", ["git"] + commit, in: other)
+            _ = try await ProcessRunner.run("/usr/bin/env", ["git", "worktree", "remove", "--force", other.path], in: repo)
+            try "started\n".write(to: task.directory.appending(path: existing), atomically: true, encoding: .utf8)
+            return AgentReport(questions: [AgentQuestion(question: "Which greeting?")])
+        }
+    }
+
+    /// Implements, and puts back the given content of the older `Existing` suite.
+    actor RestoresExisting: AgentOSCore.Implementer {
+        let content: String
+        private(set) var runs = 0
+        init(content: String) { self.content = content }
+        func implement(_ task: AgentTask) async throws {
+            runs += 1
+            try "hello\n".write(to: task.directory.appending(path: "app.txt"), atomically: true, encoding: .utf8)
+            try content.write(to: task.directory.appending(path: ShellTestAuthor.existing), atomically: true, encoding: .utf8)
+        }
     }
 
     @Test("An agent that changes your refs or git config is escalated, not retried", arguments: [

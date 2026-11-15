@@ -11,8 +11,8 @@ extension Reconciler {
         try await write(node.id, by: .reconciler, [.runStarted(run: run, role: .verifier)], expecting: node.version)
 
         // 1. Textual conflict → rework from the latest main. Not the agent's fault, so not a failed attempt.
-        if case .conflict(let files) = try await workspace.rebaseOntoMain(directory) {
-            try await workspace.resetForRework(directory)
+        if case .conflict(let files) = try await rebaseOntoMain(node, in: directory) {
+            try await resetForRework(node, in: directory)
             let reason = "merge conflict in \(files.isEmpty ? "some files" : files.joined(separator: ", ")) with newer work on main"
             try await write(node.id, by: checker, [
                 .runFinished(run: run, outcome: "conflict"), .reworkNeeded(reason: reason), .phaseChanged(to: .ready)])
@@ -22,7 +22,9 @@ extension Reconciler {
 
         // 2. Re-check everything on top of the latest main.
         var output: CheckOutput
-        if let tampered = try await protectedTestsViolation(node, in: directory) {
+        // The rebase may have moved the lock on other work's tests.
+        let rebased = await ledger.workingState().nodes[node.id] ?? node
+        if let tampered = try await protectedTestsViolation(rebased, in: directory) {
             output = CheckOutput(passed: false, summary: tampered, log: tampered)
         } else {
             try await workspace.prepareBuild(in: directory)

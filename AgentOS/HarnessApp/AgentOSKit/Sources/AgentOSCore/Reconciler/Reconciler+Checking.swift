@@ -83,6 +83,30 @@ extension Reconciler {
         return "\(node.displayName) runner crash repeated → needs human"
     }
 
+    /// Moves a leaf onto the latest landing branch. Work landed there may have changed other work's tests the leaf
+    /// updated as well: their lock moves with them.
+    func rebaseOntoMain(_ node: NodeState, in directory: URL) async throws -> RebaseResult {
+        try await renewingOtherTestsLock(node, in: directory) { try await workspace.rebaseOntoMain(directory) }
+    }
+
+    /// Starts the implementation over from the leaf's tests on the latest landing branch, moving the lock as above.
+    func resetForRework(_ node: NodeState, in directory: URL) async throws {
+        try await renewingOtherTestsLock(node, in: directory) { try await workspace.resetForRework(directory) }
+    }
+
+    private func renewingOtherTestsLock<T>(_ node: NodeState, in directory: URL,
+                                           _ move: () async throws -> T) async throws -> T {
+        let current = await ledger.workingState().nodes[node.id] ?? node
+        // The move throws uncommitted changes away first, so they don't count.
+        try await workspace.discardChanges(keeping: [], in: directory)
+        let intact = current.updatedOtherTestsIntact(in: directory)
+        let result = try await move()
+        if let renewal = current.renewedOtherTestsLock(in: directory, wasIntact: intact) {
+            try await write(node.id, by: .reconciler, [renewal])
+        }
+        return result
+    }
+
     func testsDigest(_ node: NodeState, in directory: URL) -> String {
         Hashing.digest(of: directory.appending(path: workspace.testFolder(for: node.spec)))
     }
@@ -116,5 +140,20 @@ extension Reconciler {
         return Evidence(check: check, passed: output.passed, summary: output.summary, specHash: node.spec.specHash,
                         builtBy: builtBy, checkedBy: checkedBy, artifactPath: artifact.path, artifactSHA256: artifact.sha256,
                         commit: commit, failureClassification: failureClassification)
+    }
+}
+
+public extension NodeState {
+    /// Whether other work's tests this node's acceptance tests updated are as they were locked.
+    func updatedOtherTestsIntact(in directory: URL) -> Bool {
+        updatedOtherTests.isEmpty || Hashing.digest(ofFiles: updatedOtherTests, in: directory) == updatedOtherTestsDigest
+    }
+
+    /// After the harness moved the leaf onto a newer landing branch: the new lock when that changed those tests,
+    /// and only when they were intact before, so nothing an agent changed is ever accepted.
+    func renewedOtherTestsLock(in directory: URL, wasIntact: Bool) -> EventKind? {
+        guard wasIntact, !updatedOtherTests.isEmpty else { return nil }
+        let digest = Hashing.digest(ofFiles: updatedOtherTests, in: directory)
+        return digest == updatedOtherTestsDigest ? nil : .otherTestsUpdated(files: updatedOtherTests, digest: digest)
     }
 }
