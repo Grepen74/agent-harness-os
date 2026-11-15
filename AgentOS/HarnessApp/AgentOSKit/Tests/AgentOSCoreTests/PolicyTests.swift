@@ -104,6 +104,27 @@ struct PolicyTests {
         #expect(policy.settings.first { $0.name == "Implementation agent" }?.note == "repo asked for model-x: not offered")
     }
 
+    @Test func reasoningEffortsComeFromTheHarnessAndARepoMayChooseUpToTheCap() {
+        var harness = HarnessSettings()
+        harness.maxEffort = .medium
+        harness.efforts = AgentEfforts(decomposer: .xhigh, implementer: .low)
+        var repo = config()
+        repo.agents = .init(efforts: AgentRoleValues(decomposer: "xhigh", testAuthor: "high", implementer: "ultra"))
+
+        let policy = EffectivePolicy.resolve(harness: harness, repo: repo, defaultBranch: "main")
+
+        // The harness's own pick for a role counts as allowed even above the cap.
+        #expect(policy.agentEfforts == AgentEfforts(decomposer: .xhigh, implementer: .low))
+        #expect(policy.problems.map(\.title) == [
+            "Repo config raises acceptance tests reasoning effort to high",
+            "Repo config has an unknown reasoning effort for implementation: ultra"
+        ])
+        let breakdown = policy.settings.first { $0.name == "Breakdown reasoning effort" }
+        #expect(breakdown?.source == .repo)
+        #expect(breakdown?.overrides.last?.json == #"{ "agents": { "efforts": { "decomposer": "xhigh" } } }"#)
+        #expect(policy.settings.first { $0.name == "Acceptance tests reasoning effort" }?.value == "default")
+    }
+
     @Test func leafBranchNamesAreReserved() {
         #expect(resolve(config(landing: "agentos")).problems.count == 1)
         #expect(resolve(config(landing: "agentos/leaf/x")).problems.count == 1)

@@ -163,6 +163,108 @@ struct GH_28Tests {
     }
 
     @Test
+    func anEffortTheModelDoesntSupportRunsWithTheDefaultAndTheLogSaysWhichRan() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "gh28-effort-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let copilot = directory.appending(path: "copilot")
+        try """
+        #!/bin/sh
+        effort=default
+        while [ $# -gt 0 ]; do [ "$1" = --reasoning-effort ] && effort=$2; shift; done
+        case $effort in max) echo "Execution failed: Reasoning effort 'max' is not supported for model 'm'."; exit 1;; esac
+        echo "ran with $effort"
+        """.write(to: copilot, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: copilot.path)
+        let settings = directory.appending(path: "settings.json")
+        try #"{"model": "cli-model", "effortLevel": "medium"}"#.write(to: settings, atomically: true, encoding: .utf8)
+        let log = directory.appending(path: "agent.log")
+
+        var cli = CopilotCLI(executable: copilot.path, effort: .max)
+        cli.cliSettings = settings
+        cli.environment = ["COPILOT_MODEL": "env-model"]
+        let model = "the CLI's default (COPILOT_MODEL: env-model, your setting: cli-model)"
+        #expect(cli.runSettings() == AgentRunSettings(model: model, effort: "max"))
+        let recording = AgentRunRecording()
+        let run = try await AgentRunRecording.$current.withValue(recording) {
+            try await cli.runFallingBack("work", in: directory, log: log)
+        }
+
+        #expect(run.output.contains("ran with default"))
+        let text = try String(contentsOf: log, encoding: .utf8)
+        #expect(text.contains(#"Reasoning effort "max" isn't supported by this model"#))
+        #expect(text.contains("Model: \(model) · reasoning effort: the CLI's default (your setting: medium)"))
+        let ranWith = AgentRunSettings(model: model, effort: "the CLI's default (your setting: medium)",
+                                       fallback: #"the CLI's default model doesn't support reasoning effort "max""#)
+        #expect(run.settings == ranWith)
+        #expect(recording.fellBack == ranWith)
+    }
+
+    @Test
+    func fallingBackSharesTheRunsTimeout() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "gh28-deadline-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let copilot = directory.appending(path: "copilot")
+        // Each attempt takes 1.5 s to say its model isn't available; the run has 2 s in all, not 2 s per model.
+        try """
+        #!/bin/sh
+        sleep 1.5
+        echo "Execution failed: Model \\"m\\" is not available."
+        exit 1
+        """.write(to: copilot, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: copilot.path)
+
+        let cli = CopilotCLI(executable: copilot.path, model: "m", fallbackModels: ["n", "o", nil], timeout: .seconds(2))
+        let started = ContinuousClock.now
+        await #expect(throws: AgentFailure.self) { try await cli.runFallingBack("work", in: directory) }
+        #expect(ContinuousClock.now - started < .seconds(4))
+    }
+
+    @Test
+    func aReviewRecordsWhatItRanWithInItsResultNotTheRunItsPartOf() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "gh28-review-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let copilot = directory.appending(path: "copilot")
+        try """
+        #!/bin/sh
+        effort=default
+        while [ $# -gt 0 ]; do [ "$1" = --reasoning-effort ] && effort=$2; shift; done
+        case $effort in high) echo "Execution failed: Reasoning effort 'high' is not supported for model 'm'."; exit 1;; esac
+        echo '{"passed": true, "findings": []}'
+        """.write(to: copilot, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: copilot.path)
+        var cli = CopilotCLI(executable: copilot.path, model: "reviewer-model", effort: .high)
+        cli.cliSettings = directory.appending(path: "missing.json")
+        cli.environment = [:]
+
+        let outer = AgentRunRecording()
+        let result = try await AgentRunRecording.$current.withValue(outer) {
+            try await CopilotReviewer(cli: cli).review(ReviewRequest(
+                stage: .change, spec: Fixture.spec, acceptanceTests: [:],
+                context: ReviewContext(baseBranch: "agentos/main", commit: "c", fullDiff: "", changedFiles: [],
+                                       recentChanges: [], uiEvidence: nil),
+                directory: directory))
+        }
+        #expect(result.settings == AgentRunSettings(model: "reviewer-model", effort: "the CLI's default",
+                                                    fallback: #""reviewer-model" doesn't support reasoning effort "high""#))
+        #expect(outer.fellBack == nil)
+    }
+
+    @Test
+    func theTeamUsesEachRolesEffortAndReportsIt() throws {
+        var harness = HarnessSettings()
+        harness.efforts = AgentEfforts(decomposer: .xhigh)
+        let policy = EffectivePolicy.resolve(harness: harness, repo: nil, defaultBranch: "main")
+        let team = RepositorySession.copilotTeam(executable: "/not-executed/copilot", policy: policy)
+        #expect((team.decomposer as? CopilotDecomposer)?.cli.arguments(prompt: "p", in: URL(filePath: "/tmp"))
+            .suffix(2) == ["--reasoning-effort", "xhigh"])
+        #expect(team.runSettings?(.decomposer)?.effort == "xhigh")
+        #expect(team.runSettings?(.diagnoser) != nil)
+    }
+
+    @Test
     func harnessSettingsCanChooseASpecificReviewerModelOrCommand() throws {
         let modelPolicy = try resolve(
             minimum: "agent",

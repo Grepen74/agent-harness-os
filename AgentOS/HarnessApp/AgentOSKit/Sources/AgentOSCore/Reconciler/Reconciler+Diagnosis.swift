@@ -28,7 +28,7 @@ extension Reconciler {
         guard let diagnoser = team.diagnoser, let escalation = node.flags[.escalated] else { return nil }
         let run = Self.newRunID()
         let author = Participant.agent(run: run, role: .diagnoser)
-        try await write(node.id, by: .reconciler, [.runStarted(run: run, role: .diagnoser)], expecting: node.version)
+        try await write(node.id, by: .reconciler, agentRunStarted(run, .diagnoser), expecting: node.version)
         let records = await ledger.records(for: node.id)
         let history = records.suffix(Self.diagnosisHistoryLimit).map {
             "\($0.event.at.ISO8601Format()) \($0.event.by.label): \($0.event.kind.summary)"
@@ -43,7 +43,7 @@ extension Reconciler {
         var diagnosis: Diagnosis?
         var failure: String?
         do {
-            diagnosis = try await diagnoser.diagnose(request)
+            diagnosis = try await recordingFallback(node.id, run: run) { try await diagnoser.diagnose(request) }
         } catch {
             failure = "\(error)".split(separator: "\n", maxSplits: 1).first.map { String($0.prefix(300)) } ?? "\(error)"
         }

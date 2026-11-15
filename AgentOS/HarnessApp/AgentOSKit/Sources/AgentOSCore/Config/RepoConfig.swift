@@ -86,6 +86,9 @@ public struct RepoConfig: Codable, Sendable, Equatable {
         public var deny: [String]?
         /// Models per role, chosen among the ones the harness offers.
         public var models: AgentModels?
+        /// Reasoning effort per role (`none` … `max`), up to the harness's cap. Which levels a model supports
+        /// depends on the model; an unsupported one runs with the CLI's default effort.
+        public var efforts: AgentRoleValues<String>?
         /// How much agents may guess: `ask`, `assume-and-report` or `autonomous`, at most the harness's level.
         public var guesswork: String?
         /// Tracked repository-relative paths or globs for design documents agents should read.
@@ -94,10 +97,11 @@ public struct RepoConfig: Codable, Sendable, Equatable {
         /// `diagnoser`), up to 3600. Defaults: 1200, the diagnoser 600.
         public var timeouts: [String: Int]?
 
-        public init(deny: [String]? = nil, models: AgentModels? = nil, guesswork: String? = nil,
-                    context: [String]? = nil, timeouts: [String: Int]? = nil) {
+        public init(deny: [String]? = nil, models: AgentModels? = nil, efforts: AgentRoleValues<String>? = nil,
+                    guesswork: String? = nil, context: [String]? = nil, timeouts: [String: Int]? = nil) {
             self.deny = deny
             self.models = models
+            self.efforts = efforts
             self.guesswork = guesswork
             self.context = context
             self.timeouts = timeouts

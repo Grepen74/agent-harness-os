@@ -19,6 +19,10 @@ public struct HarnessSettings: Codable, Sendable, Equatable {
     public var offeredModels: [String] = []
     /// The model per role when the repo doesn't choose one (nil: the agent CLI's default).
     public var models = AgentModels()
+    /// The reasoning effort per role when the repo doesn't choose one (nil: the agent CLI's default).
+    public var efforts = AgentEfforts()
+    /// The highest effort a repo may choose for a role (or the role's effort above, if that is higher).
+    public var maxEffort = ReasoningEffort.high
     public var review = ReviewSettings()
     /// How much agents may guess before asking (a repo may only choose a stricter level).
     public var guesswork = Guesswork.assumeAndReport
@@ -50,6 +54,8 @@ public struct HarnessSettings: Codable, Sendable, Equatable {
         offeredSignals = offered.union(Set(HarnessCommand.allCases).subtracting(known))
         offeredModels = try container.decodeIfPresent([String].self, forKey: .offeredModels) ?? defaults.offeredModels
         models = try container.decodeIfPresent(AgentModels.self, forKey: .models) ?? defaults.models
+        efforts = try container.decodeIfPresent(AgentEfforts.self, forKey: .efforts) ?? defaults.efforts
+        maxEffort = try container.decodeIfPresent(ReasoningEffort.self, forKey: .maxEffort) ?? defaults.maxEffort
         review = try container.decodeIfPresent(ReviewSettings.self, forKey: .review) ?? defaults.review
         guesswork = try container.decodeIfPresent(Guesswork.self, forKey: .guesswork) ?? defaults.guesswork
         githubAccount = try container.decodeIfPresent(String.self, forKey: .githubAccount)
@@ -96,6 +102,8 @@ public struct EffectivePolicy: Sendable, Equatable {
     public var protectedPaths: [String]
     /// The model per agent role.
     public var agentModels = AgentModels()
+    /// The reasoning effort per agent role.
+    public var agentEfforts = AgentEfforts()
     /// Seconds each agent may run before it is stopped, per agent ("testAuthor", "reviewer", …).
     public var agentTimeouts = Self.defaultAgentTimeouts
     public static let defaultAgentTimeouts = ["decomposer": 1200, "testAuthor": 1200, "implementer": 1200,
@@ -273,6 +281,36 @@ public struct EffectivePolicy: Sendable, Equatable {
             result.settings.append(EffectiveSetting(
                 name: "\(role.job) agent", value: "\(HarnessSettings.agentProvider) · \(model ?? "default model")",
                 source: source, note: note))
+        }
+
+        // Reasoning effort: the harness's per role, unless the repo picks another one up to the harness's cap.
+        for role in AgentEfforts.roles {
+            var effort = harness.efforts[role]
+            var source = EffectiveSetting.Source.harness
+            var note: String?
+            let choices = RepoOverrideDefinitions.effortChoices(for: role, harness: harness)
+            if let wanted = repo?.agents?.efforts?[role] {
+                if let level = ReasoningEffort(rawValue: wanted), choices.contains(level) {
+                    effort = level
+                    source = .repo
+                } else if let level = ReasoningEffort(rawValue: wanted) {
+                    refuse("Repo config raises \(role.job.lowercased()) reasoning effort to \(level.rawValue)",
+                           "The harness allows at most \(choices.last?.rawValue ?? "none").")
+                    note = "repo asked for \(wanted): refused"
+                } else {
+                    refuse("Repo config has an unknown reasoning effort for \(role.job.lowercased()): \(wanted)",
+                           "Known levels: \(ReasoningEffort.allCases.map(\.rawValue).joined(separator: ", ")).")
+                    note = "repo asked for \(wanted): invalid"
+                }
+            }
+            result.agentEfforts[role] = effort
+            result.settings.append(EffectiveSetting(
+                name: "\(role.job) reasoning effort", value: effort?.rawValue ?? "default",
+                source: source, note: note,
+                overrides: choices.map {
+                    RepoConfigOverride(value: $0.rawValue,
+                                       json: "{ \"agents\": { \"efforts\": { \"\(role.rawValue)\": \"\($0.rawValue)\" } } }")
+                }))
         }
         var review = ReviewPolicy()
         review.level = harness.review.level

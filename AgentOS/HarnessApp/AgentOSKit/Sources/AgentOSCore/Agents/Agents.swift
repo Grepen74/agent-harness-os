@@ -338,6 +338,8 @@ public struct AgentTeam: Sendable {
     public var reviewer: (any Reviewer)?
     /// Explains escalations; without one they wait for a person unexplained.
     public var diagnoser: (any Diagnoser)?
+    /// The model and reasoning effort a role's next run uses, recorded with its claim (nil: not known).
+    public var runSettings: (@Sendable (AgentRole) -> AgentRunSettings?)?
 
     public init(name: String, decomposer: any Decomposer, testAuthor: any TestAuthor, implementer: any Implementer) {
         self.name = name

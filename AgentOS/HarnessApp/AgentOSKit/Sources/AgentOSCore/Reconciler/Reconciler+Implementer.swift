@@ -25,7 +25,7 @@ extension Reconciler {
         let run = Self.newRunID()
         let author = Participant.agent(run: run, role: .implementer)
         // Record the claim and intent first; only then start the agent.
-        try await write(node.id, by: .reconciler, [.runStarted(run: run, role: .implementer), .phaseChanged(to: .building)],
+        try await write(node.id, by: .reconciler, agentRunStarted(run, .implementer) + [.phaseChanged(to: .building)],
                         expecting: node.version)
         let directory = workspace.worktree(for: node.id)
         do {
@@ -38,8 +38,10 @@ extension Reconciler {
             let task = await makeTask(node, run: run, in: directory, log: agentLog(node, run), for: .implementer,
                                       unfinishedWork: unfinished)
             let implementationResult = try await withScratchDirectory(task.scratchDirectory) {
-                try await watchingUserGitState(node, run: run) {
-                    try await team.implementer.implement(task)
+                try await recordingFallback(node.id, run: run) {
+                    try await watchingUserGitState(node, run: run) {
+                        try await team.implementer.implement(task)
+                    }
                 }
             }
             try Task.checkCancellation()

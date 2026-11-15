@@ -85,6 +85,9 @@ public enum EventKind: Codable, Sendable {
     case brokenTestRouted(testName: String, outcome: BrokenTestRoutingOutcome)
     /// Claim + intent: written BEFORE the agent starts, so a crash can't run it twice unnoticed (doc 07 §3).
     case runStarted(run: RunID, role: AgentRole)
+    /// The model and reasoning effort an agent run starts with; written with its `runStarted`. Written again with
+    /// `settings.fallback` set when the run fell back to others, e.g. a model that doesn't support the effort.
+    case agentConfigured(run: RunID, settings: AgentRunSettings)
     case runFinished(run: RunID, outcome: String)
     case changeSubmitted(run: RunID, commit: String)
     case attemptFailed(summary: String)
@@ -225,6 +228,8 @@ extension EventKind {
             "\(review.stage.rawValue) review \(review.result.passed ? "passed" : "failed")"
                 + (review.result.unavailableModels.map { " (\($0.joined(separator: ", ")) not available; reviewed with "
                     + "\(review.result.model ?? "the CLI's default model"))" } ?? "")
+                + (review.result.settings.map { " (\($0.model), reasoning effort \($0.effort)"
+                    + ($0.fallback.map { "; \($0)" } ?? "") + ")" } ?? "")
                 + ": \(review.result.findings.joined(separator: "\n"))"
         case .humanReviewRequested(let commit): "human review requested for \(commit)"
         case .humanReviewApproved(let commit): "human review approved for \(commit)"
@@ -235,6 +240,9 @@ extension EventKind {
                 ? "broken test \(testName) sent back to the test author"
                 : "broken test \(testName) waiting for a person"
         case .runStarted(let run, let role): "\(role.rawValue) run \(run) started"
+        case .agentConfigured(let run, let settings):
+            settings.fallback.map { "\(run) ran with \(settings.model), reasoning effort \(settings.effort) instead: \($0)" }
+                ?? "\(run) uses \(settings.model), reasoning effort \(settings.effort)"
         case .runFinished(let run, let outcome): "run \(run) finished: \(outcome)"
         case .changeSubmitted(let run, let commit): "change submitted by \(run) (\(commit.prefix(8)))"
         case .attemptFailed(let summary): "attempt failed: \(summary)"

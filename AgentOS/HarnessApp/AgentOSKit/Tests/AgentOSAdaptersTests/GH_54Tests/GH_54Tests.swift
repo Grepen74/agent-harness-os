@@ -260,7 +260,7 @@ struct GH_54Tests {
         host.layoutSubtreeIfNeeded()
         // Inspect real AppKit descendants, never the hosting view's empty accessibility tree.
         let controls = descendants(of: host, as: PolicyOverrideControl.self)
-        #expect(controls.count == Setting.allCases.count)
+        #expect(controls.count == Setting.allCases.count + AgentEfforts.roles.count)
         let savedClipboard = NSPasteboard.general.pasteboardItems?.compactMap { item -> NSPasteboardItem? in
             let saved = NSPasteboardItem()
             for type in item.types {

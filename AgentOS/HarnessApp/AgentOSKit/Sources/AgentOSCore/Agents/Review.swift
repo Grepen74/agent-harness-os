@@ -80,6 +80,8 @@ public struct ReviewResult: Codable, Sendable, Equatable {
     public var model: String?
     /// Models tried first that the account can't use, so the review fell back to `model`.
     public var unavailableModels: [String]?
+    /// The model and reasoning effort the review ran with, set by the harness when it knows them.
+    public var settings: AgentRunSettings?
 
     public init(passed: Bool, findings: [String], testFindings: [String]? = nil, followUps: [String]? = nil,
                 model: String? = nil, unavailableModels: [String]? = nil) {

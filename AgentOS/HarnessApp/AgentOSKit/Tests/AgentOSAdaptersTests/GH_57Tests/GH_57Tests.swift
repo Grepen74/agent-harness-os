@@ -428,6 +428,7 @@ import Testing
       "agents": {
         "deny": ["custom-tool"],
         "models": {"decomposer": "model-a", "testAuthor": "model-b", "implementer": "model-c"},
+        "efforts": {"decomposer": "xhigh", "testAuthor": "medium", "implementer": "high"},
         "timeouts": {"testAuthor": 1800},
         "guesswork": "ask", "context": ["README.md", "docs/*.md"]
       },

@@ -70,7 +70,16 @@ extension Reconciler {
             guard problems.isEmpty else { throw Rejection(reason: "Not ready yet. Missing: \(problems.joined(separator: ", ")).") }
             let spec = Planner.rootSpec(for: ticket)
             let answers = try (node?.clarifications ?? []) + Self.newPreviewAnswers(on: ticket, for: node)
-            let breakdown = try await propose(spec, ticketKey: ticket.key, clarifications: answers, log: nil)
+            // Not a node's run: nothing is claimed, but its settings and log are kept, since accepting the preview
+            // skips the breakdown.
+            let run = Self.newRunID()
+            let planned = team.runSettings?(.decomposer)
+            if let planned { try await write(nil, by: .reconciler, [.agentConfigured(run: run, settings: planned)]) }
+            let log = try? artifacts.liveFile(named: AgentLog.fileName(node: spec.id, run: run))
+            let (breakdown, fellBack) = try await recordingFallbackSettings(nil, run: run) {
+                try await propose(spec, ticketKey: ticket.key, clarifications: answers, log: log)
+            }
+            let ranWith = (fellBack ?? planned).map { "Proposed by \($0.model), reasoning effort \($0.effort) (\(run)).\n" } ?? ""
             let questions = policy.questions(in: breakdown.report, role: .decomposer)
             guard questions.isEmpty else {
                 // Nothing is recorded: answers in comments below this are read by the next preview, and kept
@@ -90,7 +99,7 @@ extension Reconciler {
             // Accepting the preview accepts its assumptions too: they aren't asked about again.
             await tracker.comment(on: ticket.key, """
                 🔍 Preview #\(number). Nothing has been created.
-                \(Planner.describe(children, under: ticket.title))\(Self.assumptionsNote("Assumptions the decomposer made", policy.assumptions(in: breakdown.report)))
+                \(ranWith)\(Planner.describe(children, under: ticket.title))\(Self.assumptionsNote("Assumptions the decomposer made", policy.assumptions(in: breakdown.report)))
                 Accept with label harness:breakdown, or edit the ticket and preview again.
                 """)
             return "preview #\(number) posted above"

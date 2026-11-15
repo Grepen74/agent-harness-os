@@ -63,6 +63,19 @@ struct GH_29_4Tests {
     }
 
     @Test
+    func theTestAuthorGetsPeoplesCommentsOnTheTicketButNotTheHarnesss() async throws {
+        let fixture = try await Fixture(flag: .escalated, feedback: ["Reuse the existing parser."])
+
+        _ = await fixture.reconciler.runRound(waitForAgents: true)
+
+        let task = try #require(await fixture.testAuthor.tasks().first)
+        let comments = task.agentContext.ticketComments.map(\.text)
+        #expect(comments.contains("Reuse the existing parser."))
+        #expect(!comments.contains { $0.contains("Needs input") })
+        fixture.cleanup()
+    }
+
+    @Test
     func acceptedAndLandedRejectedRetestsAreAuditedAndExplainedOnTheTicket() async throws {
         let accepted = try await Fixture(flag: .escalated)
         _ = await accepted.reconciler.runRound(waitForAgents: true)

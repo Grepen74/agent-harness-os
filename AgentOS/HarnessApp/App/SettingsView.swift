@@ -115,11 +115,20 @@ struct SettingsView: View {
                         Text("Default model").tag("")
                         ForEach(modelChoices(for: role), id: \.self) { Text($0).tag($0) }
                     }
+                    Picker("\(role.job) reasoning effort", selection: Binding(
+                        get: { model.settings.efforts[role] },
+                        set: { model.settings.efforts[role] = $0 })) {
+                        Text("Default effort").tag(ReasoningEffort?.none)
+                        ForEach(ReasoningEffort.allCases, id: \.self) { Text($0.rawValue).tag(Optional($0)) }
+                    }
+                }
+                Picker("Highest effort a repo may choose", selection: $model.settings.maxEffort) {
+                    ForEach(ReasoningEffort.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                 }
             } header: {
                 Text("Agents: \(HarnessSettings.agentProvider)")
             } footer: {
-                Text("Comma-separated model names as the agent CLI knows them (`copilot --model`); press Return to apply. A repo may pick a model per role only among these.")
+                Text("Comma-separated model names as the agent CLI knows them (`copilot --model`); press Return to apply. A repo may pick a model per role only among these. Reasoning effort is `copilot --reasoning-effort`: higher thinks harder but takes longer, so raise the role's timeout in the repo config too. A model that doesn't support the effort runs with the CLI's default effort. Default model and effort: the agent CLI's own settings.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section {

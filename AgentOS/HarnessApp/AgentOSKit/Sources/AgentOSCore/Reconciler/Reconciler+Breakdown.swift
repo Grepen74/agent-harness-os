@@ -57,13 +57,15 @@ extension Reconciler {
         } else {
             let run = Self.newRunID()
             author = .agent(run: run, role: .decomposer)
-            try await write(node.id, by: .reconciler, [.runStarted(run: run, role: .decomposer)], expecting: node.version)
+            try await write(node.id, by: .reconciler, agentRunStarted(run, .decomposer), expecting: node.version)
             let breakdown: Breakdown
             do {
-                breakdown = try await propose(
-                    node.spec, ticketKey: node.ticket,
-                    clarifications: state.clarifications(for: node.id), log: agentLog(node, run)
-                )
+                breakdown = try await recordingFallback(node.id, run: run) {
+                    try await propose(
+                        node.spec, ticketKey: node.ticket,
+                        clarifications: state.clarifications(for: node.id), log: agentLog(node, run)
+                    )
+                }
                 try Task.checkCancellation()
             } catch {
                 try await write(node.id, by: author, [

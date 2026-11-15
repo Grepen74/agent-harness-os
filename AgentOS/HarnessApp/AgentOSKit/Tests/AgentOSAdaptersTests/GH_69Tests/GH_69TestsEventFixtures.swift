@@ -65,6 +65,7 @@ extension GH_69Tests {
                       method: .rebase, commitMappings: ["old": "new"]),
             .testDraftKept(run: "run", files: ["Tests/AppTests/Draft.swift"]),
             .diagnosisRecorded(run: "run", diagnosis: Diagnosis(cause: "Too big", nextStep: "Split it")),
+            .agentConfigured(run: "run", settings: AgentRunSettings(model: "model", effort: "high")),
         ]
     }
 }

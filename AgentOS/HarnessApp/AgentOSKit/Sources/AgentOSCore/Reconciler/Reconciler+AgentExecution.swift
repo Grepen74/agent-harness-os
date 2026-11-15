@@ -108,4 +108,32 @@ extension Reconciler {
     }
 
     static func newRunID() -> RunID { "run-" + UUID().uuidString.prefix(6).lowercased() }
+
+    /// The claim for an agent run, with the model and reasoning effort it starts with when the team knows them.
+    func agentRunStarted(_ run: RunID, _ role: AgentRole) -> [EventKind] {
+        [.runStarted(run: run, role: role)]
+            + (team.runSettings?(role).map { [.agentConfigured(run: run, settings: $0)] } ?? [])
+    }
+
+    /// Runs an agent and, when it fell back to another model or effort, records what it ran with instead, whether
+    /// it succeeded or not. Written directly: a stopped run's record still says what ran.
+    func recordingFallback<T>(_ node: NodeID?, run: RunID, _ agent: () async throws -> T) async throws -> T {
+        try await recordingFallbackSettings(node, run: run, agent).result
+    }
+
+    /// `recordingFallback`, also returning the settings the run fell back to (nil: it ran with the ones it started with).
+    func recordingFallbackSettings<T>(_ node: NodeID?, run: RunID, _ agent: () async throws -> T) async throws
+        -> (result: T, fellBack: AgentRunSettings?) {
+        let recording = AgentRunRecording()
+        let result: Result<T, any Error>
+        do {
+            result = .success(try await AgentRunRecording.$current.withValue(recording) { try await agent() })
+        } catch {
+            result = .failure(error)
+        }
+        if let settings = recording.fellBack {
+            try? await ledger.append([LedgerEvent(node: node, by: .reconciler, kind: .agentConfigured(run: run, settings: settings))])
+        }
+        return (try result.get(), recording.fellBack)
+    }
 }

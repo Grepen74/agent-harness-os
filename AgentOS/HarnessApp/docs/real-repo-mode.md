@@ -64,6 +64,7 @@ read from `main` only.
 | Push / open pull requests | Never (phase 9: an opt-in setting; only the harness pushes, never agents) | Switch it off |
 | Agent tools | Copilot CLI, with `git push`/`fetch`/`pull`/`remote`/`config`/`stash`, `gh` and network installs denied | Deny more |
 | Agent models | Offered models, plus a default model per role (breakdown, acceptance tests, implementation); none = the CLI's default | Pick a model per role among the offered ones |
+| Reasoning effort | A default effort per role (`copilot --reasoning-effort`; none = the CLI's default) and the highest effort a repo may choose (built-in `high`) | Pick an effort per role up to that cap, or up to the role's harness effort if higher |
 | Review | `agent`; default reviewer (the first offered reviewer model that differs from the implementer's, else the agent CLI's default model), or a specific model/command | Tighten to `agent+human`, overall or per area; choose an offered reviewer model |
 | Max attempts / reworks per leaf | 3 / 3 | Lower |
 | Max parallel agents | 2 | Lower |
@@ -145,6 +146,10 @@ is configured, Copilot CLI chooses its own default. Display titles are not confi
 | `agents.models.decomposer` | String: exact model identifier for the breakdown role | Inherit harness breakdown model; otherwise CLI default | Choose the current role model or an alternative offered in Settings |
 | `agents.models.testAuthor` | String: exact model identifier for the acceptance-test role | Inherit harness test-author model; otherwise CLI default | Choose the current role model or an alternative offered in Settings |
 | `agents.models.implementer` | String: exact model identifier for the implementation role | Inherit harness implementer model; otherwise CLI default | Choose the current role model or an alternative offered in Settings |
+| `agents.efforts` | Object with optional role-specific (`decomposer`, `testAuthor`, `implementer`) reasoning efforts: `none`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max` | Inherit each role's harness effort, otherwise the CLI default | At most the harness's cap, or the role's harness effort if higher; unknown levels are refused. A model that doesn't support the level runs with the CLI's default effort, noted in the agent log. Higher effort takes longer: raise the role's timeout too |
+| `agents.efforts.decomposer` | String: reasoning effort for the breakdown role | Inherit harness breakdown effort; otherwise CLI default | At most the harness's cap, or the role's harness effort if higher |
+| `agents.efforts.testAuthor` | String: reasoning effort for the acceptance-test role | Inherit harness test-author effort; otherwise CLI default | At most the harness's cap, or the role's harness effort if higher |
+| `agents.efforts.implementer` | String: reasoning effort for the implementation role | Inherit harness implementer effort; otherwise CLI default | At most the harness's cap, or the role's harness effort if higher |
 | `agents.timeouts` | Object from agent role (`decomposer`, `testAuthor`, `implementer`, `reviewer`, `diagnoser`) to seconds | 1200 for each role, 600 for the diagnoser | 60 to 3600 seconds; unknown roles and values out of range are refused, and that role keeps its default |
 | `agents.guesswork` | String: `ask`, `assume-and-report`, or `autonomous` | Inherit harness setting; built-in `assume-and-report` | Same or stricter than current harness setting; strictest to loosest: `ask`, `assume-and-report`, `autonomous` |
 | `agents.context` | Array of repository-relative tracked file paths or globs; only tracked matches are read | `["README.md", "AGENTS.md"]` | None beyond tracked-file selection; explicit list replaces default context, and an empty list selects none |
@@ -448,6 +453,15 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
   and ignores `cd`, so `cd Sub && swift test > ../log` counts as outside. Agents are told to name such files,
   like their scratch folder, by absolute path. Each agent log ends with a line counting the run's denials and
   what they were, so anything agents keep needing shows up and can be allowed up front.
+- **Which model ran.** Each agent log starts with the model and reasoning effort the run uses. When the harness
+  chose none, it says "the CLI's default" with the defaults it can see as hints (`COPILOT_MODEL`, your settings in
+  `$COPILOT_HOME/settings.json` or `~/.copilot/settings.json`): a repository default in a trusted folder overrides
+  yours, so choose a model to be sure which runs. The ledger records the same with the run's claim
+  (`agentConfigured`). A model the account can't use, or an effort the model doesn't support, is noted at the top
+  of the log with what ran instead (another model, or the CLI's default effort), and the ledger gets a second
+  `agentConfigured` with what ran and why. Falling back doesn't extend the run's timeout: all its attempts share
+  it. A preview's breakdown is recorded the same way (without a claim, since a preview adopts nothing), keeps its
+  log, and its comment names the model; a review records what it ran with in its review result.
 - **Your git state** is fingerprinted before and compared after each test-author and implementer run: refs
   outside `agentos/` (tags, remote-tracking refs, the stash; for local branches only whether they exist,
   since you may commit while agents work), and the shared git config, hooks and `info/` files. Worktrees

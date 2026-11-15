@@ -14,6 +14,8 @@ public struct CopilotCLI: Sendable {
     public var model: String?
     /// Tried in order when the CLI says `model` isn't available to the account (nil: the CLI's default model).
     public var fallbackModels: [String?]
+    /// nil: the CLI's default. A model that doesn't support it runs with the CLI's default instead.
+    public var effort: ReasoningEffort?
     public var timeout: Duration
     /// Policy names ("git push", "network installs") or Copilot patterns ("shell(rm)", "write(.env)").
     public var deniedTools: [String]
@@ -21,11 +23,18 @@ public struct CopilotCLI: Sendable {
     /// Folders outside the job's directory the agent may read too (`--add-dir`), e.g. the harness's logs.
     public var extraDirectories: [URL] = []
 
-    public init(executable: String, model: String? = nil, fallbackModels: [String?] = [], timeout: Duration = .seconds(1200),
-                deniedTools: [String] = HarnessSettings.deniedTools, protectedPaths: [String] = []) {
+    /// Where the CLI keeps its own settings, including your default model and effort (`$COPILOT_HOME`, else ~/.copilot).
+    public var cliSettings = CopilotCLI.defaultSettingsFile()
+    /// The environment the CLI runs with, for the defaults it takes from it (`COPILOT_MODEL`).
+    public var environment = ProcessInfo.processInfo.environment
+
+    public init(executable: String, model: String? = nil, fallbackModels: [String?] = [], effort: ReasoningEffort? = nil,
+                timeout: Duration = .seconds(1200), deniedTools: [String] = HarnessSettings.deniedTools,
+                protectedPaths: [String] = []) {
         self.executable = executable
         self.model = model
         self.fallbackModels = fallbackModels
+        self.effort = effort
         self.timeout = timeout
         self.deniedTools = deniedTools
         self.protectedPaths = protectedPaths
@@ -46,7 +55,30 @@ public struct CopilotCLI: Sendable {
             arguments += ["--deny-tool", pattern]
         }
         if let model { arguments += ["--model", model] }
+        if let effort { arguments += ["--reasoning-effort", effort.rawValue] }
         return arguments
+    }
+
+    static func defaultSettingsFile(_ environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
+        let home = environment["COPILOT_HOME"].flatMap { $0.isEmpty ? nil : URL(filePath: $0, directoryHint: .isDirectory) }
+            ?? FileManager.default.homeDirectoryForCurrentUser.appending(path: ".copilot", directoryHint: .isDirectory)
+        return home.appending(path: "settings.json")
+    }
+
+    /// The model and effort a run starts with. What the harness doesn't choose is the CLI's default, which the
+    /// harness can't know for sure (a repository default in a trusted folder overrides yours), so it names the
+    /// defaults it can see as hints.
+    public func runSettings() -> AgentRunSettings {
+        let defaults = (try? Data(contentsOf: cliSettings))
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+        func describe(_ chosen: String?, setting key: String, variable: String? = nil) -> String {
+            if let chosen { return chosen }
+            let hints = [variable.flatMap { name in environment[name].flatMap { $0.isEmpty ? nil : "\(name): \($0)" } },
+                         (defaults[key] as? String).flatMap { $0.isEmpty ? nil : "your setting: \($0)" }].compactMap { $0 }
+            return "the CLI's default" + (hints.isEmpty ? "" : " (\(hints.joined(separator: ", ")))")
+        }
+        return AgentRunSettings(model: describe(model, setting: "model", variable: "COPILOT_MODEL"),
+                                effort: describe(effort?.rawValue, setting: "effortLevel"))
     }
 
     /// Copilot permission patterns for the policy's denied tools and protected paths.
@@ -84,25 +116,47 @@ public struct CopilotCLI: Sendable {
         let model: String?
         /// Models tried before it that the account can't use.
         let unavailableModels: [String]
+        /// The model and effort it ran with; `fallback` says why when they aren't the ones it started with.
+        let settings: AgentRunSettings
     }
 
-    /// Runs with `model`, then each of `fallbackModels` in turn while the CLI says the model isn't available.
+    /// Runs with `model`, then each of `fallbackModels` in turn while the CLI says the model isn't available, and
+    /// with the CLI's default effort when a model doesn't support `effort`. Every attempt shares one `timeout`.
+    /// Settings it falls back to are reported to `AgentRunRecording.current`.
     func runFallingBack(_ prompt: String, in directory: URL, log: URL? = nil, silent: Bool = true,
                         agentContext: AgentContext = AgentContext(), includeComments: Bool = true) async throws -> Run {
+        let deadline = ContinuousClock.now + timeout
         var candidates: [String?] = []
         for candidate in [model] + fallbackModels where !candidates.contains(candidate) { candidates.append(candidate) }
         var unavailable: [String] = []
+        var reasons: [String] = []
         for candidate in candidates {
             var attempt = self
             attempt.model = candidate
-            let note = unavailable.isEmpty ? "" : "Model \(unavailable.map { "\"\($0)\"" }.joined(separator: ", ")) not "
+            var note = unavailable.isEmpty ? "" : "Model \(unavailable.map { "\"\($0)\"" }.joined(separator: ", ")) not "
                 + "available; running with \(candidate.map { "\"\($0)\"" } ?? "the CLI's default model") instead.\n"
-            do {
-                let output = try await attempt.runOnce(prompt, in: directory, log: log, silent: silent, note: note,
-                                                       agentContext: agentContext, includeComments: includeComments)
-                return Run(output: output, model: candidate, unavailableModels: unavailable)
-            } catch let failure as UnavailableModel {
-                unavailable.append(failure.model)
+            while true {
+                var settings = attempt.runSettings()
+                if attempt.model != model || attempt.effort != effort {
+                    settings.fallback = reasons.joined(separator: "; ")
+                    AgentRunRecording.current?.record(fallback: settings)
+                }
+                do {
+                    let output = try await attempt.runOnce(prompt, in: directory, log: log, silent: silent, note: note,
+                                                           deadline: deadline, agentContext: agentContext,
+                                                           includeComments: includeComments)
+                    return Run(output: output, model: candidate, unavailableModels: unavailable, settings: settings)
+                } catch let failure as UnsupportedEffort where attempt.effort != nil {
+                    note += "Reasoning effort \"\(failure.effort)\" isn't supported by this model; running with the "
+                        + "CLI's default effort instead.\n"
+                    reasons.append("\(candidate.map { "\"\($0)\"" } ?? "the CLI's default model") doesn't support "
+                        + "reasoning effort \"\(failure.effort)\"")
+                    attempt.effort = nil
+                } catch let failure as UnavailableModel {
+                    unavailable.append(failure.model)
+                    reasons.append("model \"\(failure.model)\" isn't available")
+                    break
+                }
             }
         }
         let names = unavailable.map { "\"\($0)\"" }.joined(separator: ", ")
@@ -111,12 +165,18 @@ public struct CopilotCLI: Sendable {
     }
 
     private struct UnavailableModel: Error { let model: String }
+    private struct UnsupportedEffort: Error { let effort: String }
 
     private func runOnce(_ prompt: String, in directory: URL, log: URL?, silent: Bool, note: String,
-                         agentContext: AgentContext, includeComments: Bool) async throws -> String {
+                         deadline: ContinuousClock.Instant, agentContext: AgentContext,
+                         includeComments: Bool) async throws -> String {
+        let limit = ContinuousClock.now.duration(to: deadline)
+        guard limit > .zero else { throw AgentFailure("copilot timed out after \(timeout) (falling back took it all)") }
         let count = includeComments ? agentContext.ticketComments.count + (agentContext.parent?.comments.count ?? 0) : 0
+        let settings = runSettings()
         let inventory = """
-        \(note)Context inventory: comments: \(count)
+        \(note)Model: \(settings.model) · reasoning effort: \(settings.effort)
+        Context inventory: comments: \(count)
         Linked issues: \(agentContext.linkedIssues.map(\.key).joined(separator: ", "))
         Parent: \(agentContext.parent?.key ?? "none")
         Design documents: \(agentContext.designDocumentPaths.joined(separator: ", "))
@@ -124,14 +184,15 @@ public struct CopilotCLI: Sendable {
         """
         let logStart = log.flatMap { try? FileManager.default.attributesOfItem(atPath: $0.path)[.size] as? Int } ?? 0
         let result = try await ProcessRunner.run(executable, arguments(prompt: prompt, in: directory, silent: silent), in: directory,
-                                                 timeout: timeout, log: log, timeZone: .current, logPreamble: inventory)
+                                                 timeout: limit, log: log, timeZone: .current, logPreamble: inventory)
         if let log, let data = try? Data(contentsOf: log), data.count > logStart,
            let summary = Self.unattendedDenialSummary(String(decoding: data.dropFirst(logStart), as: UTF8.self)) {
             AgentLog.append(summary, to: log, producedAt: Date(), timeZone: .current)
         }
         guard result.status == 0 else {
             if let unavailable = Self.unavailableModel(in: result.output) { throw UnavailableModel(model: unavailable) }
-            if result.crashSignal == SIGKILL && result.output.hasSuffix("Timed out after \(timeout)\n") {
+            if let effort = Self.unsupportedEffort(in: result.output) { throw UnsupportedEffort(effort: effort) }
+            if result.crashSignal == SIGKILL && result.output.hasSuffix("Timed out after \(limit)\n") {
                 throw AgentFailure("copilot timed out after \(timeout): \(result.output.suffix(300))")
             }
             throw AgentFailure("copilot exited with \(result.status): \(result.output.suffix(300))")
@@ -166,6 +227,12 @@ public struct CopilotCLI: Sendable {
     static func unavailableModel(in output: String) -> String? {
         guard let range = output.range(of: #"Model "([^"]+)" is not available"#, options: .regularExpression) else { return nil }
         return output[range].split(separator: "\"", omittingEmptySubsequences: false).dropFirst().first.map(String.init)
+    }
+
+    /// The effort named in the CLI's `Reasoning effort '…' is not supported` error, if that's why it stopped.
+    static func unsupportedEffort(in output: String) -> String? {
+        guard let range = output.range(of: #"Reasoning effort '([^']+)' is not supported"#, options: .regularExpression) else { return nil }
+        return output[range].split(separator: "'", omittingEmptySubsequences: false).dropFirst().first.map(String.init)
     }
 
     /// Spec text goes in a clearly marked data block (golden rule: ticket text is data, not instructions).
@@ -584,19 +651,24 @@ public struct CopilotImplementer: Implementer {
 }
 
 extension AgentTeam {
-    /// One CLI configuration for every role, each with its own model (nil: the CLI's default or `cli.model`).
+    /// One CLI configuration for every role, each with its own model and effort (nil: the CLI's default or `cli`'s).
     /// - `timeouts`: seconds per role (its raw value), e.g. `["testAuthor": 1800]`; others keep the CLI's.
-    public static func copilot(_ cli: CopilotCLI, models: AgentModels = AgentModels(), timeouts: [String: Int] = [:]) -> AgentTeam {
+    public static func copilot(_ cli: CopilotCLI, models: AgentModels = AgentModels(), efforts: AgentEfforts = AgentEfforts(),
+                               timeouts: [String: Int] = [:]) -> AgentTeam {
         func forRole(_ role: AgentRole) -> CopilotCLI {
             var configured = cli
             configured.model = models[role] ?? cli.model
+            configured.effort = efforts[role] ?? cli.effort
             if let seconds = timeouts[role.rawValue] { configured.timeout = .seconds(seconds) }
             // A configured model your account has lost: work on with the CLI's default rather than stop.
             if configured.model != nil, configured.fallbackModels.isEmpty { configured.fallbackModels = [nil] }
             return configured
         }
-        return AgentTeam(
+        var team = AgentTeam(
             name: "Copilot CLI", decomposer: CopilotDecomposer(cli: forRole(.decomposer)),
             testAuthor: CopilotTestAuthor(cli: forRole(.testAuthor)), implementer: CopilotImplementer(cli: forRole(.implementer)))
+        let roles = Dictionary(uniqueKeysWithValues: AgentModels.roles.map { ($0, forRole($0)) })
+        team.runSettings = { roles[$0]?.runSettings() }
+        return team
     }
 }

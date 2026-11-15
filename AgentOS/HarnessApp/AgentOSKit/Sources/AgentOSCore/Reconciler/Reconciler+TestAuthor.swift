@@ -7,7 +7,7 @@ extension Reconciler {
         let author = Participant.agent(run: run, role: .testAuthor)
         let leftover = node.testDraft == nil ? await leftUncommittedTests(node) : false
         let keepsEarlier = await keepsEarlierTests(node)
-        try await write(node.id, by: .reconciler, [.runStarted(run: run, role: .testAuthor)], expecting: node.version)
+        try await write(node.id, by: .reconciler, agentRunStarted(run, .testAuthor), expecting: node.version)
         // A failed run's draft already holds the earlier tests it kept: a fresh worktree and the draft on top.
         var continuesDraft = node.testDraft != nil
         if leftover, FileManager.default.fileExists(atPath: workspace.worktree(for: node.id).path) {
@@ -36,12 +36,14 @@ extension Reconciler {
         }
         let draftCheck = draft.isEmpty ? nil : await checkDraft(node, run: run, in: directory)
         let task = await makeTask(node, run: run, in: directory, log: agentLog(node, run),
-                                  for: .testAuthor, includeComments: false, unfinishedWork: draft, draftCheck: draftCheck)
+                                  for: .testAuthor, unfinishedWork: draft, draftCheck: draftCheck)
         let own = workspace.testFolder(for: node.spec) + "/"
         let report: AgentReport
         do {
             report = try await withScratchDirectory(task.scratchDirectory) {
-                try await watchingUserGitState(node, run: run) { try await team.testAuthor.writeAcceptanceTests(task) }
+                try await recordingFallback(node.id, run: run) {
+                    try await watchingUserGitState(node, run: run) { try await team.testAuthor.writeAcceptanceTests(task) }
+                }
             }
             try Task.checkCancellation()
         } catch let error as UserGitStateChanged {

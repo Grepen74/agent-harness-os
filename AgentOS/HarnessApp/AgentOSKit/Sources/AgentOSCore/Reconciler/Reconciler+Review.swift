@@ -120,7 +120,7 @@ extension Reconciler {
                 + "before building starts). Otherwise comment with guidance, then add harness:retry."
             : "\(stage.rawValue) review findings:\n\(findings)\n"
                 + (converging ? "Review round \(failures.count) of at most \(Self.convergingRoundLimit(policy.review.maxRounds)): "
-                    + "every earlier finding was fixed and fewer new ones were found, so it carries on.\n" : "")
+                    + "every earlier finding was fixed and no more new ones were found than in the round before, so it carries on.\n" : "")
                 + "Comment with guidance, then add harness:retry."
         // The implementer may not change the ticket's acceptance tests: problems in them go to the test author.
         let toTestAuthor = stage == .acceptanceTests || (result.testFindings != nil && !escalated)

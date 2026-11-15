@@ -19,6 +19,13 @@ public enum RepoOverrideDefinitions {
         return choices
     }
 
+    /// Levels a repo may choose for a role: up to the harness's cap, or its own pick for the role if higher.
+    public static func effortChoices(for role: AgentRole, harness: HarnessSettings) -> [ReasoningEffort] {
+        guard AgentEfforts.roles.contains(role) else { return [] }
+        let cap = Swift.max(harness.maxEffort, harness.efforts[role] ?? .none)
+        return ReasoningEffort.allCases.filter { $0 <= cap }
+    }
+
     public static func signalChoices(harness: HarnessSettings) -> [HarnessCommand] {
         HarnessCommand.allCases.filter(harness.offeredSignals.contains)
     }

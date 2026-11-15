@@ -7,10 +7,14 @@ public struct CopilotReviewer: Reviewer {
     public init(cli: CopilotCLI) { self.cli = cli }
 
     public func review(_ request: ReviewRequest) async throws -> ReviewResult {
-        let run = try await cli.runFallingBack(Self.prompt(for: request), in: request.directory)
+        // Reviews run within other roles' runs, so what this one ran with goes in its result, not their record.
+        let run = try await AgentRunRecording.$current.withValue(nil) {
+            try await cli.runFallingBack(Self.prompt(for: request), in: request.directory)
+        }
         var result = try Self.result(from: run.output)
         result.model = run.model
         result.unavailableModels = run.unavailableModels.isEmpty ? nil : run.unavailableModels
+        result.settings = run.settings
         return result
     }
 

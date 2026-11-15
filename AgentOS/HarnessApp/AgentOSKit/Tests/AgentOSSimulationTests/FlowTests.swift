@@ -167,6 +167,55 @@ struct FlowTests {
         }
     }
 
+    @Test func everyAgentRunRecordsItsModelAndEffort() async throws {
+        var team = AgentTeam.scripted
+        team.runSettings = { AgentRunSettings(model: "model-\($0.rawValue)", effort: "high") }
+        let sim = try Simulation(directory: temporaryDirectory(), team: team, checks: FakeCheckRunner())
+        await sim.tracker.createTicket(title: "Greeting", description: "Say hi", acceptanceCriteria: ["Says hello"], by: alice)
+        await sim.signal(.go, "APP-1")
+
+        let records = await sim.ledger.allRecords()
+        let started = records.compactMap { record -> RunID? in
+            if case .runStarted(let run, let role) = record.event.kind, role != .verifier { return run }
+            return nil
+        }
+        let configured = records.compactMap { record -> (RunID, AgentRunSettings)? in
+            if case .agentConfigured(let run, let settings) = record.event.kind { return (run, settings) }
+            return nil
+        }
+        #expect(configured.map(\.0) == started)
+        #expect(configured.map(\.1.model) == ["model-decomposer", "model-testAuthor", "model-implementer"])
+    }
+
+    @Test func aRunThatFellBackRecordsWhatRanAndAPreviewNamesItsModel() async throws {
+        struct FallingBack: Implementer {
+            let scripted: any Implementer
+            func implement(_ task: AgentTask) async throws -> AgentReport {
+                AgentRunRecording.current?.record(fallback: AgentRunSettings(model: "other", effort: "low", fallback: "gone"))
+                return try await scripted.implement(task) as? AgentReport ?? AgentReport()
+            }
+        }
+        let scripted = AgentTeam.scripted
+        var team = AgentTeam(name: "falling back", decomposer: scripted.decomposer, testAuthor: scripted.testAuthor,
+                             implementer: FallingBack(scripted: scripted.implementer))
+        team.runSettings = { AgentRunSettings(model: "model-\($0.rawValue)", effort: "high") }
+        let sim = try Simulation(directory: temporaryDirectory(), team: team, checks: FakeCheckRunner())
+        await sim.tracker.createTicket(title: "Greeting", description: "Say hi", acceptanceCriteria: ["Says hello"], by: alice)
+        await sim.signal(.preview, "APP-1")
+        let preview = await sim.tracker.ticket("APP-1")?.comments.map(\.text).first { $0.contains("Preview #1") } ?? ""
+        #expect(preview.contains("Proposed by model-decomposer, reasoning effort high (run-"))
+        await sim.signal(.go, "APP-1")
+
+        let configured = await sim.ledger.allRecords().compactMap { record -> (NodeID?, AgentRunSettings)? in
+            if case .agentConfigured(_, let settings) = record.event.kind { return (record.event.node, settings) }
+            return nil
+        }
+        // The preview was the breakdown: it's recorded without a node, and accepting it runs no decomposer again.
+        #expect(configured.map(\.0) == [nil, "wn-APP-1", "wn-APP-1", "wn-APP-1"])
+        #expect(configured.map(\.1.model) == ["model-decomposer", "model-testAuthor", "model-implementer", "other"])
+        #expect(configured.last?.1.fallback == "gone")
+    }
+
     // A round lasts as long as its slowest agent or landing check; tickets showed the status from before it.
     @Test func theTicketShowsLandingWhileTheLandingCheckRuns() async throws {
         let checks = HeldLandingChecks()
