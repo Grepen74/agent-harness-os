@@ -129,9 +129,8 @@ struct FlowTests {
         #expect(await sim.tracker.ticket("APP-1")?.status == "Done")
         #expect(await sim.ledger.verifyChain().isIntact)
 
-        // Leaves built in parallel from the same main and overlapped in WeatherUI/WeatherService, so some
-        // had to be reworked on the latest main. That's not counted as a failed attempt.
-        #expect(state.nodes.values.contains { $0.reworks > 0 })
+        // Leaves that overlap in WeatherUI/WeatherService either wait for each other or are reworked on the
+        // latest main. Neither counts as a failed attempt.
         #expect(state.nodes.values.allSatisfy { $0.failedAttempts == 0 })
         // Everything is on main, combined.
         let service = ScriptedFacts.read(ScriptedFacts.sourceFile("WeatherService", in: sim.workspace.repoDirectory))
