@@ -61,7 +61,7 @@ extension Reconciler {
                 nextStep: "Read the escalation above and the agents' logs.")))
         }
         try await ledger.append(kinds.map { LedgerEvent(node: node.id, by: author, kind: $0) })
-        guard let diagnosis else { return "\(node.displayName) diagnosis failed" }
+        guard let diagnosis else { return "\(node.displayName) diagnosis \(stoppedBy ?? "failed")" }
         await tracker.comment(on: node.ticket, "🩺 Diagnosis (by an agent, from the history and logs; nothing was changed)\n"
             + "Likely cause: \(diagnosis.cause)\nSuggested next step: \(diagnosis.nextStep)")
         return "\(node.displayName) diagnosed"

@@ -159,13 +159,14 @@ extension Reconciler {
     }
 
     /// Whether reviews are converging: the latest round repeated none of the earlier findings (each was fixed, so
-    /// all it found starts with "New:") and found fewer problems than the round before. Past `maxRounds`, such
-    /// work carries on instead of escalating, up to `convergingRoundLimit`.
+    /// all it found starts with "New:") and found no more problems than the round before (one new problem after
+    /// one fixed is still progress). Past `maxRounds`, such work carries on instead of escalating, up to
+    /// `convergingRoundLimit`.
     static func isConverging(_ failures: [ReviewRecord]) -> Bool {
         guard failures.count >= 2 else { return false }
         let latest = failures[failures.count - 1].result.allFindings
         let before = failures[failures.count - 2].result.allFindings
-        return latest.count < before.count && latest.allSatisfy {
+        return (latest.count < before.count || !latest.isEmpty && latest.count == before.count) && latest.allSatisfy {
             $0.trimmingCharacters(in: .whitespaces).lowercased().hasPrefix("new:")
         }
     }

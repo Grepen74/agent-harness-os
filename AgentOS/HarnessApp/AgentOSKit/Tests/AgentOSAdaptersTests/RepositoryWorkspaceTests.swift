@@ -1295,11 +1295,39 @@ struct RepositoryWorkspaceTests {
         #expect(kinds.contains { if case .diagnosisRecorded(_, let diagnosis) = $0 { diagnosis.cause.contains("stopped by Morgan") } else { false } })
     }
 
+    @Test("A person's harness:retry stops a running diagnosis instead of being turned away")
+    func aRetryStopsARunningDiagnosis() async throws {
+        let repo = try await makeRepo()
+        let diagnoser = WaitingDiagnoser()
+        var team = AgentTeam(name: "Fake", decomposer: Leaf(), testAuthor: AlwaysTimesOut(), implementer: Implementer())
+        team.diagnoser = diagnoser
+        let session = try await session(repo, team: team)
+        let key = await ticket(session)
+        var rounds = 0
+        while await diagnoser.started == 0, rounds < 400 {
+            _ = await session.step(waitForAgents: false)
+            try await Task.sleep(for: .milliseconds(50))
+            rounds += 1
+        }
+        let id = try #require(await session.ledger.workingState().node(forTicket: key)?.id)
+
+        await session.tracker.addLabel("harness:retry", to: key, by: .human("Alice"))
+        _ = await session.runUntilFinished()
+
+        let kinds = await session.ledger.records(for: id).map(\.event.kind)
+        #expect(kinds.contains { if case .signalAccepted(_, .retry, _) = $0 { true } else { false } })
+        #expect(!kinds.contains { if case .signalRejected = $0 { true } else { false } })
+        #expect(kinds.contains { if case .diagnosisRecorded(_, let diagnosis) = $0 { diagnosis.cause.contains("stopped by Alice") } else { false } })
+        // The retry ran the test author again; its new escalation gets a diagnosis of its own.
+        #expect(await diagnoser.started == 2)
+    }
+
+    /// Waits on its first diagnosis, so a test can stop it; answers later ones at once.
     actor WaitingDiagnoser: Diagnoser {
         private(set) var started = 0
         func diagnose(_ request: DiagnosisRequest) async throws -> Diagnosis {
             started += 1
-            try await Task.sleep(for: .seconds(60))
+            if started == 1 { try await Task.sleep(for: .seconds(60)) }
             return Diagnosis(cause: "late", nextStep: "late")
         }
     }

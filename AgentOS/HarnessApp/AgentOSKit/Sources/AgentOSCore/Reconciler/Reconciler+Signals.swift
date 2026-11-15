@@ -36,17 +36,31 @@ extension Reconciler {
             throw Rejection(reason: "\(signal.command.label) isn't enabled here. Available: \(allowed.joined(separator: ", ")).")
         }
         guard let ticket = await tracker.ticket(signal.ticket) else { throw Rejection(reason: "Ticket not found.") }
-        let state = await ledger.workingState()
-        let node = state.node(forTicket: ticket.key)
+        var state = await ledger.workingState()
+        var node = state.node(forTicket: ticket.key)
         if let replanned = state.superseded[ticket.key], node == nil {
             throw Rejection(reason: "Superseded: \(replanned) was replanned and this ticket is no longer part of it.")
         }
         // These can discard or rewrite a working copy, so not while a step is reserved or running below the
-        // node, including one that hasn't recorded its claim yet.
-        if [.retry, .retest, .replan].contains(signal.command), let node,
-           let busy = state.subtree(of: node.id).first(where: { tasks[$0.id] != nil || $0.activeRun != nil }) {
-            throw Rejection(reason: "An agent is working on \(workLink(busy)) right now. Wait for it to finish, " +
-                "then add \(signal.command.label) again if it's still needed.")
+        // node, including one that hasn't recorded its claim yet. A diagnosis only advises a person, and this
+        // person is acting now: it's stopped rather than waited for.
+        if [.retry, .retest, .replan].contains(signal.command), let current = node {
+            let busy = state.subtree(of: current.id).filter { tasks[$0.id] != nil || $0.activeRun != nil }
+            if let working = busy.first(where: { $0.activeRun?.role != .diagnoser }) {
+                throw Rejection(reason: "An agent is working on \(workLink(working)) right now. Wait for it to finish, " +
+                    "then add \(signal.command.label) again if it's still needed.")
+            }
+            for diagnosing in busy {
+                guard let run = diagnosing.activeRun?.run else { continue }
+                do { try await stopRun(run, by: person) } catch {
+                    throw Rejection(reason: "Couldn't stop the diagnosis of \(workLink(diagnosing)) (\(error)). " +
+                        "Add \(signal.command.label) again.")
+                }
+            }
+            if !busy.isEmpty {
+                state = await ledger.workingState()
+                node = state.node(forTicket: ticket.key)
+            }
         }
 
         switch signal.command {

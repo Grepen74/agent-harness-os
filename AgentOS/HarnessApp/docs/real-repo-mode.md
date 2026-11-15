@@ -293,8 +293,8 @@ wrong, or about the tests), the harness doesn't submit the same branch for anoth
 "Needs input". `harness:retest` then sends the ticket to the test author; a comment plus `harness:retry`
 sends the answer to the implementer. After `maxRounds` reviews with findings at
 either stage (default 2), work escalates, unless the reviews are converging: the latest round repeated
-none of the earlier findings (all it found starts with "New:") and found fewer problems than the round
-before. Converging work carries on, with a note on the ticket, up to twice `maxRounds`. Otherwise
+none of the earlier findings (all it found starts with "New:") and found no more problems than the round
+before (one new problem after one fixed still counts). Converging work carries on, with a note on the ticket, up to twice `maxRounds`. Otherwise
 the escalation lists the last round's findings as still open
 and earlier rounds' as history, since the reviewer repeats any it still finds unfixed. A human
 `harness:retry` resets the limit (from an escalation or from "Needs input"), and so does
@@ -327,6 +327,8 @@ is cut to 800 characters. Comments aren't held for approval, so on a public repo
 any agent output. It runs once per escalation and changes nothing: the ticket stays escalated, with its
 original reason, until a person acts. A diagnoser that fails, times out or is stopped by a person is
 recorded as such and not retried; one interrupted by closing the window or quitting runs again next time.
+A person's `harness:retry`, `harness:retest` or `harness:replan` while the diagnoser runs stops it (no
+comment is posted) and goes ahead; while any other agent runs on the ticket, these are turned away.
 
 UI changes must include snapshot evidence and confirmation that windows actually open and close.
 The implementer supplies `.agentos-ui-evidence.json` with `snapshotPaths`, `windowsOpened`,

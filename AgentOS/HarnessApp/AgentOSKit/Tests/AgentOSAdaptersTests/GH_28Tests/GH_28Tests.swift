@@ -647,6 +647,20 @@ struct GH_28Tests {
     }
 
     @Test
+    func oneNewFindingAfterAnotherStillCountsAsConverging() async throws {
+        let fixture = try await Fixture(
+            review: ["maxRounds": 2],
+            testResults: [.init(passed: false, findings: ["The test sleeps.", "It pins the order.", "It never waits."]),
+                          .init(passed: false, findings: ["New: worker 4 is checked too early."]),
+                          .init(passed: false, findings: ["New: worker 4 is never released."])]
+        )
+        defer { fixture.cleanUp() }
+        try await fixture.advanceUntil { await fixture.workspace.landedCount == 1 }
+        #expect(await fixture.node()?.flags[.escalated] == nil)
+        #expect(await fixture.author.tasks.count == 4)
+    }
+
+    @Test
     func aRepeatedFindingEscalatesAtMaxRoundsEvenWithFewerFindings() async throws {
         let repeated = "The minimum window size clips the Done button."
         let fixture = try await Fixture(
