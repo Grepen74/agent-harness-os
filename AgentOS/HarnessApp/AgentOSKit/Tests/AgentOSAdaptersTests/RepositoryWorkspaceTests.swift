@@ -216,6 +216,46 @@ struct RepositoryWorkspaceTests {
         #expect(try await git(["show", "agentos/main:\(ShellTestAuthor.existing)"], in: repo) == "grep -q hello app.txt")
     }
 
+    @Test("Older tests the test author updated stay updated when its tests come back from review")
+    func updatedOlderTestsSurviveTestsComingBack() async throws {
+        let repo = try await makeRepo()
+        var team = AgentTeam(name: "Fake", decomposer: Leaf(), testAuthor: UpdatesExistingOnce(), implementer: Implementer())
+        team.reviewer = FindsFaultOnce()
+        let session = try await session(repo, team: team)
+        let key = await ticket(session)
+
+        let reports = await session.runUntilFinished()
+
+        let node = try #require(await session.ledger.workingState().node(forTicket: key))
+        #expect(node.phase == .proven, "\(node.flags) \(reports.flatMap(\.actions))")
+        #expect(node.reviews.contains { $0.stage == .acceptanceTests && !$0.result.passed })
+        #expect(node.updatedOtherTests == [ShellTestAuthor.existing])
+        #expect(try await git(["show", "agentos/main:\(ShellTestAuthor.existing)"], in: repo) == "grep -q hello app.txt")
+    }
+
+    /// Updates the older `Existing` suite on its first run only; the run fixing review findings doesn't list it.
+    actor UpdatesExistingOnce: TestAuthor {
+        private var runs = 0
+        func writeAcceptanceTests(_ task: AgentTask) async throws -> AgentReport {
+            runs += 1
+            let url = task.directory.appending(path: "\(task.testFolder)/check.sh")
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try "grep -q hello app.txt # run \(runs)\n".write(to: url, atomically: true, encoding: .utf8)
+            guard runs == 1 else { return AgentReport() }
+            try "grep -q hello app.txt\n".write(to: task.directory.appending(path: ShellTestAuthor.existing), atomically: true, encoding: .utf8)
+            return AgentReport(updatedTests: [ShellTestAuthor.existing])
+        }
+    }
+
+    actor FindsFaultOnce: Reviewer {
+        private var found = false
+        func review(_ request: ReviewRequest) async throws -> ReviewResult {
+            guard request.stage == .acceptanceTests, !found else { return ReviewResult(passed: true, findings: []) }
+            found = true
+            return ReviewResult(passed: false, findings: ["Name the greeting in the test."])
+        }
+    }
+
     @Test("The implementer may not change an older test the test author updated")
     func updatedOlderTestsAreLocked() async throws {
         let repo = try await makeRepo()

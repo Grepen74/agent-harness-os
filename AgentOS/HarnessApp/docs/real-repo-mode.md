@@ -256,10 +256,12 @@ rejects any such change no criterion requires.
 When the implementer reports a broken test (its own or, by `Suite.testName`, another item's that conflicts
 with this ticket), the ticket goes back to the test author without charging an attempt. A person is asked
 only on the third report since a person last stepped in (an answer, `harness:retry` or `harness:retest`);
-the "Needs input" lists every report.
+the "Needs input" lists every report. A conflicting test that lives outside the test area (a general test
+of the app, say) goes to a person on the first report: no agent may change it, so a return can't settle it.
 Whenever tests come back (compiler errors, review findings, a broken-test report), the leaf's new branch
 starts from the landing branch with its earlier test folder restored, so the author fixes those tests in
-place rather than rewriting them blind. `harness:retest` or a replan starts the tests over; feedback with
+place rather than rewriting them blind. Other work's tests the earlier runs updated are restored and kept
+too, even when the fixing run doesn't list them again. `harness:retest` or a replan starts the tests over; feedback with
 `harness:retry` keeps them, so the author applies the feedback to the earlier tests. Once the
 tests are fixed again, the implementer no longer gets those reports about the earlier tests, so it doesn't
 report a problem that's already been fixed.

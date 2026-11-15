@@ -30,6 +30,28 @@ struct BrokenTestRoutingTests {
         #expect(await fixture.implementer.runs == 4)
     }
 
+    @Test(arguments: [
+        ("FlowTests", "Tests/AgentOSSimulationTests/FlowTests.swift", true),
+        ("FlowTests", "Tests/AgentOSAdaptersTests/FlowTests.swift", false),
+        ("HarnessFlow", "Tests/AgentOSSimulationTests/HarnessFlow.swift", true),
+    ])
+    func aConflictingTestNoAgentMayChangeGoesStraightToAPerson(suite: String, file: String, outsideTestArea: Bool) async throws {
+        let fixture = try await Fixture(
+            reports: Array(repeating: BrokenTestReport(testName: "\(suite).demoReworks", reason: "It expects a rework."), count: 3),
+            files: [
+                file: "@Suite(.serialized)\nfinal class \(suite) {}\n",
+                // Only a declaration counts, not a suite named in a test's source text.
+                "Tests/AgentOSAdaptersTests/Fixtures.swift": "let source = \"@Suite struct \(suite) {}\"\n",
+            ])
+        await fixture.rounds(6)
+
+        let node = try #require(await fixture.node())
+        let reason = try #require(node.flags[.needsInput])
+        #expect(await fixture.testAuthor.runs == (outsideTestArea ? 1 : 3))
+        #expect(reason.contains("lives in \(file), outside Tests/AgentOSAdaptersTests/") == outsideTestArea)
+        #expect(await fixture.reconciler.isWaitingOnOtherTest(node))
+    }
+
     @Test func aRetestGivesTheRewrittenTestsAFirstBrokenReportBeforeAPersonIsAsked() async throws {
         let fixture = try await Fixture(reports: [
             BrokenTestReport(testName: "first", reason: "First problem."),
@@ -79,9 +101,14 @@ private extension BrokenTestRoutingTests {
         let implementer: Builder
         let reconciler: Reconciler
 
-        init(reports: [BrokenTestReport]) async throws {
+        init(reports: [BrokenTestReport], files: [String: String] = [:]) async throws {
             let directory = FileManager.default.temporaryDirectory.appending(path: "agentos-routing-\(UUID().uuidString)")
             try FileManager.default.createDirectory(at: directory.appending(path: Stub.folder), withIntermediateDirectories: true)
+            for (path, text) in files {
+                let url = directory.appending(path: path)
+                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try text.write(to: url, atomically: true, encoding: .utf8)
+            }
             ledger = try Ledger()
             try await ledger.append([
                 LedgerEvent(node: Self.spec.id, by: .human("Alice"), kind: .nodeCreated(spec: Self.spec, ticket: "GH-9")),

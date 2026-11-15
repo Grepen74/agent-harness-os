@@ -35,7 +35,9 @@ extension Reconciler {
         let assumptions = policy.assumptions(in: report)
         let testFiles: [String]
         let updatedOtherTests: [String]
-        let updatable = updatableOtherTests(report.updatedTests, of: node)
+        // Tests fixed in place keep the earlier runs' updates to other work's tests, even when this run doesn't
+        // list them again: it was asked to fix something else.
+        let updatable = updatableOtherTests(report.updatedTests + (keep ? node.updatedOtherTests : []), of: node)
         do {
             // The author may have added placeholder code so its tests build and run; only its tests, and other
             // work's tests it says this item deliberately changes, are committed.
@@ -61,6 +63,16 @@ extension Reconciler {
             return "\(node.displayName) test authoring failed → escalated"
         }
 
+        let otherTestsEvent = EventKind.otherTestsUpdated(
+            files: updatedOtherTests, digest: Hashing.digest(ofFiles: updatedOtherTests, in: directory))
+        // Tests that come back are fixed in place: remember which other tests this run updated, so the next run
+        // keeps them.
+        let rememberOtherTests = { [self] in
+            if !updatedOtherTests.isEmpty || !node.updatedOtherTests.isEmpty {
+                try await write(node.id, by: author, [otherTestsEvent])
+            }
+        }
+
         // Before the review: tests that can't compile come straight back, without using up a review round.
         let preflight = await acceptanceTestPreflight.compileTests(
             in: directory,
@@ -72,6 +84,7 @@ extension Reconciler {
         case .compiled, .skipped:
             break
         case .diagnostics(let diagnostics, let fullLog):
+            try await rememberOtherTests()
             return try await returnAcceptanceTests(
                 diagnostics,
                 fullLog: fullLog,
@@ -89,6 +102,7 @@ extension Reconciler {
             if policy.review.level(for: node.spec.touches + context.changedFiles) != .none {
                 let result = try await review(node, stage: .acceptanceTests, context: context, in: directory, run: run)
                 if !result.passed {
+                    try await rememberOtherTests()
                     return try await returnReviewFindings(result, stage: .acceptanceTests, node: node, run: run)
                 }
             }
@@ -102,8 +116,7 @@ extension Reconciler {
         let reviewReason = "Review the acceptance tests and assumptions, then add harness:build"
         try await write(node.id, by: author, [
             .runFinished(run: run, outcome: "acceptance tests committed"), .testsFixed(digest: testsDigest(node, in: directory))]
-            + (updatedOtherTests.isEmpty ? [] : [.otherTestsUpdated(
-                files: updatedOtherTests, digest: Hashing.digest(ofFiles: updatedOtherTests, in: directory))])
+            + (updatedOtherTests.isEmpty ? [] : [otherTestsEvent])
             + [.expectedAPIReported(report.expectedAPI),
             .assumptionsReported(role: .testAuthor, assumptions: assumptions), .phaseChanged(to: .ready)]
             + (review ? [.flagSet(.needsInput, reason: reviewReason)] : []))
