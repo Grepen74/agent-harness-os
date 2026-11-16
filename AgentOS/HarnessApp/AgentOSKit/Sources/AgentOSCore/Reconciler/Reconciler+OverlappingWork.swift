@@ -1,12 +1,12 @@
 extension Reconciler {
-    func overlapHold(for node: NodeState, in state: WorkingState,
-                     changedPaths: [NodeID: [String]]) -> OverlapHold? {
+    func overlapHold(for node: NodeState, in state: WorkingState) -> OverlapHold? {
         guard policy.avoidOverlappingWork, node.spec.kind == .leaf, node.phase == .ready, !wantsDiagnosis(node),
               unresolvedDependencies(of: node, in: state).isEmpty else { return nil }
         for id in state.creationOrder {
             guard let other = state.nodes[id], other.id != node.id, holdsOverlapPaths(other, in: state) else { continue }
             let firstPaths = PredictedPath.normalize(node.spec.predictedPaths)
-            let secondPaths = PredictedPath.normalize(changedPaths[other.id] ?? other.spec.predictedPaths)
+            let secondPaths = PredictedPath.normalize(other.actualChangedFiles ?? other.spec.predictedPaths)
+            if other.actualChangedFiles != nil && secondPaths.isEmpty { continue }
             if firstPaths.isEmpty || secondPaths.isEmpty {
                 let components = Set(node.spec.touches).intersection(other.spec.touches).sorted()
                 if !components.isEmpty {
@@ -33,18 +33,6 @@ extension Reconciler {
         return node.phase == .building || node.phase == .checking || node.phase == .landing ||
             (node.spec.kind == .leaf && node.phase == .ready && tasks[node.id] != nil &&
                 unresolvedDependencies(of: node, in: state).isEmpty)
-    }
-
-    func overlapChangedPaths(in state: WorkingState) async throws -> [NodeID: [String]] {
-        guard policy.avoidOverlappingWork else { return [:] }
-        var paths: [NodeID: [String]] = [:]
-        for id in state.creationOrder {
-            guard let node = state.nodes[id], node.lastSubmission != nil,
-                  holdsOverlapPaths(node, in: state) else { continue }
-            let changed = try await workspace.changedFiles(in: workspace.worktree(for: id))
-            if !changed.isEmpty { paths[id] = changed }
-        }
-        return paths
     }
 
     /// Compare-and-swap keeps concurrent rounds from reporting the same transition twice.
@@ -75,10 +63,9 @@ extension Reconciler {
 
     func clearObsoleteOverlapHolds() async throws {
         let state = await ledger.workingState()
-        let paths = try await overlapChangedPaths(in: state)
         for id in state.creationOrder {
             guard let node = state.nodes[id], node.overlapHold != nil, tasks[id] == nil else { continue }
-            let hold = canAdvance(node, in: state) ? overlapHold(for: node, in: state, changedPaths: paths) : nil
+            let hold = canAdvance(node, in: state) ? overlapHold(for: node, in: state) : nil
             _ = try await updateOverlapHold(node, to: hold, in: state)
         }
     }

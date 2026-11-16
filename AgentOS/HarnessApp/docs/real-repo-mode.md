@@ -89,9 +89,17 @@ Remove `limits.avoidOverlappingWork` or set it to `true` to clear that blocker.
 With overlap avoidance on, a ready leaf is held while its predicted repository-relative paths overlap
 work that is building, being checked, in review (including human review), or landing. The comparison uses
 the in-progress node's actual changed files once its implementer has submitted work, and its predicted
-paths otherwise. Paths overlap when they name the same file or one is a directory prefix of the other,
-on whole path components. If either node has no paths, the harness compares their touch-set component
-names instead; without shared components there is no hold. Unrelated ready leaves can still start.
+paths otherwise. The whole branch diff is recorded in the ledger at submission and replaces predictions,
+including when the diff is empty (which holds no other work). A reset for rework clears that recorded diff
+until the next submission. Paths overlap when they name the same file or one is a directory prefix of the
+other, on whole path components. If either node has no paths (except a known empty actual diff), the
+harness compares their touch-set component names instead; without shared components there is no hold.
+Unrelated ready leaves can still start.
+
+When a landing rebase conflicts, conflicting files not already covered by the leaf's predictions are
+appended to them, even if it had no predictions before. The ledger records the added files, so they
+survive replay and appear in the work pane's **Paths** row. Rework uses these expanded predictions to
+avoid overlapping work again. A conflict with no named files leaves predictions unchanged.
 
 A held leaf stays **Ready**, with no human-attention flag. Its ticket gets one comment naming the node
 it waits for and all overlapping paths, or shared components for the touch-set fallback.

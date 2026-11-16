@@ -97,6 +97,8 @@ public enum EventKind: Codable, Sendable {
     case agentConfigured(run: RunID, settings: AgentRunSettings)
     case runFinished(run: RunID, outcome: String)
     case changeSubmitted(run: RunID, commit: String)
+    case actualChangedFilesRecorded(files: [String])
+    case predictedPathsExpanded(files: [String])
     case attemptFailed(summary: String)
     /// What a failed test-author run (one that ran out of time, say) had written, kept outside the working copy
     /// for the next run to continue. Empty: nothing to continue. Tests written, a retest, a replan or questions
@@ -260,6 +262,8 @@ extension EventKind {
                 ?? "\(run) uses \(settings.model), reasoning effort \(settings.effort)"
         case .runFinished(let run, let outcome): "run \(run) finished: \(outcome)"
         case .changeSubmitted(let run, let commit): "change submitted by \(run) (\(commit.prefix(8)))"
+        case .actualChangedFilesRecorded(let files): "actual changed files: \(files.joined(separator: ", "))"
+        case .predictedPathsExpanded(let files): "predicted paths expanded: \(files.joined(separator: ", "))"
         case .attemptFailed(let summary): "attempt failed: \(summary)"
         case .testDraftKept(let run, let files):
             files.isEmpty ? "\(run) left no test draft" : "test draft of \(run) kept: \(files.count) files"

@@ -14,8 +14,14 @@ extension Reconciler {
         if case .conflict(let files) = try await rebaseOntoMain(node, in: directory) {
             try await resetForRework(node, in: directory)
             let reason = "merge conflict in \(files.isEmpty ? "some files" : files.joined(separator: ", ")) with newer work on main"
-            try await write(node.id, by: checker, [
-                .runFinished(run: run, outcome: "conflict"), .reworkNeeded(reason: reason), .phaseChanged(to: .ready)])
+            let predictions = PredictedPath.normalize(node.spec.predictedPaths)
+            let additions = PredictedPath.normalize(files).filter { file in
+                !predictions.contains { file == $0 || file.hasPrefix($0 + "/") }
+            }
+            var kinds: [EventKind] = []
+            if !additions.isEmpty { kinds.append(.predictedPathsExpanded(files: additions)) }
+            kinds += [.runFinished(run: run, outcome: "conflict"), .reworkNeeded(reason: reason), .phaseChanged(to: .ready)]
+            try await write(node.id, by: checker, kinds)
             await tracker.comment(on: node.ticket, "♻️ Rework: \(reason). The implementation is redone on the latest code; the tests are kept.")
             return try await escalateIfNeeded(node.id) ?? "\(node.displayName) conflicted at landing → rework"
         }

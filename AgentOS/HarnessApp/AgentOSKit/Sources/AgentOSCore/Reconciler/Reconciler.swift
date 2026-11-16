@@ -239,7 +239,6 @@ public actor Reconciler {
     @discardableResult
     private func scheduleAvailableSteps(in state: WorkingState, order: [NodeID]? = nil, excluding: Set<NodeID> = [],
                                         reportCompletion: Bool = true) async throws -> [(NodeID, Task<String?, Never>)] {
-        let changedPaths = try await overlapChangedPaths(in: state)
         let waitingToLand = !isLanding && state.landingQueue.contains { tasks[$0.id] == nil && !$0.awaitingHumanReview }
         let limit = max(1, policy.maxParallelAgents) - (waitingToLand ? 1 : 0)
         var started: [(NodeID, Task<String?, Never>)] = []
@@ -247,7 +246,7 @@ public actor Reconciler {
             guard shutdownReason == nil, !Task.isCancelled else { break }
             guard !excluding.contains(id), tasks[id] == nil, let node = state.nodes[id],
                   canAdvance(node, in: state) else { continue }
-            let hold = overlapHold(for: node, in: state, changedPaths: changedPaths)
+            let hold = overlapHold(for: node, in: state)
             guard try await updateOverlapHold(node, to: hold, in: state), hold == nil,
                   tasks[id] == nil, slotsInUse < limit, shutdownReason == nil, !Task.isCancelled else { continue }
             started.append((id, startStep(id, reportCompletion: reportCompletion)))

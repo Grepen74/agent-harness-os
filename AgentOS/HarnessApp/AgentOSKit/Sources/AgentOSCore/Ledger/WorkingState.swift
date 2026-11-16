@@ -92,6 +92,8 @@ public struct NodeState: Sendable, Identifiable {
     /// The claim: at most one agent run per node at a time.
     public var activeRun: ActiveRun?
     public var lastSubmission: Submission?
+    /// The submitted branch diff; nil until submission or after a reset, and [] for a known empty diff.
+    public var actualChangedFiles: [String]?
     public var evidence: [Evidence] = []
     public var reviews: [ReviewRecord] = []
     public var latestReviewFeedback: String?
@@ -370,6 +372,10 @@ public struct WorkingState: Sendable {
             node.lastSubmission = Submission(run: run, commit: commit)
             node.landingReworkPending = false
             node.landingRerunPending = false
+        case .actualChangedFilesRecorded(let files):
+            node.actualChangedFiles = files
+        case .predictedPathsExpanded(let files):
+            node.spec.predictedPaths.append(contentsOf: files)
         case .landingReworkNeeded(var evidence):
             evidence.recordedAt = event.at
             node.evidence.append(evidence)
@@ -382,6 +388,7 @@ public struct WorkingState: Sendable {
             node.latestReviewFeedback = nil
             node.reworks += 1
             node.lastSubmission = nil
+            node.actualChangedFiles = nil
         case .landed(let commit):
             node.landedCommit = commit
             node.landingReworkPending = false

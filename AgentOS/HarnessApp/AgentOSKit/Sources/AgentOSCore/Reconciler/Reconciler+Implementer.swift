@@ -79,9 +79,11 @@ extension Reconciler {
                 if report.alreadySatisfied && !node.landingReworkPending {
                     // The tests' own commit is the candidate; the verifier decides whether they really pass.
                     let head = try await workspace.head(of: directory)
+                    let files = try await workspace.changedFiles(in: directory)
                     try await write(node.id, by: author, [
                         .runFinished(run: run, outcome: "already satisfied; submitted the branch unchanged"),
-                        .changeSubmitted(run: run, commit: head), .phaseChanged(to: .checking)])
+                        .changeSubmitted(run: run, commit: head),
+                        .actualChangedFilesRecorded(files: files), .phaseChanged(to: .checking)])
                     return "\(node.ticket) already satisfied (\(run)) → Checking"
                 }
                 guard node.landingReworkPending else { throw AgentFailure("submitted no changes") }
@@ -92,10 +94,12 @@ extension Reconciler {
                 ])
                 return "\(node.displayName) submitted no changes after landing rework → Landing queue"
             }
+            let files = try await workspace.changedFiles(in: directory)
             try await write(node.id, by: author, [
                 .runFinished(run: run, outcome: "submitted"),
                 .assumptionsReported(role: .implementer, assumptions: assumptions),
                 .changeSubmitted(run: run, commit: commit),
+                .actualChangedFilesRecorded(files: files),
                 .phaseChanged(to: .checking),
             ])
             return "\(node.displayName) implemented by \(run) → Checking"
