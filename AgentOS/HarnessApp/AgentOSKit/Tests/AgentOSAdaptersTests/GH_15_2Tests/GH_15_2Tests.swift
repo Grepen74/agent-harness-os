@@ -192,13 +192,16 @@ private extension GH_15_2Tests {
 
         private var landingResults: [LandingResult]
         private(set) var fullCheckCount = 0
+        /// The leaf's own suite, from its acceptance-test run: the scripted landing failure is in it.
+        private var leafSuite = "AppTests"
 
         init(landingResults: [LandingResult]) {
             self.landingResults = landingResults
         }
 
         func runChecks(in directory: URL, only testTarget: String?) async -> CheckOutput {
-            guard testTarget == nil else {
+            if let testTarget {
+                leafSuite = testTarget
                 return CheckOutput(passed: true, summary: "Leaf acceptance tests passed", log: "passed")
             }
             fullCheckCount += 1
@@ -213,7 +216,7 @@ private extension GH_15_2Tests {
                     passed: false,
                     summary: "Greeting acceptance test failed",
                     log: "Expected app.txt to say hello",
-                    failingTargets: ["AppTests"]
+                    failingTargets: [leafSuite]
                 )
             }
         }

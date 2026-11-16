@@ -372,7 +372,8 @@ struct GH_25Tests {
     }
 
     private static func eventually(_ condition: @Sendable () async -> Bool) async throws {
-        let deadline = ContinuousClock.now + .seconds(15)
+        // Generous: under a full parallel test run, starting the fixture's process tree can take many seconds.
+        let deadline = ContinuousClock.now + .seconds(60)
         while !(await condition()) {
             guard ContinuousClock.now < deadline else {
                 throw AgentFailure("Timed out waiting for the acceptance-test fixture to become ready")

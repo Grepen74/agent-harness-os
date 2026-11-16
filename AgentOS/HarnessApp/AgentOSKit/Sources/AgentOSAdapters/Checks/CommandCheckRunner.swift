@@ -67,6 +67,9 @@ public struct CommandCheckRunner: CheckRunner {
         return found.filter { (try? manager.removeItem(at: $0)) != nil }
     }
 
+    /// Without `test.only`, a run of one suite runs all tests.
+    public var selectsSuites: Bool { config.test.only != nil }
+
     public func runChecks(in directory: URL, only suite: String?) async -> CheckOutput {
         var log = ""
         var cleaned = false

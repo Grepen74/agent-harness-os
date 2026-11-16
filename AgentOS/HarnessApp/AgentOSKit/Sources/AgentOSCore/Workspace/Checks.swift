@@ -47,4 +47,10 @@ public struct CheckOutput: Sendable {
 public protocol CheckRunner: Sendable {
     /// Runs all tests in the package, or only one node's test target.
     func runChecks(in directory: URL, only testTarget: String?) async -> CheckOutput
+    /// Whether `only` really runs just that suite. If not, it runs all tests.
+    var selectsSuites: Bool { get }
+}
+
+public extension CheckRunner {
+    var selectsSuites: Bool { true }
 }

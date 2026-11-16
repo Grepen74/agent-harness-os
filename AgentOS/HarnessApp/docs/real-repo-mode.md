@@ -459,14 +459,21 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
   away first.
 - **Checks** before landing: the leaf's tests (and older tests its test author updated) are unchanged
   since they were approved, no other leaf's tests changed, and no protected path changed. Then the leaf's tests (`test.only`), then all checks at landing.
-  When only other proven tickets' tests fail, the harness checks latest `agentos/main` without the change
-  and reruns the candidate. A failing baseline is a main/infrastructure problem, with no failed attempt;
-  fix it and add `harness:retry`. If both reruns pass, the harness reports unreliable tests and lands.
-  If the rerun fails on different tests than the first check (none in common), the tests are unreliable
-  (timing, say), not a conflict: the node stays in landing, escalated, with no failed attempt and no
-  comment on the other tickets; make those tests reliable and add `harness:retry`. Only a passing baseline
-  and a rerun that fails some of the same tests can become a requirements conflict. Reports name the failing tests and
-  include both rerun outcomes.
+  When only tests outside the leaf's own suite fail (another ticket's or a suite no ticket owns), the harness
+  first runs the whole check again, unchanged. If that passes, it lands and reports an unreliable test.
+  If it fails again, the failing suites of both runs are run alone (`test.only`, one suite at a time), with
+  the change and on latest `agentos/main` without it. These isolated runs only diagnose; they never land.
+  - Failing on main too: a main/infrastructure problem, with no failed attempt; fix it and add `harness:retry`.
+  - Failing alone with the change but not on main: a requirements conflict when every failing suite belongs
+    to a proven ticket, otherwise the leaf's own failure.
+  - Passing alone both ways: unreliable tests or interference under load (timing, say), not a conflict: the
+    node stays in landing, escalated, with no failed attempt and no comment on the other tickets; make those
+    tests reliable and add `harness:retry`.
+  - A selection whose output says it ran no tests ("Test run with 0 tests", "Executed 0 tests") is an
+    infrastructure problem (check `test.only`), not a pass. Without `test.only` the isolated run is the whole
+    test command.
+
+  Reports name the failing tests and include every rerun outcome.
 - **Landing** is a fast-forward of the landing branch with `git update-ref` (compare-and-swap), so no checkout
   is involved. It's refused while any checkout has the landing branch checked out, because moving it there
   would make that working copy look modified.

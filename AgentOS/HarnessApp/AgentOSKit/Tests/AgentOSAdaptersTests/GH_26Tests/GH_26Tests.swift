@@ -1,6 +1,7 @@
-// API contract: Reconciler.runRound(waitForAgents: true) diagnoses other proven tickets' landing failures by checking
-// Workspace.createSnapshot() (latest landing main, without the change) and rechecking the candidate.
-// CheckRunner supplies named failures in CheckOutput.log; tracker comments expose both rerun summaries.
+// API contract: Reconciler.runRound(waitForAgents: true) diagnoses landing failures in other suites by running the
+// whole check again, then only the failing suites (CheckRunner.runChecks(only:)) with the change and on
+// Workspace.createSnapshot() (latest landing main, without the change). CheckRunner supplies named failures in
+// CheckOutput.log; tracker comments expose every rerun's summary.
 
 import AgentOSCore
 import Foundation
@@ -10,7 +11,7 @@ import Testing
 struct GH_26Tests {
     @Test
     func otherProvenTicketsTestsAreCheckedOnLatestMainBeforeAConflictIsDeclared() async throws {
-        let fixture = try await Fixture(mainPasses: true, candidatePasses: false)
+        let fixture = try await Fixture(retryPasses: false)
         defer { fixture.cleanUp() }
 
         let round = await fixture.reconciler.runRound(waitForAgents: true)
@@ -20,11 +21,11 @@ struct GH_26Tests {
         let baseline = calls.filter { $0.directory == fixture.workspace.snapshot }
         #expect(!baseline.isEmpty, "A failure in another proven ticket is not itself proof of a conflict")
         for owner in Fixture.owners {
-            #expect(baseline.contains {
-                $0.selection == nil || $0.selection?.contains(owner.testTarget) == true
-            }, "Rerun the failing tests of \(owner.testTarget) without the candidate")
+            #expect(baseline.contains { $0.selection == owner.testTarget },
+                    "Rerun the failing tests of \(owner.testTarget) without the candidate")
         }
         for call in baseline {
+            #expect(call.selection != nil, "Only the failing suites run on main, not every test")
             #expect(call.commit == Fixture.latestMain)
             #expect(call.commit != Fixture.previousMain)
         }
@@ -37,9 +38,9 @@ struct GH_26Tests {
 
     @Test(arguments: [false, true])
     func failuresAlsoPresentOnMainAreReportedWithoutARequirementsConflictOrFailedAttempt(
-        candidatePasses: Bool
+        alonePasses: Bool
     ) async throws {
-        let fixture = try await Fixture(mainPasses: false, candidatePasses: candidatePasses)
+        let fixture = try await Fixture(retryPasses: false, alonePasses: alonePasses, mainPasses: false)
         defer { fixture.cleanUp() }
 
         _ = await fixture.reconciler.runRound(waitForAgents: true)
@@ -47,6 +48,7 @@ struct GH_26Tests {
         let node = try #require(await fixture.node())
         #expect(node.failedAttempts == 0)
         #expect(node.flags[.escalated]?.lowercased().contains("requirements conflict") != true)
+        #expect(await fixture.workspace.landedNodes.isEmpty)
         let comments = await fixture.tracker.comments(on: Fixture.ticket)
         let report = comments.joined(separator: "\n")
         #expect(report.contains("agentos/main"))
@@ -61,15 +63,16 @@ struct GH_26Tests {
     }
 
     @Test
-    func passingMainAndARepeatedCandidateFailureEscalateAsARequirementsConflict() async throws {
-        let fixture = try await Fixture(mainPasses: true, candidatePasses: false)
+    func failingAloneWithTheChangeButNotOnMainEscalatesAsARequirementsConflict() async throws {
+        let fixture = try await Fixture(retryPasses: false, alonePasses: false, mainPasses: true)
         defer { fixture.cleanUp() }
 
         _ = await fixture.reconciler.runRound(waitForAgents: true)
 
         let calls = await fixture.checks.calls
         #expect(calls.contains { $0.directory == fixture.workspace.snapshot })
-        #expect(calls.filter { $0.directory == fixture.workspace.candidate }.count >= 2)
+        let candidate = calls.filter { $0.directory == fixture.workspace.candidate }
+        #expect(candidate.filter { $0.selection == nil }.count == 2, "The whole check runs again first")
         let node = try #require(await fixture.node())
         let reason = try #require(node.flags[.escalated])
         #expect(reason.lowercased().contains("requirements conflict"))
@@ -81,8 +84,8 @@ struct GH_26Tests {
     }
 
     @Test
-    func passingBothRerunsReportsAnUnreliableTestAndLandsWithoutCountingAFailure() async throws {
-        let fixture = try await Fixture(mainPasses: true, candidatePasses: true)
+    func passingTheWholeCheckAgainReportsAnUnreliableTestAndLandsWithoutCountingAFailure() async throws {
+        let fixture = try await Fixture(retryPasses: true)
         defer { fixture.cleanUp() }
 
         _ = await fixture.reconciler.runRound(waitForAgents: true)
@@ -93,8 +96,10 @@ struct GH_26Tests {
         #expect(node.flags[.escalated] == nil)
         #expect(node.failedAttempts == 0)
         #expect(await fixture.workspace.landedNodes == [Fixture.spec.id])
+        #expect(await fixture.checks.calls.allSatisfy { $0.selection == nil },
+                "Landing needs every check passing, not only the failing suites")
         let report = await fixture.tracker.comments(on: Fixture.ticket).joined(separator: "\n")
-        #expect(report.lowercased().contains("unreliable") || report.lowercased().contains("flaky"))
+        #expect(report.lowercased().contains("unreliable"))
         for name in Fixture.failedTests {
             #expect(report.contains(name))
         }
@@ -105,9 +110,10 @@ struct GH_26Tests {
         }
     }
 
-    @Test
-    func differentTestsFailingInTheRerunAreUnreliableTestsNotARequirementsConflict() async throws {
-        let fixture = try await Fixture(mainPasses: true, candidatePasses: false, failingTestLogs: (
+    @Test(arguments: [true, false])
+    func failingTwiceInFullButPassingAloneIsEscalatedWithoutLandingOrCountingAFailure(selectsSuites: Bool) async throws {
+        let fixture = try await Fixture(retryPasses: false, alonePasses: true, mainPasses: true, selectsSuites: selectsSuites,
+                                        failingTestLogs: (
             initial: "✘ Test passingLandingRerunLands(_:) recorded an issue with 1 argument role → .implementer "
                 + "at GH_19Tests.swift:78:9: Expectation failed: took 8.98 seconds",
             rerun: "✘ Test catchUpPreservesLandedWork() recorded an issue at GH_10Tests.swift:183:9: took 4.16 seconds"
@@ -118,27 +124,55 @@ struct GH_26Tests {
 
         let node = try #require(await fixture.node())
         let reason = try #require(node.flags[.escalated])
-        #expect(reason.contains("Unreliable tests"))
+        #expect(reason.contains("Unreliable tests or interference under load"))
         #expect(!reason.lowercased().contains("requirements conflict:"))
         #expect(reason.contains("GH_19Tests.passingLandingRerunLands"))
         #expect(reason.contains("GH_10Tests.catchUpPreservesLandedWork"))
+        #expect(reason.contains(selectsSuites ? "rerun alone" : "so all tests"))
         #expect(node.failedAttempts == 0)
         #expect(node.phase == .landing, "harness:retry checks the same change again")
-        #expect(await fixture.workspace.landedNodes.isEmpty)
+        #expect(await fixture.workspace.landedNodes.isEmpty, "Passing alone doesn't rule out interference by the change")
         for owner in Fixture.owners {
             let otherComments = await fixture.tracker.comments(on: String(owner.id.dropFirst(3)))
             #expect(!otherComments.contains { $0.contains("contradicts this ticket") })
         }
+        if !selectsSuites {
+            #expect(await fixture.checks.calls.allSatisfy { $0.selection == nil })
+        }
+    }
+
+    @Test
+    func aSelectionThatRunsNoTestIsAnInfrastructureProblemNotAPass() async throws {
+        let fixture = try await Fixture(retryPasses: false, alonePasses: true, mainPasses: true, aloneRunsNothing: true)
+        defer { fixture.cleanUp() }
+
+        _ = await fixture.reconciler.runRound(waitForAgents: true)
+
+        let node = try #require(await fixture.node())
+        let reason = try #require(node.flags[.escalated])
+        #expect(reason.contains("Landing infrastructure problem"))
+        #expect(reason.contains("ran none of those tests"))
+        #expect(node.failedAttempts == 0)
+        #expect(await fixture.workspace.landedNodes.isEmpty)
+    }
+
+    @Test
+    func aFailureInASuiteNoTicketOwnsIsDiagnosedInsteadOfBlamedOnTheChange() async throws {
+        let fixture = try await Fixture(retryPasses: true, failingSuites: ["RepositoryWorkspaceTests"])
+        defer { fixture.cleanUp() }
+
+        _ = await fixture.reconciler.runRound(waitForAgents: true)
+
+        let node = try #require(await fixture.node())
+        #expect(node.phase == .proven)
+        #expect(node.failedAttempts == 0)
     }
 
     @Test(arguments: [false, true], [false, true])
-    func everyDiagnosticReportNamesTheTestsAndBothRerunOutcomes(
-        mainPasses: Bool, candidatePasses: Bool
+    func everyDiagnosticReportNamesTheTestsAndEveryRerunOutcome(
+        alonePasses: Bool, mainPasses: Bool
     ) async throws {
-        let fixture = try await Fixture(
-            mainPasses: mainPasses,
-            candidatePasses: candidatePasses
-        )
+        let fixture = try await Fixture(retryPasses: false, alonePasses: alonePasses, mainPasses: mainPasses)
         defer { fixture.cleanUp() }
 
         _ = await fixture.reconciler.runRound(waitForAgents: true)
@@ -147,11 +181,14 @@ struct GH_26Tests {
         for name in Fixture.failedTests {
             #expect(report.contains(name))
         }
-        #expect(report.contains(fixture.mainRerun.summary))
-        #expect(report.contains(fixture.candidateRerun.summary))
+        #expect(report.contains(fixture.retry.summary))
+        for owner in Fixture.owners {
+            #expect(report.contains(fixture.alone(owner.testTarget).summary))
+            #expect(report.contains(fixture.onMain(owner.testTarget).summary))
+        }
+        #expect(!report.contains(" started."), "Only failure lines, not every test whose name mentions failing")
         let calls = await fixture.checks.calls
         #expect(calls.contains { $0.directory == fixture.workspace.snapshot })
-        #expect(calls.filter { $0.directory == fixture.workspace.candidate }.count >= 2)
     }
 }
 
@@ -186,10 +223,17 @@ private extension GH_26Tests {
         let workspace: RecordingWorkspace
         let checks: ScriptedChecks
         let reconciler: Reconciler
-        let mainRerun: CheckOutput
-        let candidateRerun: CheckOutput
+        let retry: CheckOutput
+        let aloneOutputs: [String: CheckOutput]
+        let mainOutputs: [String: CheckOutput]
 
-        init(mainPasses: Bool, candidatePasses: Bool, failingTestLogs: (initial: String, rerun: String)? = nil) async throws {
+        /// The first full landing check fails in `failingSuites`; `retryPasses` is the whole check run again;
+        /// `alonePasses` and `mainPasses` are the failing suites rerun alone with the change and on latest main.
+        init(
+            retryPasses: Bool, alonePasses: Bool = false, mainPasses: Bool = true, selectsSuites: Bool = true,
+            aloneRunsNothing: Bool = false, failingSuites: Set<String> = Set(owners.map(\.testTarget)),
+            failingTestLogs: (initial: String, rerun: String)? = nil
+        ) async throws {
             root = FileManager.default.temporaryDirectory.appending(path: "agentos-GH-26-\(UUID().uuidString)")
             let candidate = root.appending(path: "candidate")
             let snapshot = root.appending(path: "latest-main-without-change")
@@ -223,14 +267,24 @@ private extension GH_26Tests {
             ])
             tracker = RecordingTracker()
             workspace = RecordingWorkspace(candidate: candidate, snapshot: snapshot)
-            mainRerun = Self.output(passed: mainPasses, context: "Rerun without the change on agentos/main")
-            candidateRerun = Self.output(
-                passed: candidatePasses, context: "Rerun with the change", log: failingTestLogs?.rerun
-            )
+            let suites = failingSuites.sorted()
+            retry = Self.output(passed: retryPasses, context: "Whole check again", suites: suites, log: failingTestLogs?.rerun)
+            var alone: [String: CheckOutput] = [:], onMain: [String: CheckOutput] = [:]
+            for suite in selectsSuites ? suites : ["*"] {
+                let only = suite == "*" ? suites : [suite]
+                alone[suite] = Self.output(
+                    passed: alonePasses, context: "\(suite) alone with the change", suites: only,
+                    log: aloneRunsNothing ? "Test run with 0 tests passed." : nil
+                )
+                onMain[suite] = Self.output(passed: mainPasses, context: "\(suite) alone on agentos/main", suites: only)
+            }
+            aloneOutputs = alone
+            mainOutputs = onMain
             checks = ScriptedChecks(
-                workspace: workspace, ledger: ledger,
-                initial: Self.output(passed: false, context: "Initial landing check", log: failingTestLogs?.initial),
-                mainRerun: mainRerun, candidateRerun: candidateRerun
+                workspace: workspace, ledger: ledger, selectsSuites: selectsSuites,
+                initial: Self.output(passed: false, context: "Initial landing check", suites: suites,
+                                     log: failingTestLogs?.initial),
+                retry: retry, alone: alone, onMain: onMain
             )
             let unused = UnusedAgents()
             reconciler = Reconciler(
@@ -240,15 +294,21 @@ private extension GH_26Tests {
             )
         }
 
-        static func output(passed: Bool, context: String, log: String? = nil) -> CheckOutput {
+        static func output(passed: Bool, context: String, suites: [String], log: String? = nil) -> CheckOutput {
             let result = passed ? "PASS" : "FAIL"
+            let started = suites.map { "Test \($0).failingStorageWriteDoesNotPoison() started." }
+            let tests = failedTests.filter { test in suites.contains { test.hasPrefix($0) } }
             return CheckOutput(
                 passed: passed,
                 summary: "\(context): \(result)",
-                log: log ?? failedTests.map { "\(result): \($0)" }.joined(separator: "\n"),
-                failingTargets: passed ? [] : Set(owners.map(\.testTarget))
+                log: log ?? (started + (tests.isEmpty ? suites : tests).map { "\(result): \($0)" })
+                    .joined(separator: "\n"),
+                failingTargets: passed ? [] : Set(suites)
             )
         }
+
+        func alone(_ suite: String) -> CheckOutput { aloneOutputs[suite]! }
+        func onMain(_ suite: String) -> CheckOutput { mainOutputs[suite]! }
 
         func node() async -> NodeState? { await ledger.workingState().nodes[Self.spec.id] }
 
@@ -273,20 +333,24 @@ private extension GH_26Tests {
         let workspace: RecordingWorkspace
         let ledger: Ledger
         let initial: CheckOutput
-        let mainRerun: CheckOutput
-        let candidateRerun: CheckOutput
+        nonisolated let selectsSuites: Bool
+        let retry: CheckOutput
+        let alone: [String: CheckOutput]
+        let onMain: [String: CheckOutput]
         private var candidateCalls = 0
         private(set) var calls: [Call] = []
 
         init(
-            workspace: RecordingWorkspace, ledger: Ledger, initial: CheckOutput,
-            mainRerun: CheckOutput, candidateRerun: CheckOutput
+            workspace: RecordingWorkspace, ledger: Ledger, selectsSuites: Bool, initial: CheckOutput,
+            retry: CheckOutput, alone: [String: CheckOutput], onMain: [String: CheckOutput]
         ) {
             self.workspace = workspace
             self.ledger = ledger
+            self.selectsSuites = selectsSuites
             self.initial = initial
-            self.mainRerun = mainRerun
-            self.candidateRerun = candidateRerun
+            self.retry = retry
+            self.alone = alone
+            self.onMain = onMain
         }
 
         func runChecks(in directory: URL, only testTarget: String?) async -> CheckOutput {
@@ -297,13 +361,21 @@ private extension GH_26Tests {
                 alreadyEscalated: node?.flags[.escalated] != nil,
                 failedAttempts: node?.failedAttempts ?? 0
             ))
-            if directory == workspace.snapshot { return mainRerun }
-            guard directory == workspace.candidate else {
+            let scripted = directory == workspace.snapshot ? onMain : alone
+            guard directory == workspace.snapshot || directory == workspace.candidate else {
                 Issue.record("Unexpected diagnostic checkout: \(directory)")
                 return CheckOutput(passed: false, summary: "Unexpected checkout", log: directory.path)
             }
-            candidateCalls += 1
-            return candidateCalls == 1 ? initial : candidateRerun
+            if directory == workspace.candidate && testTarget == nil {
+                candidateCalls += 1
+                if candidateCalls == 1 { return initial }
+                if candidateCalls == 2 || selectsSuites { return retry }
+            }
+            guard let output = scripted[testTarget ?? "*"] else {
+                Issue.record("Unexpected selection \(testTarget ?? "all tests") in \(directory.lastPathComponent)")
+                return CheckOutput(passed: false, summary: "Unexpected selection", log: "")
+            }
+            return output
         }
     }
 

@@ -47,57 +47,83 @@ extension Reconciler {
         let state = await ledger.workingState()
         let provenTargets = Set(state.nodes.values.filter { $0.phase == .proven }.map(\.spec.testTarget))
         var diagnosis: String?
-        // Failing tests of the first landing check and of its rerun, when they have none in common.
-        var differentFailures: (first: Set<String>, again: Set<String>)?
-        if !output.passed && !output.failingTargets.isEmpty
-            && !output.failingTargets.contains(node.spec.testTarget)
-            && output.failingTargets.isSubset(of: provenTargets) {
+        // The tests that failed twice in the full check but passed alone, with and without the change, and how
+        // they were rerun.
+        var failingOnlyUnderLoad: (tests: [String], rerun: String)?
+        // Failures only in other suites may be unreliable tests, main's or the runner's problem, or a conflict.
+        if !output.passed && !output.failingTargets.isEmpty && !output.failingTargets.contains(node.spec.testTarget) {
             let initial = output
-            let baseline = await checkLatestMain()
-            var repeated = await checks.runChecks(in: directory, only: nil)
-            if case .runnerCrash = repeated.failureKind {
-                repeated = await checks.runChecks(in: directory, only: nil)
+            // First the whole check again, unchanged: passing it is as good as passing the first time.
+            var again = await checks.runChecks(in: directory, only: nil)
+            if case .runnerCrash = again.failureKind {
+                again = await checks.runChecks(in: directory, only: nil)
             }
-            let first = initial.failingTests, again = repeated.failingTests
-            if !repeated.passed, !first.isEmpty, !again.isEmpty, first.isDisjoint(with: again) {
-                differentFailures = (first, again)
-            }
-            let failures = initial.log.split(separator: "\n").filter { line in
-                initial.failingTargets.contains { line.contains($0) }
-                    || line.localizedCaseInsensitiveContains("fail")
-                    || line.contains("recorded an issue") || line.contains("error:")
-            }.joined(separator: "\n")
-            let report = """
+            var report = """
                 Initial landing failure: \(initial.summary)
                 Failing tests:
-                \(failures.isEmpty ? initial.log : failures)
-                Without the change on latest agentos/main: \(baseline.summary)
-                With the change again: \(repeated.summary)
+                \(Self.failureLines(in: initial))
+                The whole check again with the change: \(again.summary)
                 """
+            var log = """
+                Initial landing check:
+                \(initial.log)
+                The whole check again with the change:
+                \(again.log)
+                """
+            var decisive = again
+            var problem: String?
+            if !again.passed && again.failureKind != .reportedFailure {
+                problem = "The test runner didn't finish the rerun."
+            } else if !again.passed && !again.failingTargets.isEmpty
+                && !again.failingTargets.contains(node.spec.testTarget) {
+                // Failed again: only the failing suites, alone. Passing alone doesn't prove the tests unreliable
+                // (the change may cause interference under load), so this only decides who looks at it.
+                let suites = initial.failingTargets.union(again.failingTargets).sorted()
+                let how = checks.selectsSuites ? "alone" : "again (the repo's checks can't run one suite, so all tests)"
+                let (alone, aloneRanNothing) = await runChecks(only: suites, in: directory)
+                let (onMain, mainRanNothing) = await checkLatestMain(only: suites)
+                report += """
+
+                    \(suites.joined(separator: ", ")) rerun \(how):
+                    With the change: \(alone.summary)
+                    Without the change on latest agentos/main: \(onMain.summary)
+                    """
+                log += """
+
+                    \(suites.joined(separator: ", ")) rerun \(how) with the change:
+                    \(alone.log)
+                    Without the change on latest agentos/main:
+                    \(onMain.log)
+                    """
+                let missing = Array(Set(aloneRanNothing + mainRanNothing)).sorted()
+                if !alone.passed && alone.failureKind != .reportedFailure
+                    || !onMain.passed && onMain.failureKind != .reportedFailure {
+                    problem = "The test runner didn't finish the rerun alone."
+                } else if !missing.isEmpty {
+                    problem = "Running only \(missing.joined(separator: ", ")) ran none of those tests; check test.only."
+                } else if !onMain.passed {
+                    problem = "These tests fail on latest agentos/main without the change too."
+                } else if alone.passed {
+                    let tests = initial.failingTests.union(again.failingTests)
+                    failingOnlyUnderLoad = (tests.isEmpty ? suites : tests.sorted(), how)
+                } else {
+                    decisive = alone
+                }
+            }
             diagnosis = report
             output = CheckOutput(
-                passed: repeated.passed,
-                summary: report,
-                log: """
-                    Initial landing check:
-                    \(initial.log)
-                    Without the change on latest agentos/main:
-                    \(baseline.log)
-                    With the change again:
-                    \(repeated.log)
-                    """,
-                failingTargets: repeated.failingTargets,
-                failureKind: repeated.failureKind
+                passed: decisive.passed, summary: report, log: log,
+                failingTargets: decisive.failingTargets, failureKind: decisive.failureKind
             )
-            if !baseline.passed || repeated.failureKind != .reportedFailure {
+            if let problem {
                 let reason = """
-                    Landing infrastructure problem on agentos/main; no failed attempt counted.
+                    Landing infrastructure problem: \(problem) No failed attempt counted.
                     \(report)
-                    Fix the baseline or test runner, then add harness:retry.
+                    Fix agentos/main or the test runner, then add harness:retry.
                     """
                 let diagnosticEvidence = try makeEvidence(
                     node, check: "landing failure diagnosis", output: CheckOutput(
-                        passed: false, summary: reason, log: output.log
+                        passed: false, summary: reason, log: log
                     ),
                     builtBy: submission.run, checkedBy: run, commit: candidate,
                     failureClassification: .landingInfrastructure
@@ -156,7 +182,7 @@ extension Reconciler {
                 .phaseChanged(to: .proven)])
             try? await workspace.removeWorktree(for: node.id)
             if let diagnosis {
-                await tracker.comment(on: node.ticket, "Unreliable test in the initial landing check; both reruns passed.\n\(diagnosis)")
+                await tracker.comment(on: node.ticket, "Unreliable test: the landing check failed, then passed when run again in full.\n\(diagnosis)")
             }
             await tracker.comment(on: node.ticket, "🛬 Landed on main at \(main.prefix(8)) with all tests passing.")
             return "\(node.displayName) landed by \(run) → Proven"
@@ -165,16 +191,15 @@ extension Reconciler {
         // Which node's behaviour broke? Someone else's → two requirements may contradict (doc 08 §5).
         let broken = output.failingTargets.subtracting([node.spec.testTarget])
             .compactMap { target in state.nodes.values.first { $0.spec.testTarget == target && $0.phase == .proven } }
-        // A change that breaks behaviour breaks the same tests every time; different ones point at timing or
-        // tests interfering with each other. It stays in landing, so harness:retry checks it again.
-        if let diagnosis, let differentFailures {
+        if let diagnosis, let failingOnlyUnderLoad {
             let reason = """
-                Unreliable tests (not a requirements conflict). The landing check failed on different tests each \
-                time (first \(differentFailures.first.sorted().joined(separator: ", ")); then \
-                \(differentFailures.again.sorted().joined(separator: ", "))). No failed attempt counted.
+                Unreliable tests or interference under load (not a requirements conflict): \
+                \(failingOnlyUnderLoad.tests.joined(separator: ", ")) failed in the full landing check twice but \
+                passed when rerun \(failingOnlyUnderLoad.rerun), with and without the change. No failed attempt \
+                counted; the change hasn't landed.
                 \(diagnosis)
-                Next: make those tests reliable (timing limits, say) on agentos/main, then add harness:retry to \
-                check the change again.
+                Next: make those tests reliable on agentos/main, or check whether this change slows or disturbs \
+                them, then add harness:retry to check it again.
                 """
             evidence.failureClassification = .unreliableTests
             try await write(node.id, by: checker, [
@@ -182,7 +207,7 @@ extension Reconciler {
                 .flagSet(.escalated, reason: reason),
             ])
             await tracker.comment(on: node.ticket, "⚠️ Needs a human: \(reason)")
-            return "\(node.displayName) landing failed on different tests each time → unreliable tests, escalated"
+            return "\(node.displayName) landing failed only under load → escalated"
         }
         var kinds: [EventKind] = [.evidenceRecorded(evidence), .runFinished(run: run, outcome: "failed"), .phaseChanged(to: .ready)]
         if let diagnosis, !broken.isEmpty && !output.failingTargets.contains(node.spec.testTarget)
@@ -233,7 +258,53 @@ extension Reconciler {
         return try await escalateIfNeeded(node.id) ?? "\(node.displayName) failed at landing; will retry"
     }
 
-    private func checkLatestMain() async -> CheckOutput {
+    /// Runs each suite on its own (retrying a crashed runner once) and combines the results. Without a way to
+    /// select a suite, that's one run of all tests.
+    /// `ranNothing` names the selections whose output says they ran no test.
+    private func runChecks(only suites: [String], in directory: URL) async -> (output: CheckOutput, ranNothing: [String]) {
+        let selections: [String?] = checks.selectsSuites ? suites : [nil]
+        var outputs: [CheckOutput] = []
+        var ranNothing: [String] = []
+        for suite in selections {
+            var output = await checks.runChecks(in: directory, only: suite)
+            if case .runnerCrash = output.failureKind {
+                output = await checks.runChecks(in: directory, only: suite)
+            }
+            if output.passed && Self.ranNoTests(output) { ranNothing.append(suite ?? "all tests") }
+            outputs.append(output)
+        }
+        guard outputs.count != 1 else { return (outputs[0], ranNothing) }
+        return (CheckOutput(
+            passed: outputs.allSatisfy(\.passed),
+            summary: zip(suites, outputs).map { "\($0): \($1.summary)" }.joined(separator: "\n"),
+            log: outputs.map(\.log).joined(separator: "\n"),
+            failingTargets: outputs.reduce(into: []) { $0.formUnion($1.failingTargets) },
+            failureKind: outputs.first { !$0.passed && $0.failureKind != .reportedFailure }?.failureKind ?? .reportedFailure
+        ), ranNothing)
+    }
+
+    /// The log lines that report a failure, without "started" lines of tests whose names mention failing.
+    static func failureLines(in output: CheckOutput) -> String {
+        let lines = output.log.split(separator: "\n")
+        let issues = lines.filter {
+            $0.contains("recorded an issue") || $0.contains("error:") || ($0.contains("Test Case") && $0.contains("failed"))
+        }
+        let failures = issues.isEmpty ? lines.filter { line in
+            !line.hasSuffix(" started.") && (output.failingTargets.contains { line.contains($0) }
+                || line.localizedCaseInsensitiveContains("fail"))
+        } : issues
+        return failures.isEmpty ? output.log : failures.joined(separator: "\n")
+    }
+
+    /// Whether the output says no test ran: a selection that matches no test passes without running any. Swift
+    /// Testing says "Test run with 0 tests", XCTest "Executed 0 tests". Output that says neither counts as run.
+    static func ranNoTests(_ output: CheckOutput) -> Bool {
+        let log = output.log
+        if log.contains(/Test run with [1-9]/) || log.contains(/Executed [1-9]\d* tests?/) { return false }
+        return log.contains("Test run with 0 tests") || log.contains("Executed 0 tests")
+    }
+
+    private func checkLatestMain(only suites: [String]) async -> (output: CheckOutput, ranNothing: [String]) {
         do {
             guard let snapshot = try await workspace.createSnapshot() else {
                 throw AgentFailure("Workspace cannot create a latest agentos/main snapshot")
@@ -244,16 +315,13 @@ extension Reconciler {
                 await workspace.removeSnapshot(snapshot)
                 throw error
             }
-            var output = await checks.runChecks(in: snapshot, only: nil)
-            if case .runnerCrash = output.failureKind {
-                output = await checks.runChecks(in: snapshot, only: nil)
-            }
+            let output = await runChecks(only: suites, in: snapshot)
             await workspace.removeSnapshot(snapshot)
             return output
         } catch {
-            return CheckOutput(
+            return (CheckOutput(
                 passed: false, summary: "Could not check latest agentos/main: \(error)", log: "\(error)"
-            )
+            ), [])
         }
     }
 }
