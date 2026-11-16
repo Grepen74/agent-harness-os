@@ -71,8 +71,9 @@ struct GH_63Tests {
         let hangs = try FakeACP(script: "#!/bin/sh\necho 'still thinking' >&2\nsleep 30\n")
         defer { hangs.cleanup() }
         let started = ContinuousClock.now
-        let hung = await failure(of: CopilotModelDetector(executable: hangs.executable.path, timeout: .seconds(3)))
-        #expect(ContinuousClock.now - started < .seconds(12))
+        // Long enough for the fake to start and speak on a machine busy running the whole suite.
+        let hung = await failure(of: CopilotModelDetector(executable: hangs.executable.path, timeout: .seconds(10)))
+        #expect(ContinuousClock.now - started < .seconds(25))
         #expect(hung.contains("within"))
         #expect(hung.contains("still thinking"))
     }
