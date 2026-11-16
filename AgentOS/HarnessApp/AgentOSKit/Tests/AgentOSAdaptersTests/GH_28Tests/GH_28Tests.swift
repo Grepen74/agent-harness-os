@@ -425,6 +425,26 @@ struct GH_28Tests {
     }
 
     @Test
+    func aRewriteGetsFindingsFiledAsTestFindingsAndKeepsEarlierRoundsFixed() async throws {
+        let fixture = try await Fixture(review: ["maxRounds": 3], testResults: [
+            ReviewResult(passed: false, findings: ["Drop the test that reads the documentation."]),
+            ReviewResult(passed: false, findings: [], testFindings: ["State which paths count in the contract."]),
+            .init(passed: true, findings: []),
+        ])
+        defer { fixture.cleanUp() }
+        try await fixture.advanceUntil { await fixture.author.tasks.count == 3 }
+        let third = try #require(await fixture.author.tasks.last)
+        #expect(third.previousFailure == "State which paths count in the contract.")
+        #expect(third.earlierTestReviews == [["Drop the test that reads the documentation."]])
+        let prompt = CopilotTestAuthor.prompt(for: third)
+        #expect(prompt.contains("- Drop the test that reads the documentation.") && prompt.contains("They stay fixed"))
+        // A criterion about a document can't be tested without reading it: it goes to the change review.
+        #expect(prompt.contains("what documentation describes"))
+        #expect(CopilotReviewer.prompt(for: try #require(await fixture.reviewer.requests.first))
+            .contains("what documentation describes"))
+    }
+
+    @Test
     func changeReviewRunsOnlyAfterChecksAndReceivesTheWholeDiffAndSameFileHistory() async throws {
         let fixture = try await Fixture()
         defer { fixture.cleanUp() }

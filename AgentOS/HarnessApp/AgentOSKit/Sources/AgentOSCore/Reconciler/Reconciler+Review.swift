@@ -80,7 +80,7 @@ extension Reconciler {
     /// harness:retest, or replans or corrects the node): earlier reviews were of work they changed or discarded.
     /// They also start over after this stage's review passes: the findings before it were fixed, and work
     /// coming back later (a broken test, say) is a new review.
-    private func failedReviews(of id: NodeID, stage: ReviewStage) async -> [ReviewRecord] {
+    func failedReviews(of id: NodeID, stage: ReviewStage) async -> [ReviewRecord] {
         let records = await ledger.records(for: id)
         let reset = records.lastIndex {
             switch $0.event.kind {

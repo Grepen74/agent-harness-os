@@ -92,6 +92,14 @@ extension Reconciler {
         let labels = await tracker.ticket(node.ticket)?.labels.map(\.name) ?? []
         let state = await ledger.workingState()
         let context = await makeAgentContext(node.ticket)
+        var earlierTestReviews: [[String]] = []
+        if role == .testAuthor {
+            earlierTestReviews = await failedReviews(of: node.id, stage: .acceptanceTests).map(\.result.allFindings)
+            // The latest round is the feedback itself.
+            if let latest = earlierTestReviews.last, latest.joined(separator: "\n") == node.latestTestFeedback {
+                earlierTestReviews.removeLast()
+            }
+        }
         return AgentTask(
             spec: node.spec, run: run, directory: directory, testFolder: workspace.testFolder(for: node.spec),
             scratchDirectory: directory.appending(path: ".agentos/scratch/\(run)", directoryHint: .isDirectory),
@@ -104,7 +112,7 @@ extension Reconciler {
             clarifications: state.clarifications(for: node.id), guesswork: policy.guesswork,
             expectedAPI: node.expectedAPI, ticketKey: node.ticket,
             agentContext: includeComments ? context : context.withoutComments(), unfinishedWork: unfinishedWork,
-            draftCheck: draftCheck)
+            draftCheck: draftCheck, earlierTestReviews: earlierTestReviews)
     }
 
     static func newRunID() -> RunID { "run-" + UUID().uuidString.prefix(6).lowercased() }

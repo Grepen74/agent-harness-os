@@ -31,13 +31,15 @@ public struct AgentTask: Sendable {
     public let unfinishedWork: [String]
     /// The harness's own run of a restored test draft's suite before the agent starts: what still fails, and why.
     public let draftCheck: String?
+    /// Test author: the findings of each failed review of its tests before the one `previousFailure` is about.
+    public let earlierTestReviews: [[String]]
 
     public init(spec: NodeSpec, run: RunID, directory: URL, testFolder: String, scratchDirectory: URL,
                 context: String = "", attempt: Int = 1, previousFailure: String? = nil,
                 simulationHints: Set<String> = [], log: URL? = nil,
                 clarifications: [Clarification] = [], guesswork: Guesswork = .assumeAndReport,
                 expectedAPI: [String] = [], ticketKey: String? = nil, agentContext: AgentContext = AgentContext(),
-                unfinishedWork: [String] = [], draftCheck: String? = nil) {
+                unfinishedWork: [String] = [], draftCheck: String? = nil, earlierTestReviews: [[String]] = []) {
         self.spec = spec
         let inferredTicket = spec.id.hasPrefix("wn-") ? String(spec.id.dropFirst(3)) : spec.id
         self.identity = NodeIdentity(ticketKey: ticketKey ?? inferredTicket, nodeID: spec.id)
@@ -56,6 +58,7 @@ public struct AgentTask: Sendable {
         self.agentContext = agentContext
         self.unfinishedWork = unfinishedWork
         self.draftCheck = draftCheck
+        self.earlierTestReviews = earlierTestReviews
     }
 }
 

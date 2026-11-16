@@ -93,8 +93,8 @@ public struct CopilotReviewer: Reviewer {
         update other work's existing tests where a criterion of this ticket deliberately changes what they check.
         At the acceptanceTests stage, make a finding for every change to another test that no criterion requires,
         or that goes further than the criterion needs (deleting a test instead of updating what it expects, say). Criteria that only source
-        text or build setup can show (file layout, code moved unchanged, file sizes, access levels, build or
-        target settings) are checked at the change stage against the diff, never at the acceptanceTests stage:
+        text, documents or build setup can show (what documentation describes, file layout, code moved unchanged,
+        file sizes, access levels, build or target settings) are checked at the change stage against the diff, never at the acceptanceTests stage:
         don't make findings at the acceptanceTests stage for tests missing them. At the change stage, check
         those criteria against the diff yourself.
         At the acceptanceTests stage, production APIs may not exist yet: evaluate the proposed test contract,

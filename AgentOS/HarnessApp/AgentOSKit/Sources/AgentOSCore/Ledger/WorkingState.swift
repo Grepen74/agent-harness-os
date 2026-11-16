@@ -321,7 +321,11 @@ public struct WorkingState: Sendable {
         case .reviewRecorded(let review):
             node.reviews.append(review)
             if !review.result.passed && review.stage == .acceptanceTests {
-                node.latestTestFeedback = review.result.findings.joined(separator: "\n")
+                // Reviewers sometimes file problems with the tests under testFindings at this stage too.
+                let findings = review.result.allFindings
+                node.latestTestFeedback = findings.isEmpty
+                    ? "The review of these acceptance tests didn't pass but named no problem."
+                    : findings.joined(separator: "\n")
             }
             if review.stage == .change {
                 node.reviewFeedbackAnswered = false

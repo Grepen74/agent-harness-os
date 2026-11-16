@@ -518,6 +518,24 @@ public struct CopilotTestAuthor: TestAuthor {
         return try AgentReportFile.take(from: task.directory)
     }
 
+    /// "One test per criterion" and "never the source text" can't both hold for a criterion about a document; the
+    /// reviewer checks those against the diff at the change stage.
+    static let sourceOnlyCriteriaRule = "A criterion that only source text, documents or build setup can show " +
+        "(what documentation describes, file layout, code moved unchanged, access levels, build settings) gets no " +
+        "test: the reviewer checks it against the diff once the work is built. Name such criteria in the comment " +
+        "at the top of the file instead of testing them."
+
+    /// The findings of earlier review rounds of these tests, which later rounds must not undo.
+    static func earlierRounds(_ rounds: [[String]]) -> String {
+        guard !rounds.isEmpty else { return "" }
+        let listed = rounds.enumerated().map { index, findings in
+            "Round \(index + 1):\n" + findings.map { "- \($0)" }.joined(separator: "\n")
+        }.joined(separator: "\n")
+        return "\n\nEarlier reviews of these tests found the problems below, and the tests were changed for them. " +
+            "They stay fixed: don't bring back anything they asked you to remove or change, unless the problem " +
+            "above asks for it.\n\(listed)"
+    }
+
     /// The instructions for one run.
     public static func prompt(for task: AgentTask) -> String {
         let suite = task.spec.testTarget
@@ -527,6 +545,7 @@ public struct CopilotTestAuthor: TestAuthor {
             "earlier tests, they are the ones it is about: edit them there rather than starting over. If it lies " +
             "in the acceptance tests, fix it with the smallest change that does, and leave the rest of the tests " +
             "as they are: every line you rewrite risks a new mistake. Run them again before finishing:\n\($0)"
+                + earlierRounds(task.earlierTestReviews)
         } ?? ""
         let draftFiles = task.unfinishedWork.prefix(40).joined(separator: ", ") + (task.unfinishedWork.count > 40 ? ", …" : "")
         let draftCheck = task.draftCheck.map {
@@ -552,7 +571,7 @@ public struct CopilotTestAuthor: TestAuthor {
         an `XCTestCase` subclass named \(suite) if the test target uses XCTest). The code it tests may not exist yet \
         or lack the needed API: your tests define that API, so start the file with a short comment describing it. \
         Read the existing code to reuse what's there. Test behaviour users can observe through that API, \
-        never the source text. Don't depend on timing: no fixed sleeps to make work overlap or finish, and no \
+        never the source text. \(Self.sourceOnlyCriteriaRule) Don't depend on timing: no fixed sleeps to make work overlap or finish, and no \
         assumptions about the order or batching of concurrent work unless a criterion is about it; wait for \
         explicit signals with a timeout instead. Other work will change timing and scheduling later, and \
         your tests must still hold. Test lasting behaviour, not this item's scope: never pin files by checksum \
