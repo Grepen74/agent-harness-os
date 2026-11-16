@@ -1,5 +1,6 @@
 import AgentOSAdapters
 import AgentOSCore
+import AgentOSUI
 import Observation
 import SwiftUI
 
@@ -51,6 +52,12 @@ struct SettingsView: View {
                     Ask: any assumption is a question too. Assume and report: assumptions are posted, and a leaf resting on \
                     them waits for you to see its tests before build. Autonomous: assumptions are posted, nothing waits.
                     """)
+            }
+            Section {
+                AvoidOverlappingWorkToggle(settings: $model.settings)
+            } footer: {
+                Text("A repo may turn overlap avoidance on, but not off.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Section("Signals offered (a repo may switch them off)") {
                 ForEach(HarnessCommand.allCases, id: \.self) { command in

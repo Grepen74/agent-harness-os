@@ -10,6 +10,7 @@ public struct HarnessSettings: Codable, Sendable, Equatable {
     /// Test-author and implementer runs per ticket before a person must look.
     public var maxAgentRuns = 12
     public var maxParallelAgents = 2
+    public var avoidOverlappingWork = true
     /// The signals people may use at all (doc 05 §3).
     public var offeredSignals: Set<HarnessCommand> = Set(HarnessCommand.allCases)
     /// The signals there were when these settings were saved, so a newer signal is offered rather than looking
@@ -55,6 +56,8 @@ public struct HarnessSettings: Codable, Sendable, Equatable {
         maxReworks = try container.decodeIfPresent(Int.self, forKey: .maxReworks) ?? defaults.maxReworks
         maxAgentRuns = try container.decodeIfPresent(Int.self, forKey: .maxAgentRuns) ?? defaults.maxAgentRuns
         maxParallelAgents = try container.decodeIfPresent(Int.self, forKey: .maxParallelAgents) ?? defaults.maxParallelAgents
+        avoidOverlappingWork = try container.decodeIfPresent(Bool.self, forKey: .avoidOverlappingWork)
+            ?? defaults.avoidOverlappingWork
         let known = try container.decodeIfPresent(Set<HarnessCommand>.self, forKey: .knownSignals)
             ?? [.preview, .breakdown, .build, .go, .retry, .retest]
         let offered = try container.decodeIfPresent(Set<HarnessCommand>.self, forKey: .offeredSignals) ?? defaults.offeredSignals
@@ -196,6 +199,19 @@ public struct EffectivePolicy: Sendable, Equatable {
                                            harness: harness.maxAgentRuns, repo: repo?.limits?.maxAgentRuns)
         result.maxParallelAgents = limit("Max parallel agents", key: "maxParallelAgents",
                                           harness: harness.maxParallelAgents, repo: repo?.limits?.maxParallelAgents)
+
+        let overlapFromRepo = repo?.limits?.avoidOverlappingWork == true
+        let overlapRefused = harness.avoidOverlappingWork && repo?.limits?.avoidOverlappingWork == false
+        result.policy.avoidOverlappingWork = harness.avoidOverlappingWork || overlapFromRepo
+        if overlapRefused {
+            refuse("Repo config turns off overlap avoidance",
+                   "The harness requires avoiding overlapping work. Remove limits.avoidOverlappingWork or set it to true.")
+        }
+        result.settings.append(EffectiveSetting(
+            name: "Avoid building overlapping work at the same time",
+            value: result.policy.avoidOverlappingWork ? "On" : "Off",
+            source: overlapFromRepo ? .repo : .harness,
+            note: overlapRefused ? "repo asked for false: refused" : nil))
 
         // Guesswork: the repo may only choose a stricter level.
         var guesswork = harness.guesswork

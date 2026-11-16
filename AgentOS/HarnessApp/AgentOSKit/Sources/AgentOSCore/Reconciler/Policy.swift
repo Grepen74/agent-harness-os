@@ -39,6 +39,7 @@ public struct Policy: Sendable, Equatable {
     /// Nodes worked on at the same time in a round: the agents the harness starts, not the sub-agents they use.
     /// Landing is always one at a time.
     public var maxParallelAgents = 1
+    public var avoidOverlappingWork = true
     /// The signals people may use (doc 05 §3). Production: the harness layer sets what each profile may offer
     /// and the repo config may only switch signals off (doc 04 §8); strict profiles leave out `go`.
     public var allowedSignals: Set<HarnessCommand>
@@ -49,11 +50,12 @@ public struct Policy: Sendable, Equatable {
 
     public init(maxAttempts: Int = 3, maxReworks: Int = 3, maxAgentRuns: Int = 12, maxParallelAgents: Int = 1,
                 allowedSignals: Set<HarnessCommand> = Set(HarnessCommand.allCases), protectedPaths: [String] = [],
-                guesswork: Guesswork = .assumeAndReport) {
+                guesswork: Guesswork = .assumeAndReport, avoidOverlappingWork: Bool = true) {
         self.maxAttempts = maxAttempts
         self.maxReworks = maxReworks
         self.maxAgentRuns = maxAgentRuns
         self.maxParallelAgents = maxParallelAgents
+        self.avoidOverlappingWork = avoidOverlappingWork
         self.allowedSignals = allowedSignals
         self.protectedPaths = protectedPaths
         self.guesswork = guesswork

@@ -77,6 +77,12 @@ and policy: no restart needed, and agents continue with the new config after the
 `main`. It writes into your checkout only when you ask it to, never commits, and agents never edit the files
 that steer the harness (the config, AGENTS.md, CONTRIBUTING, CODEOWNERS): otherwise they could raise their own limits.
 
+**Avoid building overlapping work at the same time** is on by default in **Settings**, including when
+loading settings saved before it existed. A repo may turn it on with `limits.avoidOverlappingWork: true`,
+but cannot turn it off when the harness has it on. The Policy pane shows **On** or **Off** and its source:
+explicit `true` is *repo*, otherwise *harness*. A refused `false` keeps it **On**, shows
+`repo asked for false: refused`, and adds a `config.policy` readiness blocker; remove the override or set it to `true`.
+
 Use **Override in repo config…** in the Policy pane to choose a permitted value and copy its full-path
 JSON fragment. Use exact config tokens: **assume and report** is `assume-and-report`. Merge the fragment
 into the existing config, preserving sibling fields; model choices come from harness Settings, and

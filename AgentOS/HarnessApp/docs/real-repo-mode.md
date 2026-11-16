@@ -69,6 +69,7 @@ read from `main` only.
 | Agent timeouts | Per role: 20 minutes, 10 for the diagnoser; the longest a repo may choose: 1 hour (at most 4) | Choose per role, longer or shorter, up to the longest allowed |
 | Max attempts / reworks per leaf | 3 / 3 | Lower |
 | Max parallel agents | 2 | Lower |
+| Avoid building overlapping work at the same time | On | Turn on, but not off |
 | Guesswork | `assume and report`: carry on and post assumptions; a leaf whose work rests on assumptions waits for a person to see its acceptance tests before build, even under `harness:go`. Guesses about what users observe (what to check, which screen, which behaviour) always stop the node; guesses about implementation don't. Other levels: `ask` (assumptions are questions too), `autonomous` (assumptions are posted, nothing waits) | Choose a stricter level (`agents.guesswork`) |
 | Signals people may use (doc 05 §3) | All, including `harness:go` | Switch some off, e.g. `go` to force a breakdown review |
 | Required checks | Build + the leaf's tests on branch; all tests at landing | Add more (lint, snapshot tests…) |
@@ -77,6 +78,13 @@ read from `main` only.
 The policy pane shows every effective value with its source (*harness*, *repo*). A repo value that tries to
 loosen a limit becomes a blocker finding, not a silent override, and the harness's value applies. So does
 landing directly on the default branch. Disabling a signal the harness doesn't know is a warning.
+
+**Avoid building overlapping work at the same time** is a Settings toggle, on by default even for older saved
+settings. A repo may turn it on with `limits.avoidOverlappingWork: true`, but cannot turn it off when the
+harness has it on. The effective policy carries this choice to the reconciler. The Policy pane shows
+**On** or **Off** with source *repo* for explicit `true`, and *harness* otherwise. A refused `false`
+keeps **On** with `repo asked for false: refused` and a `config.policy` readiness blocker.
+Remove `limits.avoidOverlappingWork` or set it to `true` to clear that blocker.
 
 **Detect models** (Settings › Agents) asks the Copilot CLI which models your account offers and which reasoning
 efforts each supports. It talks to `copilot --acp` (the Agent Client Protocol): one session in an empty temporary
@@ -153,11 +161,12 @@ is configured, Copilot CLI chooses its own default. Display titles are not confi
 | `landing.branch` | String: valid local branch name | Inherit harness setting; built-in `agentos/main` | Cannot be the default branch, a remote/ref name, `agentos`, or an `agentos/leaf/` branch |
 | `signals` | Object containing disabled signal tokens | Inherit the harness's offered signals | May only disable signals, not enable ones the harness switched off |
 | `signals.disable` | Array of signal-token strings, such as `go` or `harness:go`; multiple tokens allowed | Empty list; inherit harness signals | Only removes signals from the harness's offered set; unknown tokens produce a warning |
-| `limits` | Object containing optional integer limits | Inherit current harness limits | Repo limits may only tighten the harness settings |
+| `limits` | Object containing optional integer limits and overlap protection | Inherit current harness limits | Repo limits may only tighten the harness settings |
 | `limits.maxAttempts` | Integer: maximum attempts per leaf | Inherit harness setting; built-in 3 | At least 1 and at most the current harness setting |
 | `limits.maxReworks` | Integer: maximum reworks per leaf | Inherit harness setting; built-in 3 | At least 1 and at most the current harness setting |
 | `limits.maxAgentRuns` | Integer: test-author and implementer runs per ticket since a person last acted on it | Inherit harness setting; built-in 12 | At least 1 and at most the current harness setting; any human action on the ticket starts a new budget |
 | `limits.maxParallelAgents` | Integer: maximum concurrent harness-started agents | Inherit harness setting; built-in 2 | At least 1 and at most the current harness setting; does not count agents' sub-agents |
+| `limits.avoidOverlappingWork` | Boolean: avoid building overlapping work at the same time | Inherit harness setting; built-in `true` | A repo may turn it on, not off; `false` is refused when the harness has it on |
 | `agents` | Object containing agent policy and context options | Inherit harness agent policy and default context | May only tighten policy; provider remains Copilot CLI |
 | `agents.deny` | Array of strings naming additional denied tools or commands | No additions to the harness deny list | Additive union with harness denials; cannot remove them |
 | `agents.models` | Object with optional role-specific model identifiers | Inherit each role's harness model, otherwise the CLI default | Only the role's configured model and offered alternatives are eligible |
