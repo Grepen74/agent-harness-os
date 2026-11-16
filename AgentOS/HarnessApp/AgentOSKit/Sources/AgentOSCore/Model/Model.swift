@@ -130,6 +130,8 @@ public enum FailureClassification: String, Codable, Sendable, Hashable {
     case ownMistake
     case runnerCrash
     case landingInfrastructure
+    /// The landing check failed on different tests each time: timing or interference, not this change's mistake.
+    case unreliableTests
 }
 
 public struct Evidence: Codable, Sendable, Hashable {

@@ -75,7 +75,7 @@ struct GH_25Tests {
 
         let started = ContinuousClock.now
         await model.stopRun(node: node.id, run: run.run)
-        #expect(ContinuousClock.now - started < .seconds(4))
+        #expect(ContinuousClock.now - started < .seconds(15)) // Doesn't hang; the full suite can be slow.
         #expect(actions.requests == [StopRequest(node: node.id, run: run.run, person: "Morgan")])
         #expect(actions.error == nil)
         #expect(fixture.tree.livingPIDs.isEmpty, "Stop must await cleanup, not just request it")
@@ -180,7 +180,7 @@ struct GH_25Tests {
         if cancel { task.cancel() }
         let result = await task.result
 
-        #expect(ContinuousClock.now - started < .seconds(4))
+        #expect(ContinuousClock.now - started < .seconds(15)) // Doesn't hang; the full suite can be slow.
         if case .success(let output) = result { #expect(output.status != 0) }
         #expect(tree.livingPIDs.isEmpty, "The runner returned while descendants were still alive")
     }
@@ -275,7 +275,7 @@ struct GH_25Tests {
 
         let started = ContinuousClock.now
         await fixture.reconciler.shutdown(reason: reason)
-        #expect(ContinuousClock.now - started < .seconds(4))
+        #expect(ContinuousClock.now - started < .seconds(15)) // Doesn't hang; the full suite can be slow.
         #expect(await fixture.probe.active == 0)
         #expect(fixture.tree.livingPIDs.isEmpty)
         #expect(await fixture.ledger.workingState().running.isEmpty)

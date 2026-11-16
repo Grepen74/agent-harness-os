@@ -462,8 +462,11 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
   When only other proven tickets' tests fail, the harness checks latest `agentos/main` without the change
   and reruns the candidate. A failing baseline is a main/infrastructure problem, with no failed attempt;
   fix it and add `harness:retry`. If both reruns pass, the harness reports unreliable tests and lands.
-  Only a passing baseline and repeated candidate failure can become a requirements conflict. Reports
-  name the failing tests and include both rerun outcomes.
+  If the rerun fails on different tests than the first check (none in common), the tests are unreliable
+  (timing, say), not a conflict: the node stays in landing, escalated, with no failed attempt and no
+  comment on the other tickets; make those tests reliable and add `harness:retry`. Only a passing baseline
+  and a rerun that fails some of the same tests can become a requirements conflict. Reports name the failing tests and
+  include both rerun outcomes.
 - **Landing** is a fast-forward of the landing branch with `git update-ref` (compare-and-swap), so no checkout
   is involved. It's refused while any checkout has the landing branch checked out, because moving it there
   would make that working copy look modified.

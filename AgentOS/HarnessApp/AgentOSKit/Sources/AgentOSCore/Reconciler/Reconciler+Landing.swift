@@ -47,6 +47,8 @@ extension Reconciler {
         let state = await ledger.workingState()
         let provenTargets = Set(state.nodes.values.filter { $0.phase == .proven }.map(\.spec.testTarget))
         var diagnosis: String?
+        // Failing tests of the first landing check and of its rerun, when they have none in common.
+        var differentFailures: (first: Set<String>, again: Set<String>)?
         if !output.passed && !output.failingTargets.isEmpty
             && !output.failingTargets.contains(node.spec.testTarget)
             && output.failingTargets.isSubset(of: provenTargets) {
@@ -55,6 +57,10 @@ extension Reconciler {
             var repeated = await checks.runChecks(in: directory, only: nil)
             if case .runnerCrash = repeated.failureKind {
                 repeated = await checks.runChecks(in: directory, only: nil)
+            }
+            let first = initial.failingTests, again = repeated.failingTests
+            if !repeated.passed, !first.isEmpty, !again.isEmpty, first.isDisjoint(with: again) {
+                differentFailures = (first, again)
             }
             let failures = initial.log.split(separator: "\n").filter { line in
                 initial.failingTargets.contains { line.contains($0) }
@@ -159,6 +165,25 @@ extension Reconciler {
         // Which node's behaviour broke? Someone else's → two requirements may contradict (doc 08 §5).
         let broken = output.failingTargets.subtracting([node.spec.testTarget])
             .compactMap { target in state.nodes.values.first { $0.spec.testTarget == target && $0.phase == .proven } }
+        // A change that breaks behaviour breaks the same tests every time; different ones point at timing or
+        // tests interfering with each other. It stays in landing, so harness:retry checks it again.
+        if let diagnosis, let differentFailures {
+            let reason = """
+                Unreliable tests (not a requirements conflict). The landing check failed on different tests each \
+                time (first \(differentFailures.first.sorted().joined(separator: ", ")); then \
+                \(differentFailures.again.sorted().joined(separator: ", "))). No failed attempt counted.
+                \(diagnosis)
+                Next: make those tests reliable (timing limits, say) on agentos/main, then add harness:retry to \
+                check the change again.
+                """
+            evidence.failureClassification = .unreliableTests
+            try await write(node.id, by: checker, [
+                .evidenceRecorded(evidence), .runFinished(run: run, outcome: "unreliable tests"),
+                .flagSet(.escalated, reason: reason),
+            ])
+            await tracker.comment(on: node.ticket, "⚠️ Needs a human: \(reason)")
+            return "\(node.displayName) landing failed on different tests each time → unreliable tests, escalated"
+        }
         var kinds: [EventKind] = [.evidenceRecorded(evidence), .runFinished(run: run, outcome: "failed"), .phaseChanged(to: .ready)]
         if let diagnosis, !broken.isEmpty && !output.failingTargets.contains(node.spec.testTarget)
             && output.failingTargets.isSubset(of: provenTargets) {

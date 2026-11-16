@@ -27,6 +27,20 @@ public struct CheckOutput: Sendable {
         self.failingTargets = failingTargets
         self.failureKind = failureKind
     }
+
+    /// The tests the log names as failing, as `Suite.test`: Swift Testing's "Test name(…) recorded an issue … at
+    /// Suite.swift:line" and XCTest's "Test Case '-[Module.Suite test]' failed". Empty when it names none.
+    public var failingTests: Set<String> {
+        var tests: Set<String> = []
+        for line in log.split(separator: "\n") {
+            if let match = line.firstMatch(of: /Test (\w+)\(.*recorded an issue.* at (\w+)\.swift:\d+/) {
+                tests.insert("\(match.output.2).\(match.output.1)")
+            } else if let match = line.firstMatch(of: /Test Case '-\[(?:\w+\.)?(\w+) (\w+)\]' failed/) {
+                tests.insert("\(match.output.1).\(match.output.2)")
+            }
+        }
+        return tests
+    }
 }
 
 /// The checks a repo offers (its "verification ladder", doc 01). Here: one rung.

@@ -105,6 +105,32 @@ struct GH_26Tests {
         }
     }
 
+    @Test
+    func differentTestsFailingInTheRerunAreUnreliableTestsNotARequirementsConflict() async throws {
+        let fixture = try await Fixture(mainPasses: true, candidatePasses: false, failingTestLogs: (
+            initial: "✘ Test passingLandingRerunLands(_:) recorded an issue with 1 argument role → .implementer "
+                + "at GH_19Tests.swift:78:9: Expectation failed: took 8.98 seconds",
+            rerun: "✘ Test catchUpPreservesLandedWork() recorded an issue at GH_10Tests.swift:183:9: took 4.16 seconds"
+        ))
+        defer { fixture.cleanUp() }
+
+        _ = await fixture.reconciler.runRound(waitForAgents: true)
+
+        let node = try #require(await fixture.node())
+        let reason = try #require(node.flags[.escalated])
+        #expect(reason.contains("Unreliable tests"))
+        #expect(!reason.lowercased().contains("requirements conflict:"))
+        #expect(reason.contains("GH_19Tests.passingLandingRerunLands"))
+        #expect(reason.contains("GH_10Tests.catchUpPreservesLandedWork"))
+        #expect(node.failedAttempts == 0)
+        #expect(node.phase == .landing, "harness:retry checks the same change again")
+        #expect(await fixture.workspace.landedNodes.isEmpty)
+        for owner in Fixture.owners {
+            let otherComments = await fixture.tracker.comments(on: String(owner.id.dropFirst(3)))
+            #expect(!otherComments.contains { $0.contains("contradicts this ticket") })
+        }
+    }
+
     @Test(arguments: [false, true], [false, true])
     func everyDiagnosticReportNamesTheTestsAndBothRerunOutcomes(
         mainPasses: Bool, candidatePasses: Bool
@@ -163,7 +189,7 @@ private extension GH_26Tests {
         let mainRerun: CheckOutput
         let candidateRerun: CheckOutput
 
-        init(mainPasses: Bool, candidatePasses: Bool) async throws {
+        init(mainPasses: Bool, candidatePasses: Bool, failingTestLogs: (initial: String, rerun: String)? = nil) async throws {
             root = FileManager.default.temporaryDirectory.appending(path: "agentos-GH-26-\(UUID().uuidString)")
             let candidate = root.appending(path: "candidate")
             let snapshot = root.appending(path: "latest-main-without-change")
@@ -198,10 +224,12 @@ private extension GH_26Tests {
             tracker = RecordingTracker()
             workspace = RecordingWorkspace(candidate: candidate, snapshot: snapshot)
             mainRerun = Self.output(passed: mainPasses, context: "Rerun without the change on agentos/main")
-            candidateRerun = Self.output(passed: candidatePasses, context: "Rerun with the change")
+            candidateRerun = Self.output(
+                passed: candidatePasses, context: "Rerun with the change", log: failingTestLogs?.rerun
+            )
             checks = ScriptedChecks(
                 workspace: workspace, ledger: ledger,
-                initial: Self.output(passed: false, context: "Initial landing check"),
+                initial: Self.output(passed: false, context: "Initial landing check", log: failingTestLogs?.initial),
                 mainRerun: mainRerun, candidateRerun: candidateRerun
             )
             let unused = UnusedAgents()
@@ -212,12 +240,12 @@ private extension GH_26Tests {
             )
         }
 
-        static func output(passed: Bool, context: String) -> CheckOutput {
+        static func output(passed: Bool, context: String, log: String? = nil) -> CheckOutput {
             let result = passed ? "PASS" : "FAIL"
             return CheckOutput(
                 passed: passed,
                 summary: "\(context): \(result)",
-                log: failedTests.map { "\(result): \($0)" }.joined(separator: "\n"),
+                log: log ?? failedTests.map { "\(result): \($0)" }.joined(separator: "\n"),
                 failingTargets: passed ? [] : Set(owners.map(\.testTarget))
             )
         }

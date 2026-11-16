@@ -405,7 +405,8 @@ public struct WorkingState: Sendable {
             node.evidence.append(evidence)
             if !evidence.passed { node.latestReviewFeedback = nil }
             if !evidence.passed && evidence.failureClassification != .runnerCrash
-                && evidence.failureClassification != .landingInfrastructure {
+                && evidence.failureClassification != .landingInfrastructure
+                && evidence.failureClassification != .unreliableTests {
                 node.failedAttempts += 1
                 node.recentFailures.append(evidence.summary)
             }
