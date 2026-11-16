@@ -86,6 +86,22 @@ harness has it on. The effective policy carries this choice to the reconciler. T
 keeps **On** with `repo asked for false: refused` and a `config.policy` readiness blocker.
 Remove `limits.avoidOverlappingWork` or set it to `true` to clear that blocker.
 
+With overlap avoidance on, a ready leaf is held while its predicted repository-relative paths overlap
+work that is building, being checked, in review (including human review), or landing. The comparison uses
+the in-progress node's actual changed files once its implementer has submitted work, and its predicted
+paths otherwise. Paths overlap when they name the same file or one is a directory prefix of the other,
+on whole path components. If either node has no paths, the harness compares their touch-set component
+names instead; without shared components there is no hold. Unrelated ready leaves can still start.
+
+A held leaf stays **Ready**, with no human-attention flag. Its ticket gets one comment naming the node
+it waits for and all overlapping paths, or shared components for the touch-set fallback.
+The same explanation appears in the work pane: the leaf starts by itself once the other node lands or
+stops being in progress (escalated, needs input, replanned, or its ticket closed); nothing needs to be done.
+An unchanged hold is not commented again in later rounds or after restarting the harness. A different
+blocking node or different overlaps gets a new explanation. Hold starts and ends, including the blocker
+and paths or components, are recorded in the ledger. The pane's explanation disappears when the hold
+ends, the leaf starts, or it is no longer eligible to build.
+
 **Detect models** (Settings › Agents) asks the Copilot CLI which models your account offers and which reasoning
 efforts each supports. It talks to `copilot --acp` (the Agent Client Protocol): one session in an empty temporary
 folder, switched through each model to read its efforts, with no prompt, so no model runs. The CLI keeps that

@@ -71,6 +71,7 @@ public struct NodeState: Sendable, Identifiable {
     /// Position of the last event that touched this node; used for compare-and-swap.
     public var version: Int
     public var phase: Phase = .specified
+    public var overlapHold: OverlapHold?
     public var flags: [Flag: String] = [:]
     /// A person closed the ticket: no more work, and its flags don't ask for attention.
     public var ticketClosed = false
@@ -232,6 +233,7 @@ public struct WorkingState: Sendable {
             var node = NodeState(spec: spec, ticket: old.ticket, version: record.position)
             node.clarifications = old.clarifications
             node.children = old.children
+            node.overlapHold = old.overlapHold
             nodes[id] = node
             return
         }
@@ -310,6 +312,10 @@ public struct WorkingState: Sendable {
         case .attemptsReset:
             node.failedAttempts = 0
             node.recentFailures = []
+        case .overlapHoldStarted(let waitingFor, let paths, let components):
+            node.overlapHold = OverlapHold(waitingFor: waitingFor, paths: paths, components: components)
+        case .overlapHoldEnded:
+            node.overlapHold = nil
         case .testsFixed(let digest):
             node.testsDigest = digest
             node.testDraft = nil

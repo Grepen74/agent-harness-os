@@ -75,6 +75,8 @@ public enum EventKind: Codable, Sendable {
     case flagSet(Flag, reason: String)
     case flagCleared(Flag)
     case attemptsReset
+    case overlapHoldStarted(waitingFor: NodeID, paths: [String], components: [String])
+    case overlapHoldEnded(waitingFor: NodeID, paths: [String], components: [String])
 
     // Work
     /// Fingerprint of the node's acceptance tests; nobody may change them afterwards.
@@ -229,6 +231,12 @@ extension EventKind {
         case .flagSet(let flag, let reason): "⚑ \(flag.rawValue): \(reason)"
         case .flagCleared(let flag): "⚑ \(flag.rawValue) cleared"
         case .attemptsReset: "attempts reset"
+        case .overlapHoldStarted(let waitingFor, let paths, let components):
+            "overlap hold started: waiting for \(waitingFor); " +
+                (paths.isEmpty ? "components \(components.joined(separator: ", "))" : "paths \(paths.joined(separator: ", "))")
+        case .overlapHoldEnded(let waitingFor, let paths, let components):
+            "overlap hold ended: waited for \(waitingFor); " +
+                (paths.isEmpty ? "components \(components.joined(separator: ", "))" : "paths \(paths.joined(separator: ", "))")
         case .testsFixed(let digest): "acceptance tests fixed (\(digest.prefix(8)))"
         case .otherTestsUpdated(let files, _): "updated other work's tests: \(files.joined(separator: ", "))"
         case .reviewRecorded(let review):

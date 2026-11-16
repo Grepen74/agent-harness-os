@@ -130,26 +130,28 @@ public actor Reconciler {
         await intakeSignals(&report, waitingForPreviews: waitForAgents)
         await intakeExternal(&report)
 
-        if waitForAgents {
-            await self.waitForAgents()
-            await advanceAll(&report)
-        } else {
-            scheduleAvailableSteps(in: await ledger.workingState())
-        }
-
-        // The landing queue: the only place where work happens strictly one at a time (doc 08 §4). A round that
-        // starts while another is landing leaves the queue to it. A landing takes one of the `maxParallelAgents`
-        // slots (its checks and review run agents), which scheduling keeps free for it; once it's done, the round
-        // fills that slot. A node with a step reserved or running isn't landed.
-        if !isLanding {
-            isLanding = true
-            for node in await ledger.workingState().landingQueue {
-                guard shutdownReason == nil, !Task.isCancelled,
-                      slotsInUse < max(1, policy.maxParallelAgents) else { break }
-                if let action = await step(node.id, landing: true) { report.actions.append(action) }
+        do {
+            if waitForAgents {
+                await self.waitForAgents()
+                try await advanceAll(&report)
+            } else {
+                try await scheduleAvailableSteps(in: await ledger.workingState())
             }
-            isLanding = false
-            if !waitForAgents { scheduleAvailableSteps(in: await ledger.workingState()) }
+
+            // Landing is serial, takes an agent slot, and never lands a reserved or running step.
+            if !isLanding {
+                isLanding = true
+                for node in await ledger.workingState().landingQueue {
+                    guard shutdownReason == nil, !Task.isCancelled,
+                          slotsInUse < max(1, policy.maxParallelAgents) else { break }
+                    if let action = await step(node.id, landing: true) { report.actions.append(action) }
+                }
+                isLanding = false
+                if !waitForAgents { try await scheduleAvailableSteps(in: await ledger.workingState()) }
+            }
+            try await clearObsoleteOverlapHolds()
+        } catch {
+            report.safeStop = "Couldn't reconcile overlapping work: \(error). Check the workspace and ledger, then run again."
         }
 
         await projectStatuses()
@@ -205,7 +207,7 @@ public actor Reconciler {
     /// One step per node, up to `maxParallelAgents` nodes at a time. The steps interleave only while they wait
     /// (for an agent, a check, git): each node has its own branch and working copy, and every claim is a
     /// compare-and-swap on the node's version. Actions are reported in node order, whatever finished first.
-    private func advanceAll(_ report: inout RoundReport) async {
+    private func advanceAll(_ report: inout RoundReport) async throws {
         let state = await ledger.workingState()
         let order = state.creationOrder.filter { id in
             guard let parent = state.nodes[id]?.spec.parent else { return true }
@@ -213,17 +215,17 @@ public actor Reconciler {
         }
         var started = Set<NodeID>()
         var actions: [NodeID: String] = [:]
-        await withTaskGroup(of: (NodeID, String?).self) { group in
+        try await withThrowingTaskGroup(of: (NodeID, String?).self) { group in
             var running = 0
             while true {
                 let state = await ledger.workingState()
-                for (id, task) in scheduleAvailableSteps(in: state, order: order, excluding: started,
+                for (id, task) in try await scheduleAvailableSteps(in: state, order: order, excluding: started,
                                                        reportCompletion: false) {
                     started.insert(id)
                     group.addTask { (id, await task.value) }
                     running += 1
                 }
-                guard running > 0, let (finished, action) = await group.next() else { break }
+                guard running > 0, let (finished, action) = try await group.next() else { break }
                 running -= 1
                 if let action { actions[finished] = action }
             }
@@ -236,14 +238,18 @@ public actor Reconciler {
     /// no landing is under way, one slot stays free for it, so new work can't starve the landing queue.
     @discardableResult
     private func scheduleAvailableSteps(in state: WorkingState, order: [NodeID]? = nil, excluding: Set<NodeID> = [],
-                                        reportCompletion: Bool = true) -> [(NodeID, Task<String?, Never>)] {
+                                        reportCompletion: Bool = true) async throws -> [(NodeID, Task<String?, Never>)] {
+        let changedPaths = try await overlapChangedPaths(in: state)
         let waitingToLand = !isLanding && state.landingQueue.contains { tasks[$0.id] == nil && !$0.awaitingHumanReview }
         let limit = max(1, policy.maxParallelAgents) - (waitingToLand ? 1 : 0)
         var started: [(NodeID, Task<String?, Never>)] = []
         for id in order ?? state.creationOrder {
-            guard shutdownReason == nil, !Task.isCancelled, slotsInUse < limit else { break }
+            guard shutdownReason == nil, !Task.isCancelled else { break }
             guard !excluding.contains(id), tasks[id] == nil, let node = state.nodes[id],
-                  canAdvance(node, in: state), !isHeldForOverlap(node, in: state) else { continue }
+                  canAdvance(node, in: state) else { continue }
+            let hold = overlapHold(for: node, in: state, changedPaths: changedPaths)
+            guard try await updateOverlapHold(node, to: hold, in: state), hold == nil,
+                  tasks[id] == nil, slotsInUse < limit, shutdownReason == nil, !Task.isCancelled else { continue }
             started.append((id, startStep(id, reportCompletion: reportCompletion)))
         }
         return started
@@ -320,7 +326,7 @@ public actor Reconciler {
         return result
     }
 
-    private func canAdvance(_ node: NodeState, in state: WorkingState) -> Bool {
+    func canAdvance(_ node: NodeState, in state: WorkingState) -> Bool {
         if wantsDiagnosis(node) { return true }
         guard node.flags[.escalated] == nil, node.flags[.needsInput] == nil, node.activeRun == nil,
               !node.ticketClosed else { return false }

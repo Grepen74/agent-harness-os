@@ -113,6 +113,14 @@ Breakdown previews list each leaf's predicted files or directory prefixes after 
 provided. The work pane shows them in **Paths**, or **–** when there are no predictions. Replanning
 refreshes predictions even for leaves whose tickets, tests and approvals are kept.
 
+With overlap avoidance on, a ready leaf waits for overlapping work that is building, being checked,
+in review or landing. The harness compares predicted paths with the active work's changed files when
+known, or its predictions otherwise; missing paths fall back to shared touch-set components. The leaf
+stays **Ready**. Its ticket and work-pane detail explain which node and paths or components it waits
+for, that it starts by itself once the other work lands or stops being in progress, and that nothing
+needs to be done. An unchanged explanation is not posted again, even after a restart. Holds and their
+ends are recorded in the ledger; the pane clears the explanation once the hold ends.
+
 Repository teams review acceptance tests before implementation and review the complete change after all
 landing checks pass. **Settings → Review** sets the minimum (`none`, `agent`, or `agent+human`), reviewer
 and models a repo may choose. The default is agent review with an explicit model different from the

@@ -108,6 +108,13 @@ struct NodeDetail: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("\(node.spec.id) · \(node.spec.kind.rawValue)").font(.headline)
                 grid
+                if let message = model.state.overlapHoldMessage(for: node) {
+                    Label(message, systemImage: "pause.circle")
+                        .font(.body)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: 640, alignment: .leading)
+                }
                 AgentRuns(node: node)
                 if !node.reviews.isEmpty {
                     Text("Reviews").font(.caption.bold()).padding(.top, 4)
