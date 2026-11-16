@@ -103,6 +103,10 @@ folder. Proven work lands on `agentos/main`; review, merge and push it yourself.
 models offered to agents and a default per role; a repo may choose among them in `agents.models`. From the
 terminal: `swift run agentos work <path> --ticket "<title>" --criterion "<criterion>" --go`.
 
+Breakdown previews list each leaf's predicted files or directory prefixes after its touch set when
+provided. The work pane shows them in **Paths**, or **–** when there are no predictions. Replanning
+refreshes predictions even for leaves whose tickets, tests and approvals are kept.
+
 Repository teams review acceptance tests before implementation and review the complete change after all
 landing checks pass. **Settings → Review** sets the minimum (`none`, `agent`, or `agent+human`), reviewer
 and models a repo may choose. The default is agent review with an explicit model different from the

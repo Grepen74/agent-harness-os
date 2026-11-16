@@ -94,8 +94,9 @@ extension Reconciler {
         // Production: the decomposer runs the full leaf check before proposing children at all.
         if children.count <= 1 {
             let touches = children.first?.touches ?? [ComponentName.from(node.spec.title, maxWords: 3)]
+            let paths = children.first?.predictedPaths ?? []
             let needs = Set(node.spec.dependsOn + (children.first?.dependsOn ?? [])).sorted()
-            try await write(node.id, by: author, [.becameLeaf(touches: touches)]
+            try await write(node.id, by: author, [.becameLeaf(touches: touches, predictedPaths: paths.isEmpty ? nil : paths)]
                 + needs.map { .linkAdded(TypedLink(from: node.id, type: .dependsOn, to: $0)) })
             await tracker.comment(on: node.ticket, """
                 🍃 No breakdown needed: small enough to build as it is (leaf check passed).

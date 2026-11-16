@@ -1,0 +1,10 @@
+{
+  "snapshotPaths": [
+    ".agentos-ui-evidence/after.png",
+    ".agentos-ui-evidence/empty-paths.png"
+  ],
+  "windowsOpened": true,
+  "windowsClosed": true,
+  "beforeScreenshot": ".agentos-ui-evidence/before.png",
+  "afterScreenshot": ".agentos-ui-evidence/after.png"
+}

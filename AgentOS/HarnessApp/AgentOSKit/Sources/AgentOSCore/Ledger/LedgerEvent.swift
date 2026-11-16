@@ -60,7 +60,7 @@ public enum EventKind: Codable, Sendable {
     case nodeCreated(spec: NodeSpec, ticket: String)
     case linkAdded(TypedLink)
     /// The leaf check (doc 02 §4) found the node small enough to build as it is: no children.
-    case becameLeaf(touches: [String])
+    case becameLeaf(touches: [String], predictedPaths: [String]? = nil)
     /// `harness:replan`: the node takes `spec` (re-read from its ticket) and starts over as just adopted, without
     /// gates. Its children wait, paused, for its next breakdown (`breakdownRevised`).
     case replanned(spec: NodeSpec)
@@ -219,7 +219,7 @@ extension EventKind {
             "breakdown retry on \(ticket): correcting \(feedback.findings.count) findings"
         case .nodeCreated(let spec, let ticket): "created \(spec.kind.rawValue) \(spec.id) (\(ticket)): \(spec.title)"
         case .linkAdded(let link): "link \(link.from) \(link.type.rawValue) \(link.to)"
-        case .becameLeaf(let touches): "leaf check passed: built as one leaf (touches \(touches.joined(separator: ", ")))"
+        case .becameLeaf(let touches, _): "leaf check passed: built as one leaf (touches \(touches.joined(separator: ", ")))"
         case .replanned: "replanned from the ticket; its children wait for the next breakdown"
         case .breakdownRevised(let kept, let dropped):
             "new breakdown compared with the old one: kept \(kept.isEmpty ? "none" : kept.map(\.id).joined(separator: ", ")), "

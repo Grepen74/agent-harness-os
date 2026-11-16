@@ -204,6 +204,7 @@ enum Planner {
                 id: "\(parent.id).\(index + 1)", parent: parent.id, kind: .leaf, title: proposal.title,
                 intent: "Part of \(parent.title)", acceptanceCriteria: proposal.acceptanceCriteria,
                 touches: touches.isEmpty ? [ComponentName.from(parent.title, maxWords: 3)] : Array(Set(touches)).sorted(),
+                predictedPaths: PredictedPath.normalize(proposal.predictedPaths ?? []),
                 dependsOn: proposal.dependsOn ?? [])
         }
         for (index, proposal) in proposals.enumerated() {
@@ -216,7 +217,7 @@ enum Planner {
 
     static func describe(_ specs: [NodeSpec], under title: String) -> String {
         guard specs.count > 1 else {
-            let touches = specs.first.map { " (touches: \($0.touches.joined(separator: ", ")))" } ?? ""
+            let touches = specs.first.map { " (touches: \($0.touches.joined(separator: ", "))\(pathsDescription($0)))" } ?? ""
             return "\(title)\n└─ no children: it is a leaf itself\(touches)"
         }
         let lines = specs.enumerated().map { index, spec in
@@ -226,8 +227,12 @@ enum Planner {
             }
             let names = siblings + spec.dependsOn
             let waits = names.isEmpty ? "" : "  (waits for \(names.joined(separator: ", ")))"
-            return "\(branch) \(spec.title)  touches: \(spec.touches.joined(separator: ", "))\(waits)"
+            return "\(branch) \(spec.title)  touches: \(spec.touches.joined(separator: ", "))\(pathsDescription(spec))\(waits)"
         }
         return ([title] + lines).joined(separator: "\n")
+    }
+
+    private static func pathsDescription(_ spec: NodeSpec) -> String {
+        spec.predictedPaths.isEmpty ? "" : "  paths: \(spec.predictedPaths.joined(separator: ", "))"
     }
 }
