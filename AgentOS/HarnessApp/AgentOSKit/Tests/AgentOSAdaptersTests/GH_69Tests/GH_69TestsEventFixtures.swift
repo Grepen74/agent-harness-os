@@ -68,6 +68,8 @@ extension GH_69Tests {
             .testDraftKept(run: "run", files: ["Tests/AppTests/Draft.swift"]),
             .diagnosisRecorded(run: "run", diagnosis: Diagnosis(cause: "Too big", nextStep: "Split it")),
             .agentConfigured(run: "run", settings: AgentRunSettings(model: "model", effort: "high")),
+            .overlapHoldStarted(waitingFor: "wn-GH-70", paths: ["Sources/Engine.swift"], components: []),
+            .overlapHoldEnded(waitingFor: "wn-GH-70", paths: ["Sources/Engine.swift"], components: []),
         ]
     }
 }
