@@ -111,12 +111,13 @@ struct NodeDetail: View {
                 AgentRuns(node: node)
                 if !node.reviews.isEmpty {
                     Text("Reviews").font(.caption.bold()).padding(.top, 4)
-                    ForEach(Array(node.reviews.enumerated()), id: \.offset) { _, review in
+                    ForEach(Array(node.reviews.enumerated().reversed()), id: \.offset) { _, review in
                         VStack(alignment: .leading, spacing: 3) {
                             Label("\(review.stage.rawValue): \(review.result.passed ? "Passed" : "Findings")",
                                   systemImage: review.result.passed ? "checkmark.seal.fill" : "xmark.seal.fill")
                                 .foregroundStyle(review.result.passed ? .green : .red)
-                            Text("commit \(review.commit.prefix(8))").monospaced().foregroundStyle(.secondary)
+                            Text(["commit \(review.commit.prefix(8))", review.recordedAt?.ledgerStamp].compactMap { $0 }.joined(separator: " · "))
+                                .monospaced().foregroundStyle(.secondary)
                             ForEach(Array(review.result.findings.enumerated()), id: \.offset) { _, finding in
                                 Text(finding).textSelection(.enabled)
                             }
@@ -137,14 +138,15 @@ struct NodeDetail: View {
                 }
                 if !node.evidence.isEmpty {
                     Text("Evidence").font(.caption.bold()).padding(.top, 4)
-                    ForEach(Array(node.evidence.enumerated()), id: \.offset) { _, evidence in
+                    ForEach(Array(node.evidence.enumerated().reversed()), id: \.offset) { _, evidence in
                         HStack(alignment: .top) {
                             Image(systemName: evidence.passed ? "checkmark.seal.fill" : "xmark.seal.fill")
                                 .foregroundStyle(evidence.passed ? .green : .red)
                             VStack(alignment: .leading) {
                                 Text("\(evidence.check): \(evidence.summary)")
                                 Text("built by \(evidence.builtBy), checked by \(evidence.checkedBy)").foregroundStyle(.secondary)
-                                Text("commit \(String(evidence.commit.prefix(8)))").monospaced().foregroundStyle(.secondary)
+                                Text(["commit \(evidence.commit.prefix(8))", evidence.recordedAt?.ledgerStamp].compactMap { $0 }.joined(separator: " · "))
+                                    .monospaced().foregroundStyle(.secondary)
                             }
                             Spacer()
                             Button("Log") { model.open(evidence.artifactPath) }.controlSize(.small)

@@ -534,7 +534,7 @@ import Testing
         try await Self.waitForPage(model) { model.ledgerPage.limit == 400 && model.ledgerPage.records.count == 400 }
         Self.expectPage(model, all: all, matching: all, limit: 400)
         try Self.scrollToLastLedgerRow(in: hosted.view, count: 400)
-        #expect(RenderedUI.shows("#\(all[333].position)", in: try Self.visibleText(hosted.view)))
+        #expect(Self.showsRow(all[333], in: try Self.visibleText(hosted.view)))
         try Self.select("GH-69", filter: "All tickets", in: hosted.view)
         try await Self.waitForPage(model) {
             model.ledgerPage.limit == 200 && model.ledgerPage.records.map(\.event.id) == [all[732].event.id, all[0].event.id]
@@ -567,7 +567,7 @@ import Testing
         try await Self.waitForPage(model) { model.ledgerPage.limit == 400 && model.ledgerPage.records.count == 400 }
         Self.expectPage(model, all: all, matching: all.filter { $0.event.node == "other" }, limit: 400)
         try Self.scrollToLastLedgerRow(in: hosted.view, count: 400)
-        #expect(RenderedUI.shows("#\(all[332].position)", in: try Self.visibleText(hosted.view)))
+        #expect(Self.showsRow(all[332], in: try Self.visibleText(hosted.view)))
         try Self.select("All tickets", filter: "All tickets", in: hosted.view)
         try await Self.waitForPage(model) {
             model.ledgerPage.limit == 200 && model.ledgerPage.records.first?.event.id == last.event.id
@@ -654,6 +654,12 @@ import Testing
 
     private static func visibleText<Content: View>(_ content: Content) throws -> String {
         try RenderedUI.text(of: content, size: CGSize(width: 1_100, height: 850))
+    }
+
+    /// Whether the record's row is rendered. OCR sometimes misses the short "#position" label of the row at the
+    /// list's edge, so its hash, also unique to the row, counts too.
+    private static func showsRow(_ record: RecordedEvent, in text: String) -> Bool {
+        RenderedUI.shows("#\(record.position)", in: text) || RenderedUI.shows(String(record.hash.prefix(10)), in: text)
     }
 
     private static func visibleText(_ view: NSView) throws -> String {

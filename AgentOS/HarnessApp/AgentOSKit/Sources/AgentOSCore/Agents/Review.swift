@@ -169,6 +169,8 @@ public struct ReviewRecord: Codable, Sendable, Equatable {
     public let result: ReviewResult
     public let commit: String
     public let uiEvidence: UIReviewEvidence?
+    /// When the ledger recorded it. Set when the working state is derived, never in the recorded event.
+    public var recordedAt: Date? = nil
 
     public init(stage: ReviewStage, result: ReviewResult, commit: String, uiEvidence: UIReviewEvidence?) {
         self.stage = stage

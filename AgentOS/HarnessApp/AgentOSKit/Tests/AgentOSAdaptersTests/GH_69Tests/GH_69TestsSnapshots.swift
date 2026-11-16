@@ -102,7 +102,7 @@ extension GH_69Tests {
                             Image(systemName: Self.icon(record.event.by)).frame(width: 14)
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(record.event.kind.summary).lineLimit(2)
-                                Text("\(record.event.by.label) \u{00b7} \(Self.nodeName(record.event.node)) \u{00b7} \(record.hash.prefix(10))")
+                                Text("\(record.event.by.label) \u{00b7} \(Self.nodeName(record.event.node)) \u{00b7} \(record.hash.prefix(10)) \u{00b7} \(record.event.at.formatted(date: .numeric, time: .standard))")
                                     .font(.caption2).foregroundStyle(.secondary)
                             }
                         }

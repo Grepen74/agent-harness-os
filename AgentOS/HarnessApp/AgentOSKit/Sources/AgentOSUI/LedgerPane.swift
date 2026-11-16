@@ -63,7 +63,7 @@ public struct LedgerPane: View {
                         VStack(alignment: .leading, spacing: 1) {
                             Text(record.event.kind.summary).lineLimit(2)
                             let nodeName = record.event.node.map { model.ledgerNodeLabel($0) } ?? "–"
-                            Text("\(record.event.by.label) · \(nodeName) · \(record.hash.prefix(10))")
+                            Text("\(record.event.by.label) · \(nodeName) · \(record.hash.prefix(10)) · \(record.event.at.ledgerStamp)")
                                 .font(.caption2).foregroundStyle(.secondary)
                         }
                     }

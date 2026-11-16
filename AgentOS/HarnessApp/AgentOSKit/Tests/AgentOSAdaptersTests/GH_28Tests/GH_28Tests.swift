@@ -937,7 +937,8 @@ struct GH_28Tests {
         let records = await fixture.ledger.allRecords()
         let reviews = records.compactMap { record -> ReviewRecord? in
             guard record.event.node == Fixture.spec.id,
-                  case .reviewRecorded(let review) = record.event.kind else { return nil }
+                  case .reviewRecorded(var review) = record.event.kind else { return nil }
+            review.recordedAt = record.event.at
             return review
         }
         try #require(reviews.count == 3)

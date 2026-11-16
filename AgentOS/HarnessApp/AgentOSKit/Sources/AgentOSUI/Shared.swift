@@ -44,3 +44,8 @@ extension Phase {
         }
     }
 }
+
+extension Date {
+    /// When a ledger event, review or check was recorded, in local time to the second.
+    var ledgerStamp: String { formatted(date: .numeric, time: .standard) }
+}

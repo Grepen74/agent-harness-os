@@ -318,7 +318,8 @@ public struct WorkingState: Sendable {
         case .otherTestsUpdated(let files, let digest):
             node.updatedOtherTests = files
             node.updatedOtherTestsDigest = digest
-        case .reviewRecorded(let review):
+        case .reviewRecorded(var review):
+            review.recordedAt = event.at
             node.reviews.append(review)
             if !review.result.passed && review.stage == .acceptanceTests {
                 // Reviewers sometimes file problems with the tests under testFindings at this stage too.
@@ -362,7 +363,8 @@ public struct WorkingState: Sendable {
             node.lastSubmission = Submission(run: run, commit: commit)
             node.landingReworkPending = false
             node.landingRerunPending = false
-        case .landingReworkNeeded(let evidence):
+        case .landingReworkNeeded(var evidence):
+            evidence.recordedAt = event.at
             node.evidence.append(evidence)
             node.landingReworkPending = true
             node.landingRerunPending = false
@@ -397,11 +399,13 @@ public struct WorkingState: Sendable {
             node.recentFailures.append(summary)
             node.landingReworkPending = false
             node.landingRerunPending = false
-        case .acceptanceTestPreflightFailed(let evidence):
+        case .acceptanceTestPreflightFailed(var evidence):
+            evidence.recordedAt = event.at
             node.evidence.append(evidence)
             node.latestTestFeedback = evidence.details ?? evidence.summary
             node.openTestProblem = evidence.summary
-        case .evidenceRecorded(let evidence):
+        case .evidenceRecorded(var evidence):
+            evidence.recordedAt = event.at
             node.evidence.append(evidence)
             if !evidence.passed { node.latestReviewFeedback = nil }
             if !evidence.passed && evidence.failureClassification != .runnerCrash
