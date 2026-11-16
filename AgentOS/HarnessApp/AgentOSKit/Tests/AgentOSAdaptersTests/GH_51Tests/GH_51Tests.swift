@@ -150,7 +150,7 @@ import AgentOSCore
                 workspace: workspace, artifacts: MemoryArtifacts(), checks: PassingChecks(),
                 team: AgentTeam(name: "GH-51 controlled agents", decomposer: UnusedDecomposer(),
                                 testAuthor: UnusedTestAuthor(), implementer: ControlledImplementer(controls: controls)),
-                policy: Policy(maxParallelAgents: 2)
+                policy: Policy(maxParallelAgents: 2, avoidOverlappingWork: false)
             )
         }
 

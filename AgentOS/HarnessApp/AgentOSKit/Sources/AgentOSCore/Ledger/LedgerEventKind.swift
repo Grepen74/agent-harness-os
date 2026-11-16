@@ -3,6 +3,7 @@ public enum LedgerEventKind: String, Hashable, CaseIterable, Sendable {
     case signalAccepted, signalRejected, previewRecorded, previewStarted, previewFinished, breakdownChecked, breakdownRetryRequested
     case nodeCreated, linkAdded, becameLeaf, replanned, breakdownRevised
     case gateOpened, phaseChanged, flagSet, flagCleared, attemptsReset
+    case overlapHoldStarted, overlapHoldEnded
     case testsFixed, otherTestsUpdated, reviewRecorded, humanReviewRequested, humanReviewApproved
     case expectedAPIReported, brokenTestReported, brokenTestRouted, runStarted, agentConfigured, runFinished
     case changeSubmitted, attemptFailed, testDraftKept, diagnosisRecorded, acceptanceTestPreflightFailed, passingCheckRecorded, mainMovedRework
@@ -30,6 +31,8 @@ public enum LedgerEventKind: String, Hashable, CaseIterable, Sendable {
         case .flagSet: self = .flagSet
         case .flagCleared: self = .flagCleared
         case .attemptsReset: self = .attemptsReset
+        case .overlapHoldStarted: self = .overlapHoldStarted
+        case .overlapHoldEnded: self = .overlapHoldEnded
         case .testsFixed: self = .testsFixed
         case .otherTestsUpdated: self = .otherTestsUpdated
         case .reviewRecorded: self = .reviewRecorded

@@ -77,6 +77,12 @@ and policy: no restart needed, and agents continue with the new config after the
 `main`. It writes into your checkout only when you ask it to, never commits, and agents never edit the files
 that steer the harness (the config, AGENTS.md, CONTRIBUTING, CODEOWNERS): otherwise they could raise their own limits.
 
+**Avoid building overlapping work at the same time** is on by default in **Settings**, including when
+loading settings saved before it existed. A repo may turn it on with `limits.avoidOverlappingWork: true`,
+but cannot turn it off when the harness has it on. The Policy pane shows **On** or **Off** and its source:
+explicit `true` is *repo*, otherwise *harness*. A refused `false` keeps it **On**, shows
+`repo asked for false: refused`, and adds a `config.policy` readiness blocker; remove the override or set it to `true`.
+
 Use **Override in repo config…** in the Policy pane to choose a permitted value and copy its full-path
 JSON fragment. Use exact config tokens: **assume and report** is `assume-and-report`. Merge the fragment
 into the existing config, preserving sibling fields; model choices come from harness Settings, and
@@ -102,6 +108,18 @@ Copilot CLI in its own git worktree outside the repo; its acceptance tests go in
 folder. Proven work lands on `agentos/main`; review, merge and push it yourself. **Settings** picks the
 models offered to agents and a default per role; a repo may choose among them in `agents.models`. From the
 terminal: `swift run agentos work <path> --ticket "<title>" --criterion "<criterion>" --go`.
+
+Breakdown previews list each leaf's predicted files or directory prefixes after its touch set when
+provided. The work pane shows them in **Paths**, or **–** when there are no predictions. Replanning
+refreshes predictions even for leaves whose tickets, tests and approvals are kept.
+
+With overlap avoidance on, a ready leaf waits for overlapping work that is building, being checked,
+in review or landing. The harness compares predicted paths with the active work's changed files when
+known, or its predictions otherwise; missing paths fall back to shared touch-set components. The leaf
+stays **Ready**. Its ticket and work-pane detail explain which node and paths or components it waits
+for, that it starts by itself once the other work lands or stops being in progress, and that nothing
+needs to be done. An unchanged explanation is not posted again, even after a restart. Holds and their
+ends are recorded in the ledger; the pane clears the explanation once the hold ends.
 
 Repository teams review acceptance tests before implementation and review the complete change after all
 landing checks pass. **Settings → Review** sets the minimum (`none`, `agent`, or `agent+human`), reviewer

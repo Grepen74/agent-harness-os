@@ -677,6 +677,6 @@ import Testing
         "assumptionsReported", "suggestionsReported", "questionsAnswered", "externalDependencyResolved",
         "ticketClosed", "ticketReopened", "readinessScanned", "baselineChecked", "catchUpConflicted",
         "catchUpSucceeded", "caughtUp", "testDraftKept", "diagnosisRecorded",
-        "agentConfigured",
+        "agentConfigured", "overlapHoldStarted", "overlapHoldEnded",
     ]
 }

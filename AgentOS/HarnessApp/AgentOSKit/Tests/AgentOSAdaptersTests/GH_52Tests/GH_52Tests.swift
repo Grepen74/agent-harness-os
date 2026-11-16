@@ -411,7 +411,8 @@ struct GH_52Tests {
             ledger: ledger, tracker: tracker, external: NoExternal(), workspace: workspace,
             artifacts: Artifacts(), checks: work,
             team: AgentTeam(name: "GH-52", decomposer: work, testAuthor: work, implementer: work),
-            policy: Policy(maxParallelAgents: 3), beforeStep: { await observer.stepReserved(for: $0) })
+            policy: Policy(maxParallelAgents: 3, avoidOverlappingWork: false),
+            beforeStep: { await observer.stepReserved(for: $0) })
     }
 
     @MainActor private struct Fixture {

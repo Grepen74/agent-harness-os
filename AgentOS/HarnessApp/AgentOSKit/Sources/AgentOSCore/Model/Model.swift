@@ -104,6 +104,8 @@ public struct NodeSpec: Codable, Sendable, Hashable, Identifiable {
     /// The touch set: components (Swift modules in the monorepo) this leaf expects to change (doc 08 §1).
     /// A prediction, not a fence.
     public var touches: [String] = []
+    /// Repository-relative files or directory prefixes this leaf expects to change.
+    public var predictedPaths: [String] = []
     /// External items this node needs, e.g. "BACKEND-42" (become `depends-on` links).
     public var dependsOn: [String] = []
     /// Earlier siblings that must be proven before this leaf is built, by spec fingerprint: it survives the

@@ -442,12 +442,15 @@ public struct CopilotDecomposer: Decomposer {
         components. Reuse existing components where they fit: \
         \(existingComponents.isEmpty ? "(none known)" : existingComponents.joined(separator: ", ")). \
         \(request.codebase == nil ? "" : "Read the code where it helps you split the work or reuse what exists. ")\
+        For each leaf, predict the repository-relative paths (files or directory prefixes) it expects to change \
+        in "predictedPaths". Do not use absolute paths or ".." path components. \
         Do not create or modify any files.
 
         Respond with ONLY a JSON object (no prose, no code fences):
         {"questions": [string or {"question": string, "suggestion": string}], "assumptions": [string], \
         "children": [{"title": string, "acceptanceCriteria": [string], \
-        "touches": [component names], "dependsOn": [keys from the external dependencies list that this leaf needs, else []], \
+        "touches": [component names], "predictedPaths": [repository-relative files or directory prefixes], \
+        "dependsOn": [keys from the external dependencies list that this leaf needs, else []], \
         "after": [numbers (1-based) of earlier children in this list that must land before this one is built, else []]}]}
         List children in the order they can land. Use "after" when a child can't be built or pass its tests \
         without an earlier child's work, e.g. because it uses an API, test setup or migration that child adds; \

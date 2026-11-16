@@ -39,6 +39,7 @@ public struct Policy: Sendable, Equatable {
     /// Nodes worked on at the same time in a round: the agents the harness starts, not the sub-agents they use.
     /// Landing is always one at a time.
     public var maxParallelAgents = 1
+    public var avoidOverlappingWork = true
     /// The signals people may use (doc 05 §3). Production: the harness layer sets what each profile may offer
     /// and the repo config may only switch signals off (doc 04 §8); strict profiles leave out `go`.
     public var allowedSignals: Set<HarnessCommand>
@@ -49,11 +50,12 @@ public struct Policy: Sendable, Equatable {
 
     public init(maxAttempts: Int = 3, maxReworks: Int = 3, maxAgentRuns: Int = 12, maxParallelAgents: Int = 1,
                 allowedSignals: Set<HarnessCommand> = Set(HarnessCommand.allCases), protectedPaths: [String] = [],
-                guesswork: Guesswork = .assumeAndReport) {
+                guesswork: Guesswork = .assumeAndReport, avoidOverlappingWork: Bool = true) {
         self.maxAttempts = maxAttempts
         self.maxReworks = maxReworks
         self.maxAgentRuns = maxAgentRuns
         self.maxParallelAgents = maxParallelAgents
+        self.avoidOverlappingWork = avoidOverlappingWork
         self.allowedSignals = allowedSignals
         self.protectedPaths = protectedPaths
         self.guesswork = guesswork
@@ -204,6 +206,7 @@ enum Planner {
                 id: "\(parent.id).\(index + 1)", parent: parent.id, kind: .leaf, title: proposal.title,
                 intent: "Part of \(parent.title)", acceptanceCriteria: proposal.acceptanceCriteria,
                 touches: touches.isEmpty ? [ComponentName.from(parent.title, maxWords: 3)] : Array(Set(touches)).sorted(),
+                predictedPaths: PredictedPath.normalize(proposal.predictedPaths ?? []),
                 dependsOn: proposal.dependsOn ?? [])
         }
         for (index, proposal) in proposals.enumerated() {
@@ -216,7 +219,7 @@ enum Planner {
 
     static func describe(_ specs: [NodeSpec], under title: String) -> String {
         guard specs.count > 1 else {
-            let touches = specs.first.map { " (touches: \($0.touches.joined(separator: ", ")))" } ?? ""
+            let touches = specs.first.map { " (touches: \($0.touches.joined(separator: ", "))\(pathsDescription($0)))" } ?? ""
             return "\(title)\n└─ no children: it is a leaf itself\(touches)"
         }
         let lines = specs.enumerated().map { index, spec in
@@ -226,8 +229,12 @@ enum Planner {
             }
             let names = siblings + spec.dependsOn
             let waits = names.isEmpty ? "" : "  (waits for \(names.joined(separator: ", ")))"
-            return "\(branch) \(spec.title)  touches: \(spec.touches.joined(separator: ", "))\(waits)"
+            return "\(branch) \(spec.title)  touches: \(spec.touches.joined(separator: ", "))\(pathsDescription(spec))\(waits)"
         }
         return ([title] + lines).joined(separator: "\n")
+    }
+
+    private static func pathsDescription(_ spec: NodeSpec) -> String {
+        spec.predictedPaths.isEmpty ? "" : "  paths: \(spec.predictedPaths.joined(separator: ", "))"
     }
 }

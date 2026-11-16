@@ -108,6 +108,13 @@ struct NodeDetail: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("\(node.spec.id) · \(node.spec.kind.rawValue)").font(.headline)
                 grid
+                if let message = model.state.overlapHoldMessage(for: node) {
+                    Label(message, systemImage: "pause.circle")
+                        .font(.body)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: 640, alignment: .leading)
+                }
                 AgentRuns(node: node)
                 if !node.reviews.isEmpty {
                     Text("Reviews").font(.caption.bold()).padding(.top, 4)
@@ -166,6 +173,7 @@ struct NodeDetail: View {
             row("Gates", node.gates.isEmpty ? "– (inherited from parent if any)" : node.gates.map(\.rawValue).sorted().joined(separator: ", "))
             row("Links", node.links.isEmpty ? "–" : node.links.map { "\($0.type.rawValue) \($0.to)" }.joined(separator: "\n"))
             row("Touches", node.spec.touches.isEmpty ? "–" : node.spec.touches.joined(separator: ", "))
+            row("Paths", node.spec.predictedPaths.isEmpty ? "–" : node.spec.predictedPaths.joined(separator: "\n"))
             row("Test target", node.spec.kind == .leaf ? node.spec.testTarget : "–")
             row("Attempts failed", "\(node.failedAttempts)")
             row("Reworks", "\(node.reworks)")

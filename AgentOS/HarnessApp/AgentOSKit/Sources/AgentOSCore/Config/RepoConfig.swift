@@ -72,12 +72,15 @@ public struct RepoConfig: Codable, Sendable, Equatable {
         /// Test-author and implementer runs per ticket before a person must look.
         public var maxAgentRuns: Int?
         public var maxParallelAgents: Int?
+        public var avoidOverlappingWork: Bool?
 
-        public init(maxAttempts: Int? = nil, maxReworks: Int? = nil, maxAgentRuns: Int? = nil, maxParallelAgents: Int? = nil) {
+        public init(maxAttempts: Int? = nil, maxReworks: Int? = nil, maxAgentRuns: Int? = nil,
+                    maxParallelAgents: Int? = nil, avoidOverlappingWork: Bool? = nil) {
             self.maxAttempts = maxAttempts
             self.maxReworks = maxReworks
             self.maxAgentRuns = maxAgentRuns
             self.maxParallelAgents = maxParallelAgents
+            self.avoidOverlappingWork = avoidOverlappingWork
         }
     }
 

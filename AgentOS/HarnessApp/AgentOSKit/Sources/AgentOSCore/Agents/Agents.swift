@@ -228,15 +228,18 @@ public struct ChildProposal: Codable, Sendable {
     public var acceptanceCriteria: [String]
     /// Components it expects to change (the touch set, doc 08 §1).
     public var touches: [String]?
+    /// Repository-relative files or directory prefixes this leaf expects to change.
+    public var predictedPaths: [String]?
     public var dependsOn: [String]?
     /// 1-based positions of earlier children in the same breakdown that must land before this one is built.
     public var after: [Int]?
 
     public init(title: String, acceptanceCriteria: [String], touches: [String]? = nil, dependsOn: [String]? = nil,
-                after: [Int]? = nil) {
+                after: [Int]? = nil, predictedPaths: [String]? = nil) {
         self.title = title
         self.acceptanceCriteria = acceptanceCriteria
         self.touches = touches
+        self.predictedPaths = predictedPaths
         self.dependsOn = dependsOn
         self.after = after
     }
