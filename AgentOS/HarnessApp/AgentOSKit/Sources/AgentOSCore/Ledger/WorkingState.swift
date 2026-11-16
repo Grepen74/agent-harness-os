@@ -21,6 +21,8 @@ public struct Preview: Sendable, Hashable {
     public let specHash: String
     public let proposal: [NodeSpec]
     public var breakdownWarnings: [BreakdownFinding] = []
+    /// When it was recorded: answers given later weren't used by it.
+    public var recordedAt: Date?
 }
 
 /// A preview whose decomposer is running now. Not a node's run: the ticket may not be adopted.
@@ -257,7 +259,8 @@ public struct WorkingState: Sendable {
             pendingBreakdownWarnings[ticket] = check.findings
         case .previewRecorded(let ticket, let number, let specHash, let proposal):
             previews[ticket] = Preview(number: number, specHash: specHash, proposal: proposal,
-                                      breakdownWarnings: pendingBreakdownWarnings.removeValue(forKey: ticket) ?? [])
+                                      breakdownWarnings: pendingBreakdownWarnings.removeValue(forKey: ticket) ?? [],
+                                      recordedAt: event.at)
         case .previewStarted(let ticket, let node, let run):
             runningPreviews[ticket] = RunningPreview(ticket: ticket, node: node, run: run, since: event.at)
         case .previewFinished(let ticket, let run, _):

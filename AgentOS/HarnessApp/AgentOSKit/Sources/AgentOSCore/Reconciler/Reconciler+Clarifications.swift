@@ -124,11 +124,19 @@ extension Reconciler {
 
     static let needsInputMarker = "❓ Needs input"
     static let previewQuestionsMarker = "❓ The decomposer has questions before it can propose a breakdown"
+    static let previewSuggestionsMarker = "💡 Proceeding on suggested answers for this preview"
+
+    private static let numberedAnswerPattern = #"(?:^|[,\r\n])\s*(\d+)\.\s*Answer:\s*"#
+
+    /// Whether a reply answers by number (`2. Answer: …`), rather than being a plain comment.
+    static func hasNumberedAnswers(_ reply: String) -> Bool {
+        reply.range(of: numberedAnswerPattern, options: [.regularExpression, .caseInsensitive]) != nil
+    }
 
     private static func resolveAnswers(
         _ reply: String, to questions: [AgentQuestion], signal: HarnessCommand
     ) throws -> [Clarification] {
-        let pattern = #"(?:^|[,\r\n])\s*(\d+)\.\s*Answer:\s*"#
+        let pattern = numberedAnswerPattern
         let regex = try NSRegularExpression(pattern: pattern, options: .caseInsensitive)
         let text = reply as NSString
         let matches = regex.matches(in: reply, range: NSRange(location: 0, length: text.length))
@@ -167,14 +175,23 @@ extension Reconciler {
     }
 
     /// Answers to a preview's questions: the human comments after each such question comment (up to the next
-    /// one), with the questions it asked. Those the node doesn't have yet.
+    /// one), with the questions it asked. After the suggested answers a preview went with, only numbered
+    /// corrections count: other comments there are about the preview, not answers. Those the node doesn't have yet.
     static func newPreviewAnswers(on ticket: Ticket, for node: NodeState?) throws -> [Clarification] {
         var answers: [Clarification] = []
         var asked: [AgentQuestion]?
+        var correctingSuggestions = false
         var replies: [String] = []
         var repliedAt: Date?
         func flush() throws {
-            if let asked, !replies.isEmpty {
+            if let asked, correctingSuggestions {
+                // Uncorrected suggestions come along as answers, so the next preview keeps what it went with.
+                for reply in replies where hasNumberedAnswers(reply) {
+                    var answered = try resolveAnswers(reply, to: asked, signal: .preview)
+                    for index in answered.indices { answered[index].answeredAt = repliedAt }
+                    answers += answered
+                }
+            } else if let asked, !replies.isEmpty {
                 // Dated like recorded answers, so a fresh correction sorts after the answers it corrects.
                 answers += try resolveAnswers(replies.joined(separator: "\n\n"), to: asked, signal: .preview).map {
                     var answer = $0
@@ -185,8 +202,10 @@ extension Reconciler {
             replies = []
         }
         for comment in ticket.comments {
-            if !comment.author.isHuman && comment.text.contains(previewQuestionsMarker) {
+            if !comment.author.isHuman,
+               comment.text.contains(previewQuestionsMarker) || comment.text.contains(previewSuggestionsMarker) {
                 try flush()
+                correctingSuggestions = comment.text.contains(previewSuggestionsMarker)
                 var questions: [AgentQuestion] = []
                 for line in comment.text.split(separator: "\n") {
                     if let match = line.firstMatch(of: /^\d+\.\s+(.+)$/) {
@@ -252,12 +271,18 @@ extension Reconciler {
             "while accepting the remaining suggestions.\(unsuggested) Then add \(command.label)."
     }
 
-    func postProceedingOnSuggestions(_ questions: [AgentQuestion], on ticket: String) async {
+    /// A preview's suggestions are corrected by previewing again: the ticket isn't adopted, so there's nothing to retry.
+    func postProceedingOnSuggestions(_ questions: [AgentQuestion], on ticket: String, forPreview: Bool = false) async {
         guard !questions.isEmpty, questions.allSatisfy({ $0.suggestion != nil }) else { return }
+        let next = forPreview
+            ? "To correct one, comment with its number and the corrected answer, one per line, e.g. `2. Answer: <answer text>`, " +
+              "then add \(HarnessCommand.preview.label) to see the breakdown with it. \(HarnessCommand.breakdown.label) and " +
+              "\(HarnessCommand.go.label) accept this preview only while no answer has been corrected since."
+            : "To correct one, comment with its number and the corrected answer, then add \(HarnessCommand.retry.label)."
         await tracker.comment(on: ticket, """
-            💡 Proceeding on suggested answers:
+            \(forPreview ? Self.previewSuggestionsMarker : "💡 Proceeding on suggested answers"):
             \(Self.numbered(questions))
-            To correct one, comment with its number and the corrected answer, then add harness:retry.
+            \(next)
             """)
     }
 

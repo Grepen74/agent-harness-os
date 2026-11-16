@@ -100,11 +100,23 @@ public struct Policy: Sendable, Equatable {
         guard guesswork == .autonomous,
               !report.questions.isEmpty,
               report.questions.allSatisfy({ $0.suggestion != nil }) else {
-            return report.assumptions
+            return ownAssumptions(in: report)
         }
-        return report.assumptions + report.questions.map {
-            "\($0.suggestion!) (suggested answer to: \($0.question))"
-        }
+        return ownAssumptions(in: report) + report.questions.map(Self.suggestedAnswer)
+    }
+
+    /// The agent's assumptions, each once, without those that only restate a suggested answer: agents sometimes
+    /// repeat one, and the suggested answers are listed separately.
+    func ownAssumptions(in report: AgentReport) -> [String] {
+        func key(_ text: String) -> String { text.lowercased().split(whereSeparator: \.isWhitespace).joined(separator: " ") }
+        var seen = Set(report.questions.flatMap { question in
+            question.suggestion.map { [key($0), key(Self.suggestedAnswer(question))] } ?? []
+        })
+        return report.assumptions.filter { seen.insert(key($0)).inserted }
+    }
+
+    private static func suggestedAnswer(_ question: AgentQuestion) -> String {
+        "\(question.suggestion ?? "") (suggested answer to: \(question.question))"
     }
 
     /// The changed files that touch a protected path.

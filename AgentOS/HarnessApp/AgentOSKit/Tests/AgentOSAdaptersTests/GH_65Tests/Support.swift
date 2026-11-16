@@ -192,6 +192,10 @@ extension GH_65Tests {
                 case .tooManyCriteria(_, let title, _, _):
                     #expect(explanations.contains { $0.contains(title) && matches($0, #"split|too many"#) },
                             "Explain why the oversized child should be split")
+                case .repeatedCriterion(_, let titles, let text):
+                    #expect(explanations.contains { explanation in
+                        titles.allSatisfy(explanation.contains) && explanation.contains(text)
+                    }, "Name every child that repeats the criterion")
                 }
             }
         }

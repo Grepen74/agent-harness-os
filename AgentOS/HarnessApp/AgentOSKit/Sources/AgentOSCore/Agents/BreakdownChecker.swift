@@ -9,6 +9,8 @@ public enum BreakdownFinding: Codable, Hashable, Sendable {
                           sharedComponents: [String])
     /// More criteria than one agent run reliably proves: such leaves time out and keep coming back from review.
     case tooManyCriteria(childPosition: Int, childTitle: String, count: Int, limit: Int)
+    /// The same criterion in several children: each of their test authors tests it again.
+    case repeatedCriterion(childPositions: [Int], childTitles: [String], criterionText: String)
 
     public var severity: Finding.Severity { .warning }
 }
@@ -60,6 +62,24 @@ public enum BreakdownChecker {
             ancestors.append(earlierChildren)
         }
 
+        var childrenByCriterion: [String: [Int]] = [:]
+        var criterionOrder: [String] = []
+        for (childIndex, child) in children.enumerated() {
+            var seenInChild: Set<String> = []
+            for criterion in child.acceptanceCriteria.map(normalized)
+            where !criterion.isEmpty && seenInChild.insert(criterion).inserted {
+                if childrenByCriterion[criterion] == nil { criterionOrder.append(criterion) }
+                childrenByCriterion[criterion, default: []].append(childIndex)
+            }
+        }
+        for criterion in criterionOrder {
+            let indices = childrenByCriterion[criterion, default: []]
+            guard indices.count > 1,
+                  let text = children[indices[0]].acceptanceCriteria.first(where: { normalized($0) == criterion }) else { continue }
+            findings.append(.repeatedCriterion(childPositions: indices.map { $0 + 1 },
+                                               childTitles: indices.map { children[$0].title }, criterionText: text))
+        }
+
         for firstIndex in children.indices {
             for secondIndex in children.indices.dropFirst(firstIndex + 1) {
                 guard !ancestors[secondIndex].contains(firstIndex) else { continue }
@@ -73,6 +93,13 @@ public enum BreakdownChecker {
             }
         }
         return findings
+    }
+
+    /// Case, spacing and a closing full stop don't make criteria different.
+    private static func normalized(_ criterion: String) -> String {
+        var text = criterion.lowercased().split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        while text.hasSuffix(".") { text.removeLast() }
+        return text
     }
 
     private static func containsRepositoryPath(_ text: String) -> Bool {

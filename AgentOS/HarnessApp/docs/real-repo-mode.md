@@ -278,7 +278,9 @@ default that flips): the test author may update them with the smallest change an
 the acceptance tests, fingerprinted and locked like them, and named in the ticket comment. Work landing on
 `agentos/main` meanwhile may change them too: when the harness moves the leaf onto it (before building,
 at landing, when catching up) and they were as locked just before, uncommitted changes aside, their lock
-moves along. The reviewer rejects any such change no criterion requires.
+moves along. The reviewer rejects any such change no criterion requires. So the decomposer gives such
+updates to the child whose change breaks those tests, as a criterion naming them and their new
+expectation; it never makes the work wait for a person to change the repo first.
 When the implementer reports a broken test (its own or, by `Suite.testName`, another item's that conflicts
 with this ticket), the ticket goes back to the test author without charging an attempt. A person is asked
 only on the third report since a person last stepped in (an answer, `harness:retry` or `harness:retest`);
@@ -663,6 +665,12 @@ Each phase is usable on its own.
      what users observe?") and answers with questions instead of children when it isn't. A preview with
      questions records nothing; you answer in a comment (or edit the ticket) and preview again. The next
      preview reads those answers, and adopting the ticket (breakdown or go) keeps them for later agents.
+   - **Suggested answers:** under `autonomous`, when every question comes with a suggested answer, the work
+     carries on with the suggestions and posts "💡 Proceeding on suggested answers", listing them once
+     (assumptions that only restate one are dropped). The comment names only signals that work on the
+     ticket: on a preview, correct a suggestion by commenting `2. Answer: <answer>` (one per line) and add
+     `harness:preview`; on adopted work, comment and add `harness:retry`. `harness:breakdown` and
+     `harness:go` refuse a preview when answers were given after it, so it never silently ignores them.
    - The decomposer runs in a read-only snapshot of `agentos/main` (a detached worktree, removed afterwards),
      so it reads the code and the repo's `AGENTS.md` when it splits the work. Anything it writes there is
      thrown away. If the snapshot can't be made, it splits from the ticket alone.
@@ -670,7 +678,9 @@ Each phase is usable on its own.
      vague rule references (such as "existing rule", "as agreed" or "see child"), path-based scope criteria
      (such as "Sources/Reader.swift is unchanged"), and siblings touching the same component without direct
      or transitive `after` ordering, and children with more than 6 acceptance criteria (more than one agent run
-     can prove; even a single-child "leaf" proposal is checked for this). Findings trigger exactly one decomposer retry with the prior proposal
+     can prove; even a single-child "leaf" proposal is checked for this), and the same criterion in several
+     children (case, spacing and a closing full stop aside), which each child's test author would test
+     again: a rule belongs to the child that builds it, and later children wait for it with `after`. Findings trigger exactly one decomposer retry with the prior proposal
      and structured findings, separate from human answers. A clean first proposal needs no retry.
      The second eligible proposal is used even if findings remain; there is never a third checker-driven call.
      Ownership wording does not suppress overlap findings: they remain advisory, so a person can accept

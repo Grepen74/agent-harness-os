@@ -68,15 +68,16 @@ extension Reconciler {
                     """)
                 outcome = "questions posted; no preview recorded"
             } else {
-                await postProceedingOnSuggestions(breakdown.report.questions, on: ticket.key)
+                await postProceedingOnSuggestions(breakdown.report.questions, on: ticket.key, forPreview: true)
                 let children = Planner.childSpecs(parent: spec, proposals: breakdown.children)
                 let number = (await ledger.workingState().previews[ticket.key]?.number ?? 0) + 1
                 try await write(nil, by: .reconciler, [
                     .previewRecorded(ticket: ticket.key, number: number, specHash: spec.specHash, proposal: children)])
-                // Accepting the preview accepts its assumptions too: they aren't asked about again.
+                // Accepting the preview accepts its assumptions too: they aren't asked about again. The suggested
+                // answers it went with are listed above, not again here.
                 await tracker.comment(on: ticket.key, """
                     🔍 Preview #\(number). Nothing has been created.
-                    \(ranWith)\(Planner.describe(children, under: ticket.title))\(Self.assumptionsNote("Assumptions the decomposer made", policy.assumptions(in: breakdown.report)))
+                    \(ranWith)\(Planner.describe(children, under: ticket.title))\(Self.assumptionsNote("Assumptions the decomposer made", policy.ownAssumptions(in: breakdown.report)))
                     Accept with label harness:breakdown, or edit the ticket and preview again.
                     """)
                 outcome = "preview #\(number) posted"
@@ -176,10 +177,10 @@ extension Reconciler {
             let problems = policy.readinessProblems(ticket)
             guard problems.isEmpty else { throw Rejection(reason: "Not ready yet. Missing: \(problems.joined(separator: ", ")).") }
             let spec = Planner.rootSpec(for: ticket)
+            let preview = try Self.currentPreview(of: ticket, spec: spec, in: state)
             // Adoption: from now on the harness owns the node; the ticket shows a projection of it.
             try await write(spec.id, by: .human(person), [.nodeCreated(spec: spec, ticket: ticket.key), .gateOpened(.breakdown)]
                 + Self.answerEvents(on: ticket, for: nil))
-            let preview = state.previews[ticket.key].flatMap { $0.specHash == spec.specHash ? $0 : nil }
             return "adopted; breakdown approved" +
                 (preview.map { " (will create exactly preview #\($0.number))" } ?? "") + "\n" + spec.trackerSummary
 
@@ -207,7 +208,7 @@ extension Reconciler {
                 return try await correctSuggestion(on: node, ticket: ticket, in: state)
             }
             guard let node, node.flags[.escalated] != nil else {
-                throw Rejection(reason: "Nothing to retry. \(HarnessCommand.retry.label) only continues work that stopped: " +
+                throw Rejection(reason: "Nothing to retry: retrying only continues work that stopped: " +
                     "an escalation, or questions or a review waiting for you.")
             }
             try await write(node.id, by: .human(person), [.flagCleared(.escalated), .attemptsReset])
@@ -235,6 +236,7 @@ extension Reconciler {
             let problems = policy.readinessProblems(ticket)
             guard problems.isEmpty else { throw Rejection(reason: "Not ready yet. Missing: \(problems.joined(separator: ", ")).") }
             let spec = Planner.rootSpec(for: ticket)
+            _ = try Self.currentPreview(of: ticket, spec: spec, in: state)
             try await write(spec.id, by: .human(person), [
                 .nodeCreated(spec: spec, ticket: ticket.key), .gateOpened(.breakdown), .gateOpened(.build)]
                 + Self.answerEvents(on: ticket, for: nil))
@@ -274,6 +276,17 @@ extension Reconciler {
 
     private static func answerEvents(on ticket: Ticket, for node: NodeState?) throws -> [EventKind] {
         try newPreviewAnswers(on: ticket, for: node).map { .questionsAnswered($0) }
+    }
+
+    /// The preview adopting this ticket builds exactly (doc 05 §3), if any. Refused when answers were given
+    /// after it: it was proposed without them, and they would be recorded but never used.
+    private static func currentPreview(of ticket: Ticket, spec: NodeSpec, in state: WorkingState) throws -> Preview? {
+        guard let preview = state.previews[ticket.key], preview.specHash == spec.specHash else { return nil }
+        guard let recorded = preview.recordedAt,
+              try newPreviewAnswers(on: ticket, for: nil).contains(where: { ($0.answeredAt ?? .distantPast) > recorded })
+        else { return preview }
+        throw Rejection(reason: "Answers were given after preview #\(preview.number), so it doesn't use them. " +
+            "Add \(HarnessCommand.preview.label) to see the breakdown with them first.")
     }
 
     /// Leaves below `id` (or `id` itself) whose acceptance tests wait for a person's review before build.

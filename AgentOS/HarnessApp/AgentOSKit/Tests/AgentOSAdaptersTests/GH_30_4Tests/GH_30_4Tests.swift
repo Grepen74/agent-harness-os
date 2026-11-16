@@ -104,7 +104,7 @@ struct GH_30_4Tests {
             #expect(comment.contains("No results"))
             #expect(comment.localizedCaseInsensitiveContains("comment"))
             #expect(comment.localizedCaseInsensitiveContains("number"))
-            #expect(comment.contains("harness:retry"))
+            #expect(comment.contains(flow == .preview ? "harness:preview" : "harness:retry"))
         }
     }
 

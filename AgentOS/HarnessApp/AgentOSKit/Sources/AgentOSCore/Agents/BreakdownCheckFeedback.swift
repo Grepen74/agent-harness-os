@@ -23,6 +23,11 @@ extension BreakdownFinding {
         case .tooManyCriteria(let child, let title, let count, let limit):
             "Child \(child) \"\(title)\" has \(count) acceptance criteria, more than \(limit): too much for one agent run "
                 + "to prove. Split it into smaller children, each with a few related criteria."
+        case .repeatedCriterion(let children, let titles, let text):
+            "Children \(zip(children, titles).map { "\($0) \"\($1)\"" }.joined(separator: ", ")) all have the criterion "
+                + "\"\(text)\": each of their test authors would test it again. Keep it in the child that builds it; the "
+                + "others wait for that child (\"after\") and state only what they add, defining its terms in a short clause "
+                + "where they need them."
         }
     }
 }

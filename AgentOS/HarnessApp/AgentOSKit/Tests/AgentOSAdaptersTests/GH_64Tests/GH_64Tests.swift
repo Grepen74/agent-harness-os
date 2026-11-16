@@ -241,7 +241,8 @@ import AgentOSCore
             vague(1, "Repeated", 2, text),
             scope(1, "Repeated", 2, text),
             vague(2, "Repeated", 1, text),
-            scope(2, "Repeated", 1, text)
+            scope(2, "Repeated", 1, text),
+            .repeatedCriterion(childPositions: [1, 2], childTitles: ["Repeated", "Repeated"], criterionText: text)
         ])
     }
 
@@ -263,6 +264,7 @@ import AgentOSCore
             vague(2, "Duplicate title", 1, vagueOnly),
             vague(3, "Third", 1, both),
             scope(3, "Third", 1, both),
+            .repeatedCriterion(childPositions: [1, 3], childTitles: ["Duplicate title", "Third"], criterionText: both),
             overlap(1, "Duplicate title", 2, "Duplicate title", ["Alpha", "Zeta"]),
             overlap(1, "Duplicate title", 3, "Third", ["Alpha", "Zeta"]),
             overlap(2, "Duplicate title", 3, "Third", ["Alpha", "Zeta"])

@@ -46,6 +46,8 @@ extension Reconciler {
         let proposed: [NodeSpec]
         let author: Participant
         var assumptions: [String] = []
+        // The suggested answers it went with are in their own comment, so they aren't listed again here.
+        var shownAssumptions: [String] = []
         if let preview = state.previews[node.ticket], preview.specHash == node.spec.specHash {
             // What you saw is what you get: no regeneration (doc 05 §3).
             proposed = preview.proposal.map { spec in
@@ -81,10 +83,11 @@ extension Reconciler {
             try await recordSuggestions(breakdown.report.questions, on: node, role: .decomposer, by: author)
             proposed = Planner.childSpecs(parent: node.spec, proposals: breakdown.children)
             assumptions = policy.assumptions(in: breakdown.report)
+            shownAssumptions = policy.ownAssumptions(in: breakdown.report)
             try await write(node.id, by: author, [.runFinished(run: run, outcome: "proposed \(proposed.count) children")]
                 + (assumptions.isEmpty ? [] : [.assumptionsReported(role: .decomposer, assumptions: assumptions)]))
         }
-        let note = Self.assumptionsNote("Assumptions the decomposer made", assumptions)
+        let note = Self.assumptionsNote("Assumptions the decomposer made", shownAssumptions)
         let (children, revision) = try await revise(node, proposed: proposed, in: state)
 
         // Leaf check (doc 02 §4): a "breakdown" into one piece is the node itself, so it becomes the leaf.

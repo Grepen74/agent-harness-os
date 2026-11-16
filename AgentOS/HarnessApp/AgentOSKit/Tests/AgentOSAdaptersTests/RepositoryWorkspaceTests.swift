@@ -17,8 +17,13 @@ struct RepositoryWorkspaceTests {
         leafTests: .init(target: "AppTests", folder: "Tests/AppTests/"))
 
     struct Leaf: Decomposer {
+        /// Each ticket's leaf touches a component named after the ticket, so tickets meant to be built side by side
+        /// don't overlap; otherwise every leaf touches "App".
+        var touchesOwnComponent = false
+
         func proposeChildren(_ request: BreakdownRequest) async throws -> Breakdown {
-            Breakdown(children: [ChildProposal(title: request.spec.title, acceptanceCriteria: request.spec.acceptanceCriteria, touches: ["App"])])
+            Breakdown(children: [ChildProposal(title: request.spec.title, acceptanceCriteria: request.spec.acceptanceCriteria,
+                                               touches: [touchesOwnComponent ? request.spec.title : "App"])])
         }
     }
 
@@ -471,7 +476,7 @@ struct RepositoryWorkspaceTests {
         let bench = Workbench(limit: limit, total: 3)
         var harness = HarnessSettings()
         harness.maxParallelAgents = limit
-        let team = AgentTeam(name: "Side by side", decomposer: Leaf(), testAuthor: ShellTestAuthor(filePerTicket: true),
+        let team = AgentTeam(name: "Side by side", decomposer: Leaf(touchesOwnComponent: true), testAuthor: ShellTestAuthor(filePerTicket: true),
                              implementer: WorkbenchImplementer(bench: bench))
         let session = try await session(repo, team: team, harness: harness)
         let keys = [await ticket(session, title: "One"), await ticket(session, title: "Two"), await ticket(session, title: "Three")]
@@ -571,7 +576,7 @@ struct RepositoryWorkspaceTests {
     @Test("When your repo changes while agents run side by side, each names the others it ran with")
     func gitStateChangesNameConcurrentAgents() async throws {
         let repo = try await makeRepo()
-        let team = AgentTeam(name: "Tagging", decomposer: Leaf(), testAuthor: ShellTestAuthor(filePerTicket: true),
+        let team = AgentTeam(name: "Tagging", decomposer: Leaf(touchesOwnComponent: true), testAuthor: ShellTestAuthor(filePerTicket: true),
                              implementer: TaggingImplementer(moments: Moments()))
         let session = try await session(repo, team: team)
         let honest = await ticket(session, title: "Honest")

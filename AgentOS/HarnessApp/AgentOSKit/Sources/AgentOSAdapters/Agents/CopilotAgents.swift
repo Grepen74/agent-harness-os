@@ -357,7 +357,8 @@ public struct CopilotCLI: Sendable {
     /// Every question should come with the answer the agent would propose, so answering becomes reviewing (#14).
     static let suggestionRule = "Give each question as {\"question\": string, \"suggestion\": string} with the answer " +
         "you would propose, e.g. one an existing repository convention or the ticket's context points to; use a " +
-        "plain string only when no answer is sensible to propose."
+        "plain string only when no answer is sensible to propose. Don't repeat a question or its suggested answer " +
+        "among your assumptions: the harness lists the suggested answers it goes with itself."
 
     /// What to do once there are questions. Autonomous work carries on when every question has a suggestion
     /// (the harness proceeds on them, #30), so stopping then would leave nothing to proceed with.
@@ -450,12 +451,15 @@ public struct CopilotDecomposer: Decomposer {
         together:
         - If the work changes behaviour that existing code or tests rely on (a signature, whether a call waits, \
         a status or value it returns), prefer keeping that behaviour and adding the new one beside it (a new \
-        function or option) so existing tests stay valid. No child may change tests outside its own folder, so \
-        never write criteria that need existing tests changed. If existing tests must change anyway, don't break \
-        the work down yet: ask a question naming those tests and the new contract, suggesting a person moves \
-        them over on the default branch first, in a form that passes both before and after the change.
-        - When several children depend on the same rule, write the rule out in full, in the same words, in each \
-        of them. Never refer to "the existing rule", "as agreed" or another child instead.
+        function or option) so existing tests stay valid. If existing tests must change anyway, the child whose \
+        change breaks them updates them: give that child a criterion naming those tests and what they should \
+        expect now. Its test author updates them with its acceptance tests, and a reviewer checks the change. \
+        Never make the work wait for a person to change the repo first, and don't ask for that.
+        - Each rule belongs to one child: the first one that builds it states it in full in its criteria. \
+        Children that build on it wait for that child ("after") and don't repeat the rule as a criterion of their \
+        own, because their tests would check it again; where a criterion needs its terms, define them in a short \
+        clause, e.g. "a held leaf (one whose paths overlap work in progress)". Never refer to "the existing rule", \
+        "as agreed" or another child instead.
         - Check every pair of children: their criteria must never contradict each other. Children touching the \
         same component or API either use "after" or say in their criteria which part each one owns.
         - Criteria describe lasting behaviour users can observe, not this item's scope: never "doesn't change \
