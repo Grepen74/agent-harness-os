@@ -65,11 +65,11 @@ struct GH_29_2Tests {
     }
 
     @Test
-    func reportOnTestsReworkedTwiceForBrokenTestsWaitsAndShowsEveryReport() async throws {
+    func reportOnATestReworkedTwiceForBrokenTestsWaitsAndShowsEveryReport() async throws {
         let fixture = try await Fixture(implementerReports: [
-            .init(brokenTest: .init(testName: "originalContract", reason: "The original contract is impossible.")),
-            .init(brokenTest: .init(testName: "secondContract", reason: "The second contract misses a case.")),
-            .init(brokenTest: .init(testName: "rewrittenContract", reason: "The rewrite still requires hidden state.")),
+            .init(brokenTest: .init(testName: "contract", reason: "The original contract is impossible.")),
+            .init(brokenTest: .init(testName: "contract", reason: "The second contract misses a case.")),
+            .init(brokenTest: .init(testName: "contract", reason: "The rewrite still requires hidden state.")),
         ])
 
         await fixture.runRounds(6)
@@ -77,13 +77,39 @@ struct GH_29_2Tests {
         let node = try #require(await fixture.node())
         #expect(node.failedAttempts == 0)
         let reason = try #require(node.flags[.needsInput])
-        #expect(reason.contains("originalContract"))
         #expect(reason.contains("The original contract is impossible."))
-        #expect(reason.contains("rewrittenContract"))
+        #expect(reason.contains("The second contract misses a case."))
         #expect(reason.contains("The rewrite still requires hidden state."))
-        #expect(reason.contains("secondContract"))
         #expect(reason.localizedCaseInsensitiveContains("next"))
         #expect(await fixture.testAuthor.runCount() == 3)
+    }
+
+    @Test
+    func reportsOnDifferentTestsEachGoBackToTheTestAuthor() async throws {
+        let fixture = try await Fixture(implementerReports: ["first", "second", "third"].map {
+            .init(brokenTest: .init(testName: "\($0)Contract", reason: "The \($0) contract misses a case."))
+        })
+
+        await fixture.runRounds(8)
+
+        let node = try #require(await fixture.node())
+        #expect(node.flags[.needsInput] == nil)
+        #expect(node.failedAttempts == 0)
+        #expect(await fixture.testAuthor.runCount() == 4)
+    }
+
+    @Test
+    func aFifthReportOnAnyTestsWaitsForAPerson() async throws {
+        let fixture = try await Fixture(implementerReports: ["first", "second", "third", "fourth", "fifth"].map {
+            .init(brokenTest: .init(testName: "\($0)Contract", reason: "The \($0) contract misses a case."))
+        })
+
+        await fixture.runRounds(12)
+
+        let node = try #require(await fixture.node())
+        let reason = try #require(node.flags[.needsInput])
+        #expect(reason.contains("firstContract") && reason.contains("fifthContract"))
+        #expect(await fixture.testAuthor.runCount() == 5)
     }
 
     @Test
@@ -112,21 +138,21 @@ struct GH_29_2Tests {
     @Test
     func ticketCommentsNameTheTestReasonAndRoutingOutcome() async throws {
         let fixture = try await Fixture(implementerReports: [
-            .init(brokenTest: .init(testName: "firstContract", reason: "It depends on private state.")),
-            .init(brokenTest: .init(testName: "middleContract", reason: "It depends on a private type.")),
-            .init(brokenTest: .init(testName: "secondContract", reason: "It still depends on private state.")),
+            .init(brokenTest: .init(testName: "contract", reason: "It depends on private state.")),
+            .init(brokenTest: .init(testName: "contract", reason: "It depends on a private type.")),
+            .init(brokenTest: .init(testName: "contract", reason: "It still depends on private state.")),
         ])
 
         await fixture.runRounds(2)
         #expect(await fixture.comments().contains {
-            $0.contains("firstContract")
+            $0.contains("contract")
                 && $0.contains("It depends on private state.")
                 && $0.contains("sent back to the test author")
         })
 
         await fixture.runRounds(4)
         #expect(await fixture.comments().contains {
-            $0.contains("secondContract")
+            $0.contains("contract")
                 && $0.contains("It still depends on private state.")
                 && $0.contains("waiting for a person: the test author already reworked these tests")
         })
@@ -135,9 +161,9 @@ struct GH_29_2Tests {
     @Test
     func workPaneModelsShowBrokenRunAndActionableAttention() async throws {
         let fixture = try await Fixture(implementerReports: [
-            .init(brokenTest: .init(testName: "firstContract", reason: "The first API is unavailable.")),
-            .init(brokenTest: .init(testName: "middleContract", reason: "The next API is unavailable.")),
-            .init(brokenTest: .init(testName: "secondContract", reason: "The replacement API is also unavailable.")),
+            .init(brokenTest: .init(testName: "contract", reason: "The first API is unavailable.")),
+            .init(brokenTest: .init(testName: "contract", reason: "The next API is unavailable.")),
+            .init(brokenTest: .init(testName: "contract", reason: "The replacement API is also unavailable.")),
         ])
         await fixture.runRounds(6)
 
@@ -145,15 +171,15 @@ struct GH_29_2Tests {
         let runs = AgentRuns.runs(of: node.id, in: await fixture.records())
         let implementerRuns = runs.filter { $0.role == .implementer }
         #expect(implementerRuns.map(\.outcome) == [
-            "reported a broken test: firstContract",
-            "reported a broken test: middleContract",
-            "reported a broken test: secondContract",
+            "reported a broken test: contract",
+            "reported a broken test: contract",
+            "reported a broken test: contract",
         ])
 
         let attention = try #require((await fixture.state()).attentionList.first {
             $0.node.id == node.id && $0.flag == .needsInput
         })
-        #expect(attention.reason.contains("secondContract"))
+        #expect(attention.reason.contains("contract"))
         #expect(attention.reason.contains("The replacement API is also unavailable."))
         #expect(attention.reason.localizedCaseInsensitiveContains("next"))
     }

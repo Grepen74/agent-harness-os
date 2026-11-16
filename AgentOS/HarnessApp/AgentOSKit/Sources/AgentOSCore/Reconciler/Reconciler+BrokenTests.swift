@@ -34,10 +34,14 @@ extension Reconciler {
         let finished = EventKind.runFinished(run: run, outcome: "reported a broken test: \(report.testName)")
 
         let earlier = await brokenReportsSentBackSincePersonSteppedIn(node.id)
+        // Settled reports about other tests don't count against this one, up to a cap for churning tests.
+        let sameTest = earlier.filter { $0.testName == report.testName }
+        let tries = sameTest.count >= Self.automaticTestReturns ? sameTest.count : earlier.count
         // Found outside the test area, a test is other work's whatever its name looks like.
         let outOfReach = outsideTestArea(report.testName, in: directory)
         let isOther = outOfReach != nil || !isOwnTest(report.testName, of: node)
-        guard outOfReach == nil, earlier.count < Self.automaticTestReturns else {
+        guard outOfReach == nil, sameTest.count < Self.automaticTestReturns,
+              earlier.count < Self.automaticTestReturnsInAll else {
             let history = (earlier.map { "Earlier: \($0.testName): \($0.reason)" }
                 + ["Now: \(report.testName): \(report.reason)"]).joined(separator: "\n")
             let next = """
@@ -54,14 +58,14 @@ extension Reconciler {
             } else if isOther {
                 """
                 \(report.testName) isn't one of this ticket's acceptance tests. Its expectations conflict with this \
-                ticket, and the test author couldn't settle it in \(earlier.count) tries (it may only update another \
+                ticket, and the test author couldn't settle it in \(tries) tries (it may only update another \
                 item's test where this ticket's criteria deliberately change what that test checks):
                 \(history)
                 \(next)
                 """
             } else {
                 """
-                The test author already reworked these tests \(earlier.count) times after broken-test reports:
+                The test author already reworked these tests \(tries) times after broken-test reports:
                 \(history)
                 Next: review the reports, comment with guidance, then add harness:retry. To have the tests written \
                 again from scratch, add harness:retest instead.
@@ -150,9 +154,12 @@ extension Reconciler {
         return declaredIn.first
     }
 
-    /// How often broken-test reports go back to the test author before a person is asked: one rewrite can fix a
-    /// test and still leave another one broken, so the second try is worth more than a person's wait.
+    /// How often reports about the same test go back to the test author before a person is asked: one rewrite can
+    /// fix a test and still leave another one broken, so the second try is worth more than a person's wait.
     static let automaticTestReturns = 2
+    /// How many broken-test reports, about any tests, go back to the test author before a person is asked: each
+    /// report may name a different test, but endless churn needs a person too.
+    static let automaticTestReturnsInAll = 4
 
     /// The broken-test reports sent back to the test author since a person last stepped in (an answer, a retry,
     /// a retest), oldest first.

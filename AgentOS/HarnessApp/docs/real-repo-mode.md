@@ -286,8 +286,9 @@ updates to the child whose change breaks those tests, as a criterion naming them
 expectation; it never makes the work wait for a person to change the repo first.
 When the implementer reports a broken test (its own or, by `Suite.testName`, another item's that conflicts
 with this ticket), the ticket goes back to the test author without charging an attempt. A person is asked
-only on the third report since a person last stepped in (an answer, `harness:retry` or `harness:retest`);
-the "Needs input" lists every report. A conflicting test that lives outside the test area (a general test
+only on the third report about the same test, or the fifth about any tests, since a person last stepped in
+(an answer, `harness:retry` or `harness:retest`): settled reports about other tests don't use up a test's
+tries. The "Needs input" lists every report. A conflicting test that lives outside the test area (a general test
 of the app, say) goes to a person on the first report: no agent may change it, so a return can't settle it.
 Whenever tests come back (compiler errors, review findings, a broken-test report), the leaf's new branch
 starts from the landing branch with its earlier test folder restored, so the author fixes those tests in

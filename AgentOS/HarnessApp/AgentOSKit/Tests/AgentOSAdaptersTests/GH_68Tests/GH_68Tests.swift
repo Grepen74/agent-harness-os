@@ -177,8 +177,8 @@ import Testing
             Self.event(.brokenTestReported(.init(testName: "GH_68Tests.original", reason: "original conflict"))),
             Self.event(.brokenTestRouted(testName: "GH_68Tests.original", outcome: .sentBackToTestAuthor)),
             Self.event(.testsFixed(digest: "rewritten-tests")),
-            Self.event(.brokenTestReported(.init(testName: "GH_68Tests.second", reason: "second conflict"))),
-            Self.event(.brokenTestRouted(testName: "GH_68Tests.second", outcome: .sentBackToTestAuthor)),
+            Self.event(.brokenTestReported(.init(testName: "GH_68Tests.original", reason: "second conflict"))),
+            Self.event(.brokenTestRouted(testName: "GH_68Tests.original", outcome: .sentBackToTestAuthor)),
             Self.event(.testsFixed(digest: "rewritten-again")),
             Self.event(.attemptsReset, node: Self.other, by: .human("Alice")),
         ]
@@ -188,7 +188,7 @@ import Testing
         defer { Self.remove(fixture.directory) }
 
         _ = try await fixture.reconciler.routeBrokenTest(
-            .init(testName: "GH_68Tests.rewritten", reason: "still conflicting"),
+            .init(testName: "GH_68Tests.original", reason: "still conflicting"),
             from: try await fixture.node(), run: "builder",
             author: .agent(run: "builder", role: .implementer), directory: fixture.directory)
 

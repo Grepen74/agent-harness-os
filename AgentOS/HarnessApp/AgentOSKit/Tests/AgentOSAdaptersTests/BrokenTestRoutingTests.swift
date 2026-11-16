@@ -54,10 +54,10 @@ struct BrokenTestRoutingTests {
 
     @Test func aRetestGivesTheRewrittenTestsAFirstBrokenReportBeforeAPersonIsAsked() async throws {
         let fixture = try await Fixture(reports: [
-            BrokenTestReport(testName: "first", reason: "First problem."),
-            BrokenTestReport(testName: "second", reason: "Second problem."),
-            BrokenTestReport(testName: "third", reason: "Third problem."),
-            BrokenTestReport(testName: "fourth", reason: "Fourth problem."),
+            BrokenTestReport(testName: "contract", reason: "First problem."),
+            BrokenTestReport(testName: "contract", reason: "Second problem."),
+            BrokenTestReport(testName: "contract", reason: "Third problem."),
+            BrokenTestReport(testName: "contract", reason: "Fourth problem."),
         ])
         await fixture.rounds(6)
         let waiting = try #require(await fixture.node())
@@ -69,17 +69,17 @@ struct BrokenTestRoutingTests {
 
         let afterRetest = try #require(await fixture.node())
         #expect(afterRetest.flags[.needsInput] == nil)
-        #expect(await fixture.tracker.comments.contains { $0.text.contains("fourth") && $0.text.contains("sent back to the test author") })
+        #expect(await fixture.tracker.comments.contains { $0.text.contains("Fourth problem.") && $0.text.contains("sent back to the test author") })
     }
 
     @Test func aWaitingReasonNamesOnlyTheReportsThatLedToIt() async throws {
         let fixture = try await Fixture(reports: [
-            BrokenTestReport(testName: "old", reason: "Old problem."),
-            BrokenTestReport(testName: "older", reason: "Older follow-up."),
-            BrokenTestReport(testName: "oldest", reason: "Oldest follow-up."),
-            BrokenTestReport(testName: "first", reason: "First problem."),
-            BrokenTestReport(testName: "second", reason: "Second problem."),
-            BrokenTestReport(testName: "third", reason: "Third problem."),
+            BrokenTestReport(testName: "contract", reason: "Old problem."),
+            BrokenTestReport(testName: "contract", reason: "Older follow-up."),
+            BrokenTestReport(testName: "contract", reason: "Oldest follow-up."),
+            BrokenTestReport(testName: "contract", reason: "First problem."),
+            BrokenTestReport(testName: "contract", reason: "Second problem."),
+            BrokenTestReport(testName: "contract", reason: "Third problem."),
         ])
         await fixture.rounds(6)
         await fixture.tracker.add(.retest)
