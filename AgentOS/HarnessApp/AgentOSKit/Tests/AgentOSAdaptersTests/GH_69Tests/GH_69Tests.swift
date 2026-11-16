@@ -661,7 +661,7 @@ import Testing
     }
 
     static let existingEventCaseNames = [
-        "signalAccepted", "signalRejected", "previewRecorded", "breakdownChecked", "breakdownRetryRequested",
+        "signalAccepted", "signalRejected", "previewRecorded", "previewStarted", "previewFinished", "breakdownChecked", "breakdownRetryRequested",
         "nodeCreated", "linkAdded", "becameLeaf", "replanned", "breakdownRevised", "gateOpened",
         "phaseChanged", "flagSet", "flagCleared", "attemptsReset", "testsFixed", "otherTestsUpdated", "reviewRecorded",
         "humanReviewRequested", "humanReviewApproved", "expectedAPIReported", "brokenTestReported",

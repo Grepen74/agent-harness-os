@@ -39,10 +39,15 @@ public actor Reconciler {
     var tasks: [NodeID: Task<String?, Never>] = [:]
     /// Nodes with a step reserved or running, including steps that haven't recorded their claim yet.
     public var busyNodes: Set<NodeID> { Set(tasks.keys) }
-    private var completedActions: [String] = []
+    var completedActions: [String] = []
     var ownedRuns: [NodeID: RunID] = [:]
     private(set) var stopReasons: [RunID: String] = [:]
-    private var shutdownReason: String?
+    /// Previews running in the background, by ticket. Each takes one of the `maxParallelAgents` slots.
+    var previewRuns: [String: (run: RunID, task: Task<Void, Never>)] = [:]
+    var previewStops: [RunID: String] = [:]
+    private(set) var shutdownReason: String?
+    /// Agent slots taken: node steps (reserved or running) and previews.
+    var slotsInUse: Int { tasks.count + previewRuns.count }
     private var lifecycleFailure: String?
     /// Set while a round works through the landing queue; another round meanwhile skips landing.
     private var isLanding = false
@@ -70,6 +75,12 @@ public actor Reconciler {
 
     /// Stops only this exact claim, and returns after its task and process cleanup have finished.
     public func stopRun(_ run: RunID, by person: String) async throws {
+        if let preview = previewRuns.values.first(where: { $0.run == run }) {
+            if previewStops[run] == nil { previewStops[run] = "stopped by \(person)" }
+            preview.task.cancel()
+            await preview.task.value
+            return
+        }
         guard let node = await ledger.workingState().running.first(where: { $0.activeRun?.run == run }),
               ownedRuns[node.id] == run, let task = tasks[node.id] else { return }
         if stopReasons[run] == nil { stopReasons[run] = "stopped by \(person)" }
@@ -84,8 +95,11 @@ public actor Reconciler {
     public func shutdown(reason: String) async {
         if shutdownReason == nil { shutdownReason = reason }
         let pending = Array(tasks.values)
+        let previews = previewRuns.values.map(\.task)
         for task in pending { task.cancel() }
+        for task in previews { task.cancel() }
         for task in pending { _ = await task.value }
+        for task in previews { await task.value }
     }
 
     // MARK: The loop
@@ -113,7 +127,7 @@ public actor Reconciler {
         }
         guard shutdownReason == nil, !Task.isCancelled else { return finish(report) }
 
-        await intakeSignals(&report)
+        await intakeSignals(&report, waitingForPreviews: waitForAgents)
         await intakeExternal(&report)
 
         if waitForAgents {
@@ -131,7 +145,7 @@ public actor Reconciler {
             isLanding = true
             for node in await ledger.workingState().landingQueue {
                 guard shutdownReason == nil, !Task.isCancelled,
-                      tasks.count < max(1, policy.maxParallelAgents) else { break }
+                      slotsInUse < max(1, policy.maxParallelAgents) else { break }
                 if let action = await step(node.id, landing: true) { report.actions.append(action) }
             }
             isLanding = false
@@ -147,17 +161,18 @@ public actor Reconciler {
         var report = report
         report.actions += completedActions
         completedActions.removeAll()
-        report.hasRunningAgents = !tasks.isEmpty
+        report.hasRunningAgents = slotsInUse > 0
         if report.safeStop == nil { report.safeStop = lifecycleFailure }
         return report
     }
 
-    /// Drains owned steps through their final fingerprint comparisons and durable effects.
+    /// Drains owned steps and previews through their final fingerprint comparisons and durable effects.
     /// Waiting never schedules another step, and leaves finished steps' actions for the next round's report.
     public func waitForAgents() async {
-        while !tasks.isEmpty {
+        while !tasks.isEmpty || !previewRuns.isEmpty {
             let pending = Array(tasks.values)
             for task in pending { _ = await task.value }
+            for preview in Array(previewRuns.values) { await preview.task.value }
         }
     }
 
@@ -222,7 +237,7 @@ public actor Reconciler {
         let waitingToLand = !isLanding && state.landingQueue.contains { tasks[$0.id] == nil && !$0.awaitingHumanReview }
         let limit = max(1, policy.maxParallelAgents) - (waitingToLand ? 1 : 0)
         for id in state.creationOrder {
-            guard shutdownReason == nil, !Task.isCancelled, tasks.count < limit else { break }
+            guard shutdownReason == nil, !Task.isCancelled, slotsInUse < limit else { break }
             guard tasks[id] == nil, let node = state.nodes[id], canAdvance(node, in: state) else { continue }
             startStep(id, reportCompletion: true)
         }

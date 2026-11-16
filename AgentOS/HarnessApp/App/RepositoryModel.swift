@@ -178,6 +178,14 @@ final class RepositoryModel: HarnessActions {
         await refresh()
     }
 
+    func stopPreview(run: RunID, by person: String) async {
+        guard let session, await session.ledger.workingState().runningPreviews.values.contains(where: { $0.run == run })
+        else { return }
+        do { try await session.reconciler.stopRun(run, by: person) }
+        catch { log("Couldn't stop \(run): \(error)") }
+        await refresh()
+    }
+
     /// Stops Run and waits for a round already under way and for every agent the session started.
     func stopAndWait() async {
         await lifecycle.stopAndWait()

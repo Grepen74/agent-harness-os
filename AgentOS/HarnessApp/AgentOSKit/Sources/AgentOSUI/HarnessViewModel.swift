@@ -7,6 +7,8 @@ import Observation
 @MainActor
 public protocol HarnessActions: AnyObject {
     func stopRun(node: NodeID, run: RunID, by person: String) async
+    /// Stops a running preview (no node owns it); its ticket is told.
+    func stopPreview(run: RunID, by person: String) async
     func addLabel(_ name: String, to key: String) async
     func removeLabel(_ name: String, from key: String) async
     func comment(_ text: String, on key: String) async
@@ -36,6 +38,7 @@ public protocol HarnessActions: AnyObject {
 }
 
 extension HarnessActions {
+    public func stopPreview(run: RunID, by person: String) async {}
     public func tamperWithLedger() async {}
     public func restoreLedger() async {}
     public func rescan() async {}
@@ -170,6 +173,15 @@ public final class HarnessViewModel {
     public func stopRun(node: NodeID, run: RunID) async {
         guard canStopRun(node: node, run: run) else { return }
         await actions?.stopRun(node: node, run: run, by: you)
+    }
+
+    public func canStopPreview(run: RunID) -> Bool {
+        state.runningPreviews.values.contains { $0.run == run }
+    }
+
+    public func stopPreview(run: RunID) async {
+        guard canStopPreview(run: run) else { return }
+        await actions?.stopPreview(run: run, by: you)
     }
 
     func addLabel(_ name: String, to key: String) async { await actions?.addLabel(name, to: key) }

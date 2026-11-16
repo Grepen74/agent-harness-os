@@ -164,6 +164,12 @@ final class SimulatorModel: HarnessActions {
         await refresh()
     }
 
+    func stopPreview(run: RunID, by person: String) async {
+        do { try await simulation.reconciler.stopRun(run, by: person) }
+        catch { view.activity.insert("Couldn't stop \(run): \(error)", at: 0) }
+        await refresh()
+    }
+
     func shutdown(reason: String) async {
         await lifecycle.shutdown(reason: reason)
         isRunning = false

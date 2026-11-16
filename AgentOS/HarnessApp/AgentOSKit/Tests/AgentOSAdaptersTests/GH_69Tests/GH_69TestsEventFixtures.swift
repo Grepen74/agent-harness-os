@@ -14,6 +14,8 @@ extension GH_69Tests {
             .signalAccepted(ticket: "GH-69", command: .retry, reply: "accepted"),
             .signalRejected(ticket: "GH-69", command: .build, reason: "review required"),
             .previewRecorded(ticket: "GH-69", number: 1, specHash: spec.specHash, proposal: [spec]),
+            .previewStarted(ticket: "GH-69", node: spec.id, run: "run-preview"),
+            .previewFinished(ticket: "GH-69", run: "run-preview", outcome: "preview #1 posted"),
             .breakdownChecked(ticket: "GH-69", check: feedback),
             .breakdownRetryRequested(ticket: "GH-69", feedback: feedback),
             .nodeCreated(spec: spec, ticket: "GH-69"),

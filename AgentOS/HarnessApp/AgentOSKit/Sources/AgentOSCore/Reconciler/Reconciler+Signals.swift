@@ -4,8 +4,13 @@ extension Reconciler {
     // MARK: Intake: signals from people, news from other systems
 
     struct Rejection: Error { let reason: String }
+    /// Every agent slot is taken: the signal stays on the ticket and is handled in a later round.
+    struct WaitingForSlot: Error {}
 
-    func intakeSignals(_ report: inout RoundReport) async {
+    /// With `waitingForPreviews`, a preview started here finishes before the next signal is handled (the
+    /// simulator's Step and tests that expect each round to finish its work).
+    func intakeSignals(_ report: inout RoundReport, waitingForPreviews: Bool = false) async {
+        await reclaimInterruptedPreviews(&report)
         for signal in await tracker.pendingSignals() {
             let node = await ledger.workingState().node(forTicket: signal.ticket)
             do {
@@ -17,6 +22,11 @@ extension Reconciler {
                     .signalAccepted(ticket: signal.ticket, command: signal.command, reply: reply)])
                 await tracker.consume(signal, reply: "✅ \(signal.command.label): \(reply)")
                 report.actions.append("\(signal.ticket): \(signal.command.label) accepted")
+                if waitingForPreviews, signal.command == .preview, let preview = previewRuns[signal.ticket] {
+                    await preview.task.value
+                }
+            } catch is WaitingForSlot {
+                report.actions.append("\(signal.ticket): \(signal.command.label) waits for a free agent slot")
             } catch let rejection as Rejection {
                 try? await write(node?.id, by: .reconciler, [
                     .signalRejected(ticket: signal.ticket, command: signal.command, reason: rejection.reason)])
@@ -27,6 +37,77 @@ extension Reconciler {
             } catch {
                 report.actions.append("⚠️ \(signal.ticket): \(error)")
             }
+        }
+    }
+
+    // MARK: Previews
+
+    /// A preview's decomposer run. Not a node's run: nothing is claimed, but its settings and log are kept, since
+    /// accepting the preview skips the breakdown. Whatever happens, the ticket hears how it ended.
+    private func runPreview(of ticket: Ticket, answers: [Clarification], run: RunID, planned: AgentRunSettings?) async {
+        let spec = Planner.rootSpec(for: ticket)
+        let outcome: String
+        var comment: String?
+        do {
+            try await write(nil, by: .reconciler, [.previewStarted(ticket: ticket.key, node: spec.id, run: run)]
+                + (planned.map { [.agentConfigured(run: run, settings: $0)] } ?? []))
+            let log = try? artifacts.liveFile(named: AgentLog.fileName(node: spec.id, run: run))
+            let (breakdown, fellBack) = try await recordingFallbackSettings(nil, run: run) {
+                try await propose(spec, ticketKey: ticket.key, clarifications: answers, log: log)
+            }
+            try Task.checkCancellation()
+            let ranWith = (fellBack ?? planned).map { "Proposed by \($0.model), reasoning effort \($0.effort) (\(run)).\n" } ?? ""
+            let questions = policy.questions(in: breakdown.report, role: .decomposer)
+            if !questions.isEmpty {
+                // Nothing is recorded: answers in comments below this are read by the next preview, and kept
+                // once the ticket is adopted (breakdown or go).
+                await tracker.comment(on: ticket.key, """
+                    \(Self.previewQuestionsMarker):
+                    \(Self.numbered(questions))
+                    \(Self.questionReplyInstructions(for: questions, then: .preview))
+                    """)
+                outcome = "questions posted; no preview recorded"
+            } else {
+                await postProceedingOnSuggestions(breakdown.report.questions, on: ticket.key)
+                let children = Planner.childSpecs(parent: spec, proposals: breakdown.children)
+                let number = (await ledger.workingState().previews[ticket.key]?.number ?? 0) + 1
+                try await write(nil, by: .reconciler, [
+                    .previewRecorded(ticket: ticket.key, number: number, specHash: spec.specHash, proposal: children)])
+                // Accepting the preview accepts its assumptions too: they aren't asked about again.
+                await tracker.comment(on: ticket.key, """
+                    🔍 Preview #\(number). Nothing has been created.
+                    \(ranWith)\(Planner.describe(children, under: ticket.title))\(Self.assumptionsNote("Assumptions the decomposer made", policy.assumptions(in: breakdown.report)))
+                    Accept with label harness:breakdown, or edit the ticket and preview again.
+                    """)
+                outcome = "preview #\(number) posted"
+            }
+        } catch {
+            let stopped = previewStops[run] ?? shutdownReason.map { "stopped: \($0)" }
+                ?? (error is CancellationError || Task.isCancelled ? "stopped" : nil)
+            outcome = stopped ?? "failed: \(error)"
+            comment = "\(stopped == nil ? "❌" : "⏹") \(HarnessCommand.preview.label) (\(run)) \(outcome). " +
+                "Nothing has been created. Add \(HarnessCommand.preview.label) again to preview it."
+        }
+        // Not cancelled with the run: a stopped preview still says so, on the ticket and in the ledger.
+        await Task { [comment] in
+            if let comment { await self.tracker.comment(on: ticket.key, comment) }
+            try? await self.ledger.append([LedgerEvent(node: nil, by: .reconciler,
+                                                       kind: .previewFinished(ticket: ticket.key, run: run, outcome: outcome))])
+        }.value
+        completedActions.append("\(ticket.key): preview → \(outcome)")
+        previewRuns[ticket.key] = nil
+        previewStops[run] = nil
+    }
+
+    /// A preview the ledger says is running but no task of this harness runs was cut off by a restart.
+    private func reclaimInterruptedPreviews(_ report: inout RoundReport) async {
+        for preview in await ledger.workingState().runningPreviews.values where previewRuns[preview.ticket]?.run != preview.run {
+            let outcome = "abandoned: harness restarted"
+            guard (try? await write(nil, by: .reconciler, [
+                .previewFinished(ticket: preview.ticket, run: preview.run, outcome: outcome)])) != nil else { continue }
+            await tracker.comment(on: preview.ticket, "⚠️ \(HarnessCommand.preview.label) (\(preview.run)) was interrupted: " +
+                "the harness restarted. Nothing has been created. Add \(HarnessCommand.preview.label) again to preview it.")
+            report.actions.append("\(preview.ticket): preview → \(outcome)")
         }
     }
 
@@ -65,44 +146,22 @@ extension Reconciler {
 
         switch signal.command {
         case .preview:
-            // A preview does NOT adopt the ticket and creates nothing (doc 05 §3).
+            // A preview does NOT adopt the ticket and creates nothing (doc 05 §3). Its decomposer runs in the
+            // background, in one of the agent slots, so rounds (and other work) go on meanwhile.
             let problems = policy.readinessProblems(ticket)
             guard problems.isEmpty else { throw Rejection(reason: "Not ready yet. Missing: \(problems.joined(separator: ", ")).") }
-            let spec = Planner.rootSpec(for: ticket)
+            if let running = previewRuns[ticket.key] {
+                throw Rejection(reason: "A preview of this ticket is already running (\(running.run)). " +
+                    "Its result will be posted here when it's done.")
+            }
             let answers = try (node?.clarifications ?? []) + Self.newPreviewAnswers(on: ticket, for: node)
-            // Not a node's run: nothing is claimed, but its settings and log are kept, since accepting the preview
-            // skips the breakdown.
+            guard slotsInUse < max(1, policy.maxParallelAgents) else { throw WaitingForSlot() }
             let run = Self.newRunID()
             let planned = team.runSettings?(.decomposer)
-            if let planned { try await write(nil, by: .reconciler, [.agentConfigured(run: run, settings: planned)]) }
-            let log = try? artifacts.liveFile(named: AgentLog.fileName(node: spec.id, run: run))
-            let (breakdown, fellBack) = try await recordingFallbackSettings(nil, run: run) {
-                try await propose(spec, ticketKey: ticket.key, clarifications: answers, log: log)
-            }
-            let ranWith = (fellBack ?? planned).map { "Proposed by \($0.model), reasoning effort \($0.effort) (\(run)).\n" } ?? ""
-            let questions = policy.questions(in: breakdown.report, role: .decomposer)
-            guard questions.isEmpty else {
-                // Nothing is recorded: answers in comments below this are read by the next preview, and kept
-                // once the ticket is adopted (breakdown or go).
-                await tracker.comment(on: ticket.key, """
-                    \(Self.previewQuestionsMarker):
-                    \(Self.numbered(questions))
-                    \(Self.questionReplyInstructions(for: questions, then: .preview))
-                    """)
-                return "questions posted above; no preview recorded"
-            }
-            await postProceedingOnSuggestions(breakdown.report.questions, on: ticket.key)
-            let children = Planner.childSpecs(parent: spec, proposals: breakdown.children)
-            let number = (state.previews[ticket.key]?.number ?? 0) + 1
-            try await write(nil, by: .reconciler, [
-                .previewRecorded(ticket: ticket.key, number: number, specHash: spec.specHash, proposal: children)])
-            // Accepting the preview accepts its assumptions too: they aren't asked about again.
-            await tracker.comment(on: ticket.key, """
-                🔍 Preview #\(number). Nothing has been created.
-                \(ranWith)\(Planner.describe(children, under: ticket.title))\(Self.assumptionsNote("Assumptions the decomposer made", policy.assumptions(in: breakdown.report)))
-                Accept with label harness:breakdown, or edit the ticket and preview again.
-                """)
-            return "preview #\(number) posted above"
+            previewRuns[ticket.key] = (run, Task { await self.runPreview(of: ticket, answers: answers, run: run, planned: planned) })
+            let with = planned.map { " with \($0.model), reasoning effort \($0.effort)" } ?? ""
+            return "previewing\(with) (\(run)). The proposed breakdown will be posted here when it's done; " +
+                "meanwhile it's listed under Running now in the harness app."
 
         case .breakdown:
             if let node {

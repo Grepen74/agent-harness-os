@@ -13,18 +13,20 @@ public enum OutputWindowPresentation {
 }
 
 /// What's running right now: one row per node with an agent or check at work, with its live log, its changes
-/// so far, and its working copy in Finder or Xcode.
+/// so far, and its working copy in Finder or Xcode; and one per preview, with its live log.
 struct RunningAgents: View {
     @Environment(HarnessViewModel.self) private var model
     @State private var shown: Shown?
 
     var body: some View {
         let running = model.state.running
+        let previews = model.state.runningPreviews.values.sorted { $0.since < $1.since }
         // Always present, so an open log stays open when its run (or every run) finishes.
         VStack(spacing: 0) {
-            if !running.isEmpty {
+            if !running.isEmpty || !previews.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Running now (\(running.count))").font(.caption.bold())
+                    Text("Running now (\(running.count + previews.count))").font(.caption.bold())
+                    ForEach(previews) { PreviewRow(preview: $0, shown: $shown) }
                     ForEach(running) { node in
                         if let run = node.activeRun { RunRow(node: node, run: run, shown: $shown) }
                     }
@@ -112,6 +114,57 @@ struct RunRow: View {
                 if foundWorktree != worktree { worktree = foundWorktree }
                 if foundLog != log { log = foundLog }
                 if worktree != nil, log != nil { return }
+                try? await Task.sleep(for: .seconds(2))
+            }
+        }
+    }
+}
+
+/// A running preview: the decomposer proposing a breakdown of a ticket that may not be adopted yet, so there's no
+/// node, working copy or changes; only its log. Fixed width, like `RunRow`.
+struct PreviewRow: View {
+    @Environment(HarnessViewModel.self) private var model
+    let preview: RunningPreview
+    @Binding var shown: RunningAgents.Shown?
+    @State private var log: URL?
+    @State private var isStopping = false
+
+    var body: some View {
+        let title = "\(preview.ticket) · preview · \(preview.run)"
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.orange)
+            Text(preview.ticket).monospaced().lineLimit(1)
+            Text("preview").foregroundStyle(.secondary).lineLimit(1)
+            Text("00:00:00").hidden()
+                .overlay(alignment: .leading) { Text(preview.since, style: .timer).foregroundStyle(.secondary) }
+                .monospacedDigit().lineLimit(1)
+            Text(preview.settings.map { "\($0.model) · \($0.effort)" } ?? "")
+                .foregroundStyle(.secondary).lineLimit(1)
+            Text(model.ticket(preview.ticket)?.title ?? "").lineLimit(1).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading).layoutPriority(-1)
+            Group {
+                Button(isStopping ? "Stopping..." : "Stop") {
+                    isStopping = true
+                    Task {
+                        await model.stopPreview(run: preview.run)
+                        isStopping = false
+                    }
+                }
+                .disabled(isStopping || !model.canStopPreview(run: preview.run))
+                .help("Stop this preview; nothing has been created. Add harness:preview again to preview it.")
+                Button("Log") { if let log { shown = .log(title, log) } }
+                    .disabled(log == nil)
+                    .help("Follow the decomposer's output live")
+            }
+            .fixedSize()
+        }
+        .font(.caption)
+        .controlSize(.small)
+        .task(id: preview.run) {
+            while !Task.isCancelled {
+                let found = model.agentLog(of: preview.node, run: preview.run)
+                if found != log { log = found }
+                if log != nil { return }
                 try? await Task.sleep(for: .seconds(2))
             }
         }

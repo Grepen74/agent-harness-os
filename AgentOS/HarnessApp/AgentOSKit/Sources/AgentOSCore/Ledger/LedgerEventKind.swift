@@ -1,6 +1,6 @@
 /// Payload-independent event cases used by ledger filters.
 public enum LedgerEventKind: String, Hashable, CaseIterable, Sendable {
-    case signalAccepted, signalRejected, previewRecorded, breakdownChecked, breakdownRetryRequested
+    case signalAccepted, signalRejected, previewRecorded, previewStarted, previewFinished, breakdownChecked, breakdownRetryRequested
     case nodeCreated, linkAdded, becameLeaf, replanned, breakdownRevised
     case gateOpened, phaseChanged, flagSet, flagCleared, attemptsReset
     case testsFixed, otherTestsUpdated, reviewRecorded, humanReviewRequested, humanReviewApproved
@@ -16,6 +16,8 @@ public enum LedgerEventKind: String, Hashable, CaseIterable, Sendable {
         case .signalAccepted: self = .signalAccepted
         case .signalRejected: self = .signalRejected
         case .previewRecorded: self = .previewRecorded
+        case .previewStarted: self = .previewStarted
+        case .previewFinished: self = .previewFinished
         case .breakdownChecked: self = .breakdownChecked
         case .breakdownRetryRequested: self = .breakdownRetryRequested
         case .nodeCreated: self = .nodeCreated

@@ -493,9 +493,16 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
   `replan` on it are rejected with a reply, so its worktree is never discarded under a running agent.
   The limit counts the agents the harness starts, not the sub-agents they use.
 
-  Two kinds of work still hold their own round open. A preview waits for the decomposer before its round
-  returns; an approved breakdown is decomposed by a scheduled step, across rounds like other agents.
-  Landing is synchronous and one at a time: the round that lands waits for the rebase, the landing checks
+  A preview runs in the background too, in one of the slots: the `harness:preview` label is answered at once
+  with the run, model and reasoning effort, and the proposed breakdown (or the decomposer's questions) follows
+  on the ticket when it's done. Meanwhile the preview is listed under Running now with its timer, model, effort,
+  live log and Stop; stopping it, or a failure, is said on the ticket, and nothing is created either way. With
+  every slot taken, the label stays on the ticket until a slot frees up; a second preview of a ticket whose
+  preview is still running is refused. A preview cut off by a restart is reported on its ticket by the next
+  round (the ledger records each preview's start and end: `previewStarted`, `previewFinished`). An approved
+  breakdown is decomposed by a scheduled step, across rounds like other agents.
+
+  Landing is the one kind of work that still holds its round open. It is synchronous and one at a time: the round that lands waits for the rebase, the landing checks
   and the merge, and a round requested meanwhile doesn't start a second landing; agents from earlier
   rounds keep running meanwhile. A landing takes a slot, and while a change waits to land, scheduling
   keeps a slot free for it so new work can't starve the queue.
@@ -511,7 +518,7 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
   Simulators.
 - **Watching agents work.** The window refreshes on every ledger event (a run starting, a submission,
   evidence), not only after a round. *Running now*, above the work tree, lists each run under way with its
-  role and time so far, and offers:
+  role and time so far (a preview: its ticket, model and reasoning effort, with Stop and Log only), and offers:
   - **Stop**: cancels this exact run and waits for its task and child processes to end. The ledger and
     ticket name the person who stopped it; no failed attempt is counted. Add `harness:retry` to resume.
   - **Log**: the agent's output, followed live. Copilot writes each step as it goes (only the decomposer

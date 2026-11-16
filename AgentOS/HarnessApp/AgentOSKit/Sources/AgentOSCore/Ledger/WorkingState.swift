@@ -23,6 +23,18 @@ public struct Preview: Sendable, Hashable {
     public var breakdownWarnings: [BreakdownFinding] = []
 }
 
+/// A preview whose decomposer is running now. Not a node's run: the ticket may not be adopted.
+public struct RunningPreview: Sendable, Equatable, Identifiable {
+    public var id: RunID { run }
+    public let ticket: String
+    /// The ID the ticket's node would get; it names the run's log.
+    public let node: NodeID
+    public let run: RunID
+    public let since: Date
+    /// The model and reasoning effort, when the team knows them; the latest fallback once it fell back.
+    public var settings: AgentRunSettings?
+}
+
 public struct CatchUpConflict: Sendable, Hashable {
     public let mainSHA: String
     public let files: [String]
@@ -122,6 +134,8 @@ public struct WorkingState: Sendable {
     public private(set) var creationOrder: [NodeID] = []
     /// Latest preview per ticket.
     public private(set) var previews: [String: Preview] = [:]
+    /// Previews running now, by ticket.
+    public private(set) var runningPreviews: [String: RunningPreview] = [:]
     private var pendingBreakdownWarnings: [String: [BreakdownFinding]] = [:]
     public private(set) var resolvedExternal: Set<String> = []
     /// The latest recorded readiness scan of the repo.
@@ -244,6 +258,14 @@ public struct WorkingState: Sendable {
         case .previewRecorded(let ticket, let number, let specHash, let proposal):
             previews[ticket] = Preview(number: number, specHash: specHash, proposal: proposal,
                                       breakdownWarnings: pendingBreakdownWarnings.removeValue(forKey: ticket) ?? [])
+        case .previewStarted(let ticket, let node, let run):
+            runningPreviews[ticket] = RunningPreview(ticket: ticket, node: node, run: run, since: event.at)
+        case .previewFinished(let ticket, let run, _):
+            if runningPreviews[ticket]?.run == run { runningPreviews[ticket] = nil }
+        case .agentConfigured(let run, let settings) where event.node == nil:
+            if let ticket = runningPreviews.first(where: { $0.value.run == run })?.key {
+                runningPreviews[ticket]?.settings = settings
+            }
         case .externalDependencyResolved(let ref):
             resolvedExternal.insert(ref)
         case .readinessScanned(let scan):

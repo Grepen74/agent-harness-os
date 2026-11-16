@@ -48,6 +48,11 @@ public enum EventKind: Codable, Sendable {
     case signalRejected(ticket: String, command: HarnessCommand, reason: String)
     /// A dry-run breakdown. Nothing is created; accepting it later creates exactly this.
     case previewRecorded(ticket: String, number: Int, specHash: String, proposal: [NodeSpec])
+    /// A preview's decomposer started; it runs in the background and claims nothing. `node` is the ID the
+    /// ticket's node would get, which names the run's log.
+    case previewStarted(ticket: String, node: NodeID, run: RunID)
+    /// How that run ended: posted, questions asked, failed, stopped or abandoned.
+    case previewFinished(ticket: String, run: RunID, outcome: String)
     case breakdownChecked(ticket: String, check: BreakdownCheckFeedback)
     case breakdownRetryRequested(ticket: String, feedback: BreakdownCheckFeedback)
 
@@ -205,6 +210,8 @@ extension EventKind {
         case .signalAccepted(let ticket, let command, _): "\(command.label) on \(ticket) accepted"
         case .signalRejected(let ticket, let command, let reason): "\(command.label) on \(ticket) rejected: \(reason)"
         case .previewRecorded(let ticket, let number, _, let proposal): "preview #\(number) of \(ticket): \(proposal.count) nodes"
+        case .previewStarted(let ticket, _, let run): "preview of \(ticket) started (\(run))"
+        case .previewFinished(let ticket, let run, let outcome): "preview of \(ticket) (\(run)) finished: \(outcome)"
         case .breakdownChecked(let ticket, let check):
             "breakdown check on \(ticket): " + (check.findings.isEmpty ? "no findings" :
                 check.findings.map(\.explanation).joined(separator: "\n"))
