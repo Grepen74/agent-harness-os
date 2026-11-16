@@ -111,6 +111,7 @@ struct GH_78Tests {
             await f.workspace.setFiles([Self.firstPath, Self.secondPath], for: f.blocker)
             try await f.record(f.blocker, [
                 .changeSubmitted(run: "revised", commit: "revised-candidate"),
+                .actualChangedFilesRecorded(files: [Self.firstPath, Self.secondPath]),
                 .humanReviewRequested(commit: "revised-candidate"),
             ])
             try await f.settle()

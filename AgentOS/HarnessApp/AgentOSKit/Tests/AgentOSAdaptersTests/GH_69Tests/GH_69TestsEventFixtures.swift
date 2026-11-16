@@ -40,6 +40,8 @@ extension GH_69Tests {
             .runStarted(run: "builder", role: .implementer),
             .runFinished(run: "builder", outcome: "submitted"),
             .changeSubmitted(run: "builder", commit: "commit"),
+            .actualChangedFilesRecorded(files: ["Sources/Engine.swift"]),
+            .predictedPathsExpanded(files: ["Sources/Shared.swift"]),
             .attemptFailed(summary: "failed"),
             .acceptanceTestPreflightFailed(evidence),
             .passingCheckRecorded(kind: .preCheck, mainCommit: "main"),
