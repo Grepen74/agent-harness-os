@@ -163,6 +163,40 @@ struct GH_28Tests {
     }
 
     @Test
+    func autoWithNoModelToPickIsSkippedForTheNextOne() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "gh28-auto-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let copilot = directory.appending(path: "copilot")
+        try """
+        #!/bin/sh
+        model=default
+        while [ $# -gt 0 ]; do [ "$1" = --model ] && model=$2; shift; done
+        case $model in auto|default) echo "Error: No supported model available"; exit 1;; esac
+        echo '{"passed": true, "findings": []}'
+        """.write(to: copilot, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: copilot.path)
+
+        let cli = CopilotCLI(executable: copilot.path, model: "auto", fallbackModels: ["working", nil])
+        let run = try await cli.runFallingBack("review", in: directory)
+        #expect(run.model == "working")
+        #expect(run.unavailableModels == ["auto"])
+
+        // With the CLI's default model there's nothing to name or fall back from; a reviewer says it was the one.
+        let reviewer = CopilotReviewer(cli: CopilotCLI(executable: copilot.path, model: "auto", fallbackModels: [nil]))
+        let request = ReviewRequest(
+            stage: .change, spec: Fixture.spec, acceptanceTests: [:],
+            context: ReviewContext(baseBranch: "agentos/main", commit: "c", fullDiff: "", changedFiles: [],
+                                   recentChanges: [], uiEvidence: nil),
+            directory: directory)
+        await #expect {
+            try await reviewer.review(request)
+        } throws: { error in
+            "\(error)".hasPrefix("The reviewer failed: copilot exited with 1: Error: No supported model available")
+        }
+    }
+
+    @Test
     func anEffortTheModelDoesntSupportRunsWithTheDefaultAndTheLogSaysWhichRan() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "gh28-effort-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

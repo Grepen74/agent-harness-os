@@ -66,6 +66,7 @@ read from `main` only.
 | Agent models | Offered models, plus a default model per role (breakdown, acceptance tests, implementation); none = the CLI's default | Pick a model per role among the offered ones |
 | Reasoning effort | A default effort per role (`copilot --reasoning-effort`; none = the CLI's default) and the highest effort a repo may choose (built-in `high`) | Pick an effort per role up to that cap, or up to the role's harness effort if higher |
 | Review | `agent`; default reviewer (the first offered reviewer model that differs from the implementer's, else the agent CLI's default model), or a specific model/command | Tighten to `agent+human`, overall or per area; choose an offered reviewer model |
+| Agent timeouts | Per role: 20 minutes, 10 for the diagnoser; the longest a repo may choose: 1 hour (at most 4) | Choose per role, longer or shorter, up to the longest allowed |
 | Max attempts / reworks per leaf | 3 / 3 | Lower |
 | Max parallel agents | 2 | Lower |
 | Guesswork | `assume and report`: carry on and post assumptions; a leaf whose work rests on assumptions waits for a person to see its acceptance tests before build, even under `harness:go`. Guesses about what users observe (what to check, which screen, which behaviour) always stop the node; guesses about implementation don't. Other levels: `ask` (assumptions are questions too), `autonomous` (assumptions are posted, nothing waits) | Choose a stricter level (`agents.guesswork`) |
@@ -167,7 +168,7 @@ is configured, Copilot CLI chooses its own default. Display titles are not confi
 | `agents.efforts.decomposer` | String: reasoning effort for the breakdown role | Inherit harness breakdown effort; otherwise CLI default | At most the harness's cap, or the role's harness effort if higher |
 | `agents.efforts.testAuthor` | String: reasoning effort for the acceptance-test role | Inherit harness test-author effort; otherwise CLI default | At most the harness's cap, or the role's harness effort if higher |
 | `agents.efforts.implementer` | String: reasoning effort for the implementation role | Inherit harness implementer effort; otherwise CLI default | At most the harness's cap, or the role's harness effort if higher |
-| `agents.timeouts` | Object from agent role (`decomposer`, `testAuthor`, `implementer`, `reviewer`, `diagnoser`) to seconds | 1200 for each role, 600 for the diagnoser | 60 to 3600 seconds; unknown roles and values out of range are refused, and that role keeps its default |
+| `agents.timeouts` | Object from agent role (`decomposer`, `testAuthor`, `implementer`, `reviewer`, `diagnoser`) to seconds | Each role's harness timeout; built-in 1200 for each role, 600 for the diagnoser | 60 seconds to the harness's longest timeout (built-in 3600); may raise as well as lower the harness's value; unknown roles and values out of range are refused, and that role keeps the harness's timeout |
 | `agents.guesswork` | String: `ask`, `assume-and-report`, or `autonomous` | Inherit harness setting; built-in `assume-and-report` | Same or stricter than current harness setting; strictest to loosest: `ask`, `assume-and-report`, `autonomous` |
 | `agents.context` | Array of repository-relative tracked file paths or globs; only tracked matches are read | `["README.md", "AGENTS.md"]` | None beyond tracked-file selection; explicit list replaces default context, and an empty list selects none |
 | `protectedPaths` | Array of strings: additional protected file paths, folder prefixes or globs | No additions to harness protected paths | Additive union; cannot remove harness protection or approved leaf-test protection |
@@ -257,8 +258,10 @@ Commands receive the complete review prompt on stdin and must return
 A repo can set `review.model` only to a model in the review-specific offered list.
 When the CLI says a model isn't available to your account, a Copilot reviewer tries the other offered
 reviewer models that differ from the implementer's, then the agent CLI's default; the review event in
-the ledger names the models skipped and the one that reviewed. An agent role whose configured model
-isn't available runs with the CLI's default. The run's log starts with a note of the switch.
+the ledger names the models skipped and the one that reviewed. `No supported model available`, which
+`auto` gives when it can't pick a model, counts as the chosen model not being available. An agent role
+whose configured model isn't available runs with the CLI's default. The run's log starts with a note of
+the switch. Reviews run within another role's run, so a review that fails says "The reviewer failed:".
 The strictest level among the overall policy and every declared or actually changed area applies.
 A lower repo level, including an area below the overall level, is a start blocker. The effective
 Review level and Reviewer rows each retain their own harness/repo source.
@@ -549,8 +552,9 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
   Post-start errors always finish their run with the diagnostic. Checks that write nothing for
   10 minutes are ended as hung and retain their log; `CommandCheckRunner.idleTimeout` configures this
   limit independently of the 30-minute total timeout. Any output, including partial lines, resets it.
-  A Copilot agent run is stopped after 20 minutes (10 for the diagnoser; a repo can change this per role
-  with `agents.timeouts`, up to an hour) and fails as "copilot timed out". Commands the agent
+  A Copilot agent run is stopped after its role's timeout: built-in 20 minutes (10 for the diagnoser), set per
+  role in Settings › Agents. A repo can change it per role with `agents.timeouts`, up to the longest timeout
+  Settings allows (built-in an hour, at most 4 hours) and fails as "copilot timed out". Commands the agent
   started in their own process groups (Copilot runs each shell command in one) are ended with it, so a hung
   `swift test` can't keep holding the worktree's build lock for the next run.
   An implementer run that fails or is stopped before submitting (out of time, say) doesn't lose its work: its

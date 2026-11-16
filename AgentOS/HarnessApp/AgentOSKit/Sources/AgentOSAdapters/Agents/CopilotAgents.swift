@@ -190,7 +190,9 @@ public struct CopilotCLI: Sendable {
             AgentLog.append(summary, to: log, producedAt: Date(), timeZone: .current)
         }
         guard result.status == 0 else {
-            if let unavailable = Self.unavailableModel(in: result.output) { throw UnavailableModel(model: unavailable) }
+            if let unavailable = Self.unavailableModel(in: result.output, attempted: model) {
+                throw UnavailableModel(model: unavailable)
+            }
             if let effort = Self.unsupportedEffort(in: result.output) { throw UnsupportedEffort(effort: effort) }
             if result.crashSignal == SIGKILL && result.output.hasSuffix("Timed out after \(limit)\n") {
                 throw AgentFailure("copilot timed out after \(timeout): \(result.output.suffix(300))")
@@ -223,9 +225,13 @@ public struct CopilotCLI: Sendable {
         "directory and ignores any cd in the command, so name files anywhere else, such as the scratch folder, " +
         "by absolute path, and don't use /tmp."
 
-    /// The model named in the CLI's `Model "…" is not available` error, if that's why it stopped.
-    static func unavailableModel(in output: String) -> String? {
-        guard let range = output.range(of: #"Model "([^"]+)" is not available"#, options: .regularExpression) else { return nil }
+    /// The model named in the CLI's `Model "…" is not available` error, if that's why it stopped. `No supported
+    /// model available` names none; it comes, for example, from `--model auto` when Auto can't pick a model, so it
+    /// counts against the `attempted` model (none when the run used the CLI's default).
+    static func unavailableModel(in output: String, attempted: String? = nil) -> String? {
+        guard let range = output.range(of: #"Model "([^"]+)" is not available"#, options: .regularExpression) else {
+            return output.contains("No supported model available") ? attempted : nil
+        }
         return output[range].split(separator: "\"", omittingEmptySubsequences: false).dropFirst().first.map(String.init)
     }
 

@@ -148,14 +148,27 @@ struct SettingsView: View {
                     if let note = effortNote(for: role) {
                         Text(note).font(.caption).foregroundStyle(.orange)
                     }
+                    timeoutStepper(role.title.capitalized, agent: role.rawValue)
                 }
+                timeoutStepper("Reviewer", agent: "reviewer")
+                timeoutStepper("Diagnoser", agent: "diagnoser")
                 Picker("Highest effort a repo may choose", selection: $model.settings.maxEffort) {
                     ForEach(ReasoningEffort.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                 }
+                Stepper("Longest timeout a repo may choose: \(model.settings.maxAgentTimeout / 60) min",
+                        value: Binding(
+                            get: { model.settings.maxAgentTimeout / 60 },
+                            set: { minutes in
+                                model.settings.maxAgentTimeout = minutes * 60
+                                for (agent, seconds) in model.settings.agentTimeouts where seconds > minutes * 60 {
+                                    model.settings.agentTimeouts[agent] = minutes * 60
+                                }
+                            }),
+                        in: EffectivePolicy.timeoutRange.lowerBound / 60...EffectivePolicy.timeoutRange.upperBound / 60, step: 5)
             } header: {
                 Text("Agents: \(HarnessSettings.agentProvider)")
             } footer: {
-                Text("Detect models asks the Copilot CLI which models your account offers and which reasoning efforts each supports, without running a model; you choose what to offer. Or type comma-separated model names as the agent CLI knows them (`copilot --model`) and press Return. A repo may pick a model per role only among these. Reasoning effort is `copilot --reasoning-effort`: higher thinks harder but takes longer, so raise the role's timeout in the repo config too. Once models are detected, each role offers only the efforts its model supports; a model that doesn't support the effort runs with the CLI's default effort. Default model and effort: the agent CLI's own settings.")
+                Text("Detect models asks the Copilot CLI which models your account offers and which reasoning efforts each supports, without running a model; you choose what to offer. Or type comma-separated model names as the agent CLI knows them (`copilot --model`) and press Return. A repo may pick a model per role only among these. Reasoning effort is `copilot --reasoning-effort`: higher thinks harder but takes longer, so raise the role's timeout too. Once models are detected, each role offers only the efforts its model supports; a model that doesn't support the effort runs with the CLI's default effort. Default model and effort: the agent CLI's own settings. Timeouts stop an agent that runs longer; a repo may choose its own (`agents.timeouts`), up to the longest you allow.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section {
@@ -245,6 +258,15 @@ struct SettingsView: View {
     private func defaultEffortTitle(for role: AgentRole) -> String {
         let level = model.settings.modelCatalog?.model(model.settings.models[role])?.defaultEffort
         return level.map { "Default effort (\($0.rawValue))" } ?? "Default effort"
+    }
+
+    /// Minutes, in steps of 5, up to the longest timeout a repo may choose.
+    private func timeoutStepper(_ title: String, agent: String) -> some View {
+        let seconds = model.settings.agentTimeouts[agent] ?? EffectivePolicy.defaultAgentTimeouts[agent] ?? 1200
+        return Stepper("\(title) timeout: \(seconds / 60) min", value: Binding(
+            get: { seconds / 60 },
+            set: { model.settings.agentTimeouts[agent] = $0 * 60 }),
+            in: 1...max(1, model.settings.maxAgentTimeout / 60), step: 5)
     }
 
     private func effortNote(for role: AgentRole) -> String? {

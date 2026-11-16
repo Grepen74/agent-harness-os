@@ -1166,6 +1166,32 @@ struct RepositoryWorkspaceTests {
         #expect((team.diagnoser as? CopilotDiagnoser)?.cli.timeout == .seconds(600))
     }
 
+    @Test("The harness sets each agent's timeout and how long a repo may choose; a repo's own still wins within that")
+    func agentTimeoutsComeFromTheHarnessSettings() throws {
+        var harness = HarnessSettings()
+        harness.agentTimeouts["decomposer"] = 1800
+        harness.agentTimeouts["implementer"] = 9000
+        harness.maxAgentTimeout = 7200
+        var config = Self.config
+        config.agents = RepoConfig.Agents(timeouts: ["reviewer": 7200, "testAuthor": 7260])
+        let policy = EffectivePolicy.resolve(harness: harness, repo: config, defaultBranch: "main")
+        #expect(policy.agentTimeouts == ["decomposer": 1800, "testAuthor": 1200, "implementer": 7200,
+                                         "reviewer": 7200, "diagnoser": 600])
+        #expect(policy.problems.map(\.title) == ["Repo config sets the testAuthor timeout to 7260 seconds"])
+        let team = RepositorySession.copilotTeam(executable: "/not-executed/copilot", policy: policy)
+        #expect((team.decomposer as? CopilotDecomposer)?.cli.timeout == .seconds(1800))
+
+        let saved = try JSONEncoder().encode(harness)
+        #expect(try JSONDecoder().decode(HarnessSettings.self, from: saved) == harness)
+        var old = try #require(try JSONSerialization.jsonObject(with: saved) as? [String: Any])
+        old["agentTimeouts"] = ["decomposer": 1800]
+        old["maxAgentTimeout"] = nil
+        let loaded = try JSONDecoder().decode(HarnessSettings.self, from: JSONSerialization.data(withJSONObject: old))
+        #expect(loaded.agentTimeouts == ["decomposer": 1800, "testAuthor": 1200, "implementer": 1200,
+                                         "reviewer": 1200, "diagnoser": 600])
+        #expect(loaded.maxAgentTimeout == 3600)
+    }
+
     @Test("A proposed child with more criteria than one run proves gets a finding that asks to split it")
     func oversizedChildrenAreFound() {
         let criteria = (1...7).map { "Criterion \($0) holds." }

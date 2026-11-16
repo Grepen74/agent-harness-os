@@ -8,8 +8,14 @@ public struct CopilotReviewer: Reviewer {
 
     public func review(_ request: ReviewRequest) async throws -> ReviewResult {
         // Reviews run within other roles' runs, so what this one ran with goes in its result, not their record.
-        let run = try await AgentRunRecording.$current.withValue(nil) {
-            try await cli.runFallingBack(Self.prompt(for: request), in: request.directory)
+        let run: CopilotCLI.Run
+        do {
+            run = try await AgentRunRecording.$current.withValue(nil) {
+                try await cli.runFallingBack(Self.prompt(for: request), in: request.directory)
+            }
+        } catch let failure as AgentFailure {
+            // It runs within another role's run, whose failure would otherwise look like that role's own.
+            throw AgentFailure("The reviewer failed: \(failure.description)")
         }
         var result = try Self.result(from: run.output)
         result.model = run.model

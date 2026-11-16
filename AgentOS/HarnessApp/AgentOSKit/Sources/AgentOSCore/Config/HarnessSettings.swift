@@ -23,6 +23,11 @@ public struct HarnessSettings: Codable, Sendable, Equatable {
     public var efforts = AgentEfforts()
     /// The highest effort a repo may choose for a role (or the role's effort above, if that is higher).
     public var maxEffort = ReasoningEffort.high
+    /// Seconds each agent may run before it is stopped, per agent ("decomposer", "testAuthor", "implementer",
+    /// "reviewer", "diagnoser"), when the repo doesn't choose. Agents missing here get the built-in default.
+    public var agentTimeouts = EffectivePolicy.defaultAgentTimeouts
+    /// The longest timeout a repo may choose for any agent, and the longest you may set here.
+    public var maxAgentTimeout = EffectivePolicy.defaultMaxAgentTimeout
     /// The models and efforts the agent CLI offered when last detected (nil: never detected).
     public var modelCatalog: ModelCatalog?
     public var review = ReviewSettings()
@@ -58,6 +63,9 @@ public struct HarnessSettings: Codable, Sendable, Equatable {
         models = try container.decodeIfPresent(AgentModels.self, forKey: .models) ?? defaults.models
         efforts = try container.decodeIfPresent(AgentEfforts.self, forKey: .efforts) ?? defaults.efforts
         maxEffort = try container.decodeIfPresent(ReasoningEffort.self, forKey: .maxEffort) ?? defaults.maxEffort
+        agentTimeouts = defaults.agentTimeouts.merging(
+            try container.decodeIfPresent([String: Int].self, forKey: .agentTimeouts) ?? [:]) { _, saved in saved }
+        maxAgentTimeout = try container.decodeIfPresent(Int.self, forKey: .maxAgentTimeout) ?? defaults.maxAgentTimeout
         modelCatalog = try container.decodeIfPresent(ModelCatalog.self, forKey: .modelCatalog)
         review = try container.decodeIfPresent(ReviewSettings.self, forKey: .review) ?? defaults.review
         guesswork = try container.decodeIfPresent(Guesswork.self, forKey: .guesswork) ?? defaults.guesswork
@@ -111,8 +119,10 @@ public struct EffectivePolicy: Sendable, Equatable {
     public var agentTimeouts = Self.defaultAgentTimeouts
     public static let defaultAgentTimeouts = ["decomposer": 1200, "testAuthor": 1200, "implementer": 1200,
                                               "reviewer": 1200, "diagnoser": 600]
-    /// The harness's outer limit for any agent's timeout.
-    public static let maxAgentTimeout = 3600
+    /// The built-in outer limit for any agent's timeout; harness settings may change it within `timeoutRange`.
+    public static let defaultMaxAgentTimeout = 3600
+    /// Any timeout, and the outer limit itself, stays within this range of seconds.
+    public static let timeoutRange = 60...14_400
     /// The repo config tried to loosen a limit or set something invalid; the harness's value applies instead.
     public var problems: [Finding] = []
     var overrideHarness = HarnessSettings()
@@ -208,7 +218,11 @@ public struct EffectivePolicy: Sendable, Equatable {
         }
         result.policy.guesswork = guesswork
 
-        // Agent timeouts: a repo whose work takes longer may raise them, up to the harness's limit.
+        // Agent timeouts: the harness's own, then a repo whose work takes longer may raise them, up to the harness's limit.
+        let maxAgentTimeout = min(max(harness.maxAgentTimeout, timeoutRange.lowerBound), timeoutRange.upperBound)
+        for (agent, seconds) in harness.agentTimeouts where defaultAgentTimeouts[agent] != nil {
+            result.agentTimeouts[agent] = min(max(seconds, timeoutRange.lowerBound), maxAgentTimeout)
+        }
         var timeoutsFromRepo = false
         for (agent, seconds) in (repo?.agents?.timeouts ?? [:]).sorted(by: { $0.key < $1.key }) {
             guard defaultAgentTimeouts[agent] != nil else {
@@ -216,9 +230,9 @@ public struct EffectivePolicy: Sendable, Equatable {
                        "Known agents: \(defaultAgentTimeouts.keys.sorted().joined(separator: ", ")).")
                 continue
             }
-            guard (60...maxAgentTimeout).contains(seconds) else {
+            guard (timeoutRange.lowerBound...maxAgentTimeout).contains(seconds) else {
                 refuse("Repo config sets the \(agent) timeout to \(seconds) seconds",
-                       "It must be 60 to \(maxAgentTimeout) seconds.")
+                       "It must be \(timeoutRange.lowerBound) to \(maxAgentTimeout) seconds.")
                 continue
             }
             result.agentTimeouts[agent] = seconds
