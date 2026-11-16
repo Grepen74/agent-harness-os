@@ -211,36 +211,42 @@ public actor Reconciler {
             guard let parent = state.nodes[id]?.spec.parent else { return true }
             return state.nodes[parent]?.phase == .split
         }
-        let limit = max(1, policy.maxParallelAgents)
-        var actions: [Int: String] = [:]
-        await withTaskGroup(of: (Int, String?).self) { group in
+        var started = Set<NodeID>()
+        var actions: [NodeID: String] = [:]
+        await withTaskGroup(of: (NodeID, String?).self) { group in
             var running = 0
-            for (index, id) in order.enumerated() {
-                if running == limit, let (finished, action) = await group.next() {
-                    running -= 1
-                    if let action { actions[finished] = action }
+            while true {
+                let state = await ledger.workingState()
+                for (id, task) in scheduleAvailableSteps(in: state, order: order, excluding: started,
+                                                       reportCompletion: false) {
+                    started.insert(id)
+                    group.addTask { (id, await task.value) }
+                    running += 1
                 }
-                group.addTask { (index, await self.step(id)) }
-                running += 1
-            }
-            for await (finished, action) in group {
+                guard running > 0, let (finished, action) = await group.next() else { break }
+                running -= 1
                 if let action { actions[finished] = action }
             }
         }
-        report.actions += actions.keys.sorted().compactMap { actions[$0] }
+        report.actions += order.compactMap { actions[$0] }
     }
 
     /// Fills free slots in creation order. Slots count steps from earlier rounds that are still running, and
     /// steps reserved but not yet claimed, so a node never gets a second step. While a node waits to land and
     /// no landing is under way, one slot stays free for it, so new work can't starve the landing queue.
-    private func scheduleAvailableSteps(in state: WorkingState) {
+    @discardableResult
+    private func scheduleAvailableSteps(in state: WorkingState, order: [NodeID]? = nil, excluding: Set<NodeID> = [],
+                                        reportCompletion: Bool = true) -> [(NodeID, Task<String?, Never>)] {
         let waitingToLand = !isLanding && state.landingQueue.contains { tasks[$0.id] == nil && !$0.awaitingHumanReview }
         let limit = max(1, policy.maxParallelAgents) - (waitingToLand ? 1 : 0)
-        for id in state.creationOrder {
+        var started: [(NodeID, Task<String?, Never>)] = []
+        for id in order ?? state.creationOrder {
             guard shutdownReason == nil, !Task.isCancelled, slotsInUse < limit else { break }
-            guard tasks[id] == nil, let node = state.nodes[id], canAdvance(node, in: state) else { continue }
-            startStep(id, reportCompletion: true)
+            guard !excluding.contains(id), tasks[id] == nil, let node = state.nodes[id],
+                  canAdvance(node, in: state), !isHeldForOverlap(node, in: state) else { continue }
+            started.append((id, startStep(id, reportCompletion: reportCompletion)))
         }
+        return started
     }
 
     @discardableResult
