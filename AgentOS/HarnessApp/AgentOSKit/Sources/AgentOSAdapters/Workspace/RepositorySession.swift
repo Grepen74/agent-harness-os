@@ -83,6 +83,14 @@ public final class RepositorySession: Sendable {
         scan.findings.filter { $0.severity == .blocker }.map(\.title)
     }
 
+    /// Whether running the baseline could be all agents need: the baseline's are the only blockers, and it is
+    /// missing or was run on another commit. A baseline that fails on the current commit needs a person.
+    public static func onlyBaselineBlocks(_ scan: ReadinessScan, baseline: Baseline?) -> Bool {
+        let blockers = scan.findings.filter { $0.severity == .blocker }
+        guard !blockers.isEmpty, blockers.allSatisfy({ $0.check == "baseline" }) else { return false }
+        return baseline == nil || baseline?.commit != scan.commit
+    }
+
     /// Ledger-only recovery, before readiness checks can prevent a repository session from starting.
     public static func recoverInterruptedRuns(in ledger: Ledger) async throws -> [String] {
         var notes: [String] = []

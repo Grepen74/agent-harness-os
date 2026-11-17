@@ -643,7 +643,10 @@ yet).
 
 `agentos work [<repo>] [--ticket <title> --criterion <text>… --go]` runs it from the terminal until nothing
 more can happen without a human. In the app, the repository window shows the tracker and work tree next to
-the findings, policy and ledger, with Step and Run once nothing blocks agents.
+the findings, policy and ledger, with Step and Run once nothing blocks agents. When only a missing or
+out-of-date baseline blocks them, Run becomes **Run baseline, then Run** (a circular arrow around a small play
+symbol): it runs the baseline on the current commit, rescans, and starts Run if nothing blocks agents then. A
+baseline that fails on the current commit still needs a person.
 
 ## Packaging
 

@@ -22,9 +22,13 @@ final class RepositoryModel: HarnessActions {
     /// Shown only for rounds that take noticeable time.
     var showsActivity = false
     var canWork: Bool { session != nil }
+    /// Only a missing or old baseline keeps agents from starting, so Run can run the baseline first.
+    private(set) var canRunAfterBaseline = false
     @ObservationIgnored private var location: RepositoryLocation?
     /// Settings changed while a scan was running.
     @ObservationIgnored private var rescanAgain = false
+    /// Start Run once the scans under way (and any they queued) have finished, if nothing blocks agents then.
+    @ObservationIgnored private var startAfterRescan = false
     @ObservationIgnored private var ledger: Ledger?
     @ObservationIgnored private var ledgerSession: HarnessLedgerSession?
     @ObservationIgnored private var tracker: (any TicketBoard)?
@@ -62,6 +66,11 @@ final class RepositoryModel: HarnessActions {
             await scanOnce()
         }
         view.isScanning = false
+        if startAfterRescan {
+            startAfterRescan = false
+            if canWork { setRunning(true) }
+            else { log("Not starting the agents: " + startBlockers.joined(separator: "; ")) }
+        }
     }
 
     private func scanOnce() async {
@@ -71,6 +80,7 @@ final class RepositoryModel: HarnessActions {
             root = result.root
             show(result)
             startBlockers = RepositorySession.blockers(result.scan)
+            canRunAfterBaseline = false
             log("Scanned \(url.path): \(result.scan.summary). Not recorded: no repo to record it for.")
             return
         case .repo(let found):
@@ -85,12 +95,13 @@ final class RepositoryModel: HarnessActions {
                 recovered = true
                 view.activity.insert(contentsOf: notes, at: 0)
             }
-            let result = await scanner.scan(location, harness: harness, baseline: await ledger.workingState().baseline)
+            let baseline = await ledger.workingState().baseline
+            let result = await scanner.scan(location, harness: harness, baseline: baseline)
             show(result)
             useTracker(result.tracker)
             let recorded = try await ledger.record(result.scan)
             log("Scanned: \(result.scan.summary). " + (recorded ? "Recorded in the ledger." : "Same as the last recorded scan."))
-            await startSession(result, at: location, ledger: ledger)
+            await startSession(result, baseline: baseline, at: location, ledger: ledger)
             await refresh()
         } catch {
             log("⛔️ Couldn't record the scan: \(error)")
@@ -99,7 +110,8 @@ final class RepositoryModel: HarnessActions {
 
     /// A new session for every scan, so agents always work with the current config and policy. The old session's
     /// round and agents (including those started by earlier rounds) finish first; Run continues with the new one.
-    private func startSession(_ result: ScannedRepository, at location: RepositoryLocation, ledger: Ledger) async {
+    private func startSession(_ result: ScannedRepository, baseline: Baseline?, at location: RepositoryLocation,
+                              ledger: Ledger) async {
         guard !isClosed else { return }
         let wasRunning = isRunning
         if let running = await session?.reconciler.busyNodes, !running.isEmpty {
@@ -108,12 +120,15 @@ final class RepositoryModel: HarnessActions {
         do {
             try await lifecycle.replaceSession { [self] in
                 session = nil
+                canRunAfterBaseline = false
                 guard !isClosed, let storage else { return nil }
                 var blockers = RepositorySession.blockers(result.scan)
                 let copilot = CopilotCLI.locate()
                 if copilot == nil { blockers.append("Copilot CLI not found") }
                 guard blockers.isEmpty, let config = result.config, let copilot else {
                     startBlockers = blockers
+                    canRunAfterBaseline = copilot != nil && result.config != nil
+                        && RepositorySession.onlyBaselineBlocks(result.scan, baseline: baseline)
                     return nil
                 }
                 session = try RepositorySession(
@@ -124,6 +139,7 @@ final class RepositoryModel: HarnessActions {
             }
         } catch {
             startBlockers = ["Couldn't prepare the workspace: \(error)"]
+            canRunAfterBaseline = false
         }
         isRunning = false
         if wasRunning { setRunning(true) }
@@ -195,7 +211,20 @@ final class RepositoryModel: HarnessActions {
     // MARK: Baseline and ledger
 
     func runBaseline() async {
-        guard !view.isRunningBaseline, let location, let config = view.config, let storage, let ledger else { return }
+        guard await recordBaseline() else { return }
+        await rescan()
+    }
+
+    /// Run when only a missing or old baseline blocks agents: the baseline, a rescan, then Run if nothing blocks.
+    func runBaselineThenStart() async {
+        guard canRunAfterBaseline, await recordBaseline() else { return }
+        startAfterRescan = true
+        await rescan()
+    }
+
+    /// Runs the baseline on the scanned commit and records it; false if it couldn't start.
+    private func recordBaseline() async -> Bool {
+        guard !view.isRunningBaseline, let location, let config = view.config, let storage, let ledger else { return false }
         view.isRunningBaseline = true
         log("Running the baseline on \(location.branch) at \(location.commit.prefix(8))…")
         let baseline = await BaselineRunner(storage: storage).run(config: config, commit: location.commit, repo: location.root)
@@ -206,7 +235,7 @@ final class RepositoryModel: HarnessActions {
             log("⛔️ Couldn't record the baseline: \(error)")
         }
         view.isRunningBaseline = false
-        await rescan()
+        return true
     }
 
     func verifyChain() async { view.chain = await ledger?.verifyChain() }

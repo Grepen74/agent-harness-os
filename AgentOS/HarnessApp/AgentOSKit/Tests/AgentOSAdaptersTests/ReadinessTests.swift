@@ -86,6 +86,21 @@ struct ReadinessTests {
         #expect(baseline(old)?.title == "Baseline is out of date")
     }
 
+    @Test func runningTheBaselineCanUnblockAgentsOnlyWhenItIsMissingOrOld() {
+        func onlyBaselineBlocks(_ result: Baseline?, config: String? = nil) -> Bool {
+            let files = config.map { [".agentos/config.json": $0] } ?? [:]
+            let findings = ReadinessRules.findings(for: snapshot(wellPrepared.merging(files) { $1 }), baseline: result)
+            return RepositorySession.onlyBaselineBlocks(
+                ReadinessScan(branch: "main", commit: "abc1234567", findings: findings), baseline: result)
+        }
+        let old = Baseline(commit: "0ld", passed: true, summary: "", seconds: 4, log: nil)
+        #expect(onlyBaselineBlocks(nil))
+        #expect(onlyBaselineBlocks(old))
+        #expect(!onlyBaselineBlocks(passed))
+        #expect(!onlyBaselineBlocks(Baseline(commit: "abc1234567", passed: false, summary: "", seconds: 4, log: nil)))
+        #expect(!onlyBaselineBlocks(nil, config: #"{"test": {"command": "x"}}"#))
+    }
+
     @Test func badConfigFilesAreReported() {
         func configFindings(_ files: [String: String]) -> [String] {
             var contents = wellPrepared

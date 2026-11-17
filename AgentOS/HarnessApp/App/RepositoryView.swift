@@ -52,15 +52,31 @@ struct RepositoryView: View {
         .toolbar {
             ToolbarItemGroup(placement: .navigation) {
                 HStack(spacing: 0) {
-                    Toggle(isOn: Binding(get: { model.isRunning }, set: { model.setRunning($0) })) {
-                        Label(model.isRunning ? "Running" : "Stopped", systemImage: model.isRunning ? "pause.fill" : "play.fill")
+                    if model.canRunAfterBaseline && !model.isRunning {
+                        Button { Task { await model.runBaselineThenStart() } } label: {
+                            Label {
+                                Text("Run baseline, then Run")
+                            } icon: {
+                                ZStack {
+                                    Image(systemName: "arrow.trianglehead.clockwise.rotate.90")
+                                    Image(systemName: "play.fill").scaleEffect(0.4)
+                                }
+                            }
+                        }
+                        .help("The baseline is missing or out of date: run it on the current commit, then run the "
+                              + "reconciler continuously if it passes")
+                        .disabled(model.view.isRunningBaseline || model.view.isScanning)
+                    } else {
+                        Toggle(isOn: Binding(get: { model.isRunning }, set: { model.setRunning($0) })) {
+                            Label(model.isRunning ? "Running" : "Stopped", systemImage: model.isRunning ? "pause.fill" : "play.fill")
+                        }
+                        .help("Run the reconciler continuously: agents pick up approved tickets")
+                        .disabled(!model.canWork)
                     }
-                    .help("Run the reconciler continuously: agents pick up approved tickets")
-                    .disabled(!model.canWork)
                     Button { Task { await model.step() } } label: { Label("Step", systemImage: "forward.frame") }
                         .help("Run exactly one reconciler round")
                         .disabled(!model.canWork || model.isRunning || model.isBusy)
-                    ProgressView().controlSize(.small).opacity(model.showsActivity ? 1 : 0)
+                    ProgressView().controlSize(.small).opacity(model.showsActivity || model.view.isRunningBaseline ? 1 : 0)
                     if !model.startBlockers.isEmpty {
                         Label("Agents blocked", systemImage: "hand.raised.fill")
                             .foregroundStyle(.orange)
