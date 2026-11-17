@@ -203,7 +203,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 460)
+        .frame(minWidth: 400)
         .onDisappear(perform: cancelDetection)
         .sheet(isPresented: Binding(get: { detected != nil }, set: { if !$0 { detected = nil } })) {
             if let detected {

@@ -32,7 +32,8 @@ struct AgentOSHarnessApp: App {
 
         Settings {
             SettingsView().environment(settings)
-        }
+                .windowResizeBehavior(.enabled)
+        } .windowResizability(.contentSize)
     }
 }
 
