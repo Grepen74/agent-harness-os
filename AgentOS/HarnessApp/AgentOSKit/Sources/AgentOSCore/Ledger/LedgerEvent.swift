@@ -79,6 +79,7 @@ public enum EventKind: Codable, Sendable {
     case overlapHoldEnded(waitingFor: NodeID, paths: [String], components: [String])
 
     // Work
+    case requirementBranchCreated(branch: String, from: String)
     /// Fingerprint of the node's acceptance tests; nobody may change them afterwards.
     case testsFixed(digest: String)
     /// Other work's tests the acceptance tests changed (written after `testsFixed`), with their fingerprint: they
@@ -240,6 +241,7 @@ extension EventKind {
             "overlap hold ended: waited for \(waitingFor); " +
                 (paths.isEmpty ? "components \(components.joined(separator: ", "))" : "paths \(paths.joined(separator: ", "))")
         case .testsFixed(let digest): "acceptance tests fixed (\(digest.prefix(8)))"
+        case .requirementBranchCreated(let branch, let from): "created \(branch) from \(from)"
         case .otherTestsUpdated(let files, _): "updated other work's tests: \(files.joined(separator: ", "))"
         case .reviewRecorded(let review):
             "\(review.stage.rawValue) review \(review.result.passed ? "passed" : "failed")"

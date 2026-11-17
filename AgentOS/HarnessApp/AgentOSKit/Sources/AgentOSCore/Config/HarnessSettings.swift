@@ -3,7 +3,7 @@ import Foundation
 /// The harness's own settings for every repo on this Mac: the outer limits (doc 04 §8). A repo's config may
 /// choose within them or make them stricter, never looser. Set in the app's Settings window.
 public struct HarnessSettings: Codable, Sendable, Equatable {
-    /// Proven work lands on this local branch; you review, merge and push it yourself.
+    /// Retained for decoding older settings; requirement branches now determine the landing target.
     public var landingBranch = "agentos/main"
     public var maxAttempts = 3
     public var maxReworks = 3
@@ -133,7 +133,7 @@ public struct EffectivePolicy: Sendable, Equatable {
 
     /// - `defaultBranch`: the repo's main branch. Landing there directly would skip your review.
     public static func resolve(harness: HarnessSettings, repo: RepoConfig?, defaultBranch: String?) -> EffectivePolicy {
-        var result = EffectivePolicy(landingBranch: harness.landingBranch, deniedTools: HarnessSettings.deniedTools,
+        var result = EffectivePolicy(landingBranch: "agentos/<ticket key>", deniedTools: HarnessSettings.deniedTools,
                                      protectedPaths: HarnessSettings.protectedPaths)
         result.maxParallelAgents = harness.maxParallelAgents
         result.overrideHarness = harness
@@ -144,24 +144,14 @@ public struct EffectivePolicy: Sendable, Equatable {
                                            suggestion: "Change \(RepoConfig.path); the repo may only make limits stricter."))
         }
 
-        // Landing branch: any other local branch name, but never the default branch itself.
-        var landingNote: String?
-        if let wanted = repo?.landing?.branch {
-            // `origin/develop` when the clone only has the remote's default branch: its local name counts too.
-            if wanted == defaultBranch || defaultBranch.map({ "origin/" + wanted == $0 }) == true {
-                refuse("Repo config lands on \(wanted) directly",
-                       "Proven work must land on a separate branch so a human reviews it before it reaches \(wanted).")
-                landingNote = "repo asked for \(wanted): refused"
-            } else if !isLocalBranchName(wanted) {
-                refuse("Repo config has an invalid landing branch: \(wanted)", "It must be a local branch name.")
-                landingNote = "repo asked for \(wanted): invalid"
-            } else {
-                result.landingBranch = wanted
-            }
+        if repo?.landing?.branch != nil {
+            result.problems.append(Finding(
+                check: "config.landing", severity: .warning, title: "landing.branch is ignored",
+                detail: "The configured value has no effect. Each requirement uses agentos/<ticket key>.",
+                suggestion: "Remove landing.branch from \(RepoConfig.path)."))
         }
-        let landingFromRepo = result.landingBranch != harness.landingBranch
-        result.settings.append(EffectiveSetting(name: "Landing branch", value: result.landingBranch,
-                                                source: landingFromRepo ? .repo : .harness, note: landingNote))
+        result.settings.append(EffectiveSetting(name: "Landing branch", value: "agentos/<ticket key>",
+                                                source: .harness, note: nil))
         result.settings.append(EffectiveSetting(name: "Push / open pull requests", value: "Never", source: .harness, note: nil))
 
         // Limits: lower is fine, higher is refused.

@@ -26,6 +26,12 @@ enum ReadinessRules {
             title: "Works from \(repo.branch) at \(repo.commit.prefix(8))",
             detail: "\(repo.files.count) tracked files. The scan reads this branch only, never your working copy."
         )]
+        if repo.legacyLandingCommitsAhead > 0 {
+            findings.append(Finding(
+                check: "repo.legacy-landing", severity: .warning, title: "Work remains only on agentos/main",
+                detail: "\(repo.legacyLandingCommitsAhead) commits are not in main. The harness no longer uses this branch.",
+                suggestion: "Merge agentos/main into main yourself to preserve that work in future requirements."))
+        }
         if repo.branch.hasPrefix("origin/") {
             let local = String(repo.branch.dropFirst("origin/".count))
             let fetched = repo.lastFetched.map { "last fetched \($0.formatted(date: .abbreviated, time: .shortened))" } ?? "fetch time unknown"

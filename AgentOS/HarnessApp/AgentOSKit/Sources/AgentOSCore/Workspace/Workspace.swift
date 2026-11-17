@@ -18,14 +18,17 @@ public struct ActiveLeavesCatchUpResult: Sendable, Equatable {
 /// The product's code as the reconciler sees it (doc 08): `main`, one branch and working copy per leaf,
 /// and a landing step that moves `main` forward. The reconciler never runs git itself.
 ///
-/// "`main`" here means the branch work is based on and lands on: `main` in the simulator, the landing
-/// branch (`agentos/main`) on a real repo.
+/// "`main`" in the historical method names means the leaf's requirement branch.
 ///
 /// Adapters: `SimulationWorkspace` (a git monorepo the simulator creates) and `RepositoryWorkspace` (an
 /// existing repo, with worktrees outside it and landing on a local branch).
 public protocol Workspace: Sendable {
     /// Makes sure the repository exists and is usable. Called at the start of every round.
     func prepare() async throws
+    /// Binds every descendant leaf to its requirement, creating its branch from current main once.
+    /// Returns the starting commit only when the branch was created.
+    func prepareRequirementBranch(for requirement: NodeIdentity, leaves: [NodeID]) async throws -> String?
+    func catchUpRequirementBranch(for requirement: NodeIdentity) async throws -> String
 
     func branch(for id: NodeID) -> String
     func worktree(for id: NodeID) -> URL
@@ -103,10 +106,17 @@ public protocol Workspace: Sendable {
     /// see the repo and its instruction files (AGENTS.md). Nil when the workspace has none. Anything written
     /// to it is lost when it's removed.
     func createSnapshot() async throws -> URL?
+    /// A snapshot of this leaf's requirement branch, for landing failure diagnosis.
+    func createSnapshot(for id: NodeID) async throws -> URL?
     func removeSnapshot(_ directory: URL) async
 }
 
 public extension Workspace {
+    func prepareRequirementBranch(for requirement: NodeIdentity, leaves: [NodeID]) async throws -> String? { nil }
+    func catchUpRequirementBranch(for requirement: NodeIdentity) async throws -> String {
+        throw AgentFailure("This workspace does not support requirement catch-up.")
+    }
+    func createSnapshot(for id: NodeID) async throws -> URL? { try await createSnapshot() }
     var updatableTestAreas: [String] { testArea.isEmpty ? [] : [testArea] }
     /// Whether `path` (relative to the repo's top folder) lies where other work's tests may be updated.
     func isInUpdatableTestArea(_ path: String) -> Bool {
@@ -146,5 +156,21 @@ extension Workspace {
             }
         }
         return result
+    }
+
+    public func catchUpRequirements(in state: WorkingState, busy: Set<NodeID>) async throws -> [NodeID: ActiveLeavesCatchUpResult] {
+        var results: [NodeID: ActiveLeavesCatchUpResult] = [:]
+        for requirement in state.roots where !requirement.ticketClosed {
+            let leaves = state.requirementLeaves(for: requirement.id)
+            guard requirement.requirementBranch != nil || leaves.contains(where: { $0.testsDigest != nil }) else { continue }
+            _ = try await prepareRequirementBranch(for: requirement.identity, leaves: leaves.map(\.id))
+            _ = try await catchUpRequirementBranch(for: requirement.identity)
+            let active = leaves.filter {
+                $0.testsDigest != nil && $0.phase != .proven && !$0.ticketClosed &&
+                    $0.activeRun == nil && !busy.contains($0.id)
+            }
+            results[requirement.id] = try await catchUpActiveLeaves(active.map(\.id))
+        }
+        return results
     }
 }

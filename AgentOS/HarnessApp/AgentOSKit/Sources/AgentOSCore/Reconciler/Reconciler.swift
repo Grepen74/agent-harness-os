@@ -131,6 +131,7 @@ public actor Reconciler {
         await intakeExternal(&report)
 
         do {
+            try await restoreRequirementBranches()
             if waitForAgents {
                 await self.waitForAgents()
                 try await advanceAll(&report)
@@ -151,7 +152,7 @@ public actor Reconciler {
             }
             try await clearObsoleteOverlapHolds()
         } catch {
-            report.safeStop = "Couldn't reconcile overlapping work: \(error). Check the workspace and ledger, then run again."
+            report.safeStop = "Couldn't reconcile work: \(error). Check the workspace and ledger, then run again."
         }
 
         await projectStatuses()
@@ -359,9 +360,9 @@ public actor Reconciler {
             return try await breakDown(node, in: state)
 
         case (.composite, .split):
-            // Up the V: every child has landed with all tests passing on main, so the whole is proven.
+            let branch = await requirementBranch(for: node.id)
             try await write(node.id, by: .reconciler, [.phaseChanged(to: .proven)], expecting: node.version)
-            await tracker.comment(on: node.ticket, "✅ Proven: every child has landed with all tests passing on main.")
+            await tracker.comment(on: node.ticket, "✅ Proven: every child has landed with all tests passing on \(branch).")
             return "\(node.displayName) proven (all children proven)"
 
         case (.leaf, .specified):

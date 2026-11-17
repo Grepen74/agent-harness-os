@@ -72,12 +72,15 @@ public actor CatchUpCoordinator {
     private let ledger: Ledger
     private let tracker: (any TicketBoard)?
     private let landingQueue: LandingQueue
+    private let requirement: NodeIdentity?
+    private var landingBranch: String { requirement.map { "agentos/\($0.ticketKey)" } ?? workspace.defaultBranch }
 
     init(workspace: RepositoryWorkspace, ledger: Ledger, tracker: any TicketBoard) {
         self.workspace = workspace
         self.ledger = ledger
         self.tracker = tracker
         landingQueue = LandingQueue()
+        requirement = nil
     }
 
     public init(workspace: RepositoryWorkspace, ledger: Ledger, landingQueue: LandingQueue) {
@@ -85,6 +88,16 @@ public actor CatchUpCoordinator {
         self.ledger = ledger
         tracker = nil
         self.landingQueue = landingQueue
+        requirement = nil
+    }
+
+    private init(workspace: RepositoryWorkspace, ledger: Ledger, tracker: (any TicketBoard)?,
+                 landingQueue: LandingQueue, requirement: NodeIdentity) {
+        self.workspace = workspace
+        self.ledger = ledger
+        self.tracker = tracker
+        self.landingQueue = landingQueue
+        self.requirement = requirement
     }
 
     public func catchUp(
@@ -92,20 +105,38 @@ public actor CatchUpCoordinator {
         acceptanceTests: @escaping @Sendable (URL) async throws -> Bool
     ) async throws -> CatchUpOutcome? {
         guard baseline.passed else { return nil }
+        guard baseline.commit == (try await workspace.localMainTip()) else { return nil }
+        if requirement == nil {
+            var outcome: CatchUpOutcome?
+            for coordinator in try await requirementCoordinators() {
+                if let result = try await coordinator.catchUp(after: baseline, acceptanceTests: acceptanceTests) {
+                    outcome = result
+                }
+            }
+            return outcome
+        }
         return try await landingQueue.runLanding { [self] in
             try await performCatchUp(to: baseline.commit, acceptanceTests: acceptanceTests)
         }
     }
 
     /// `busy`: nodes with a step in progress. Their worktrees are left alone; landing rebases them later.
-    func reconcile(force: Bool = false, busy: Set<NodeID> = []) async -> String? {
+    public func reconcile(force: Bool = false, busy: Set<NodeID> = []) async -> String? {
         do {
             try await workspace.prepare()
+            if requirement == nil {
+                var messages: [String] = []
+                for coordinator in try await requirementCoordinators() {
+                    if let message = await coordinator.reconcile(force: force, busy: busy) { messages.append(message) }
+                }
+                return messages.isEmpty ? nil : messages.joined(separator: "\n")
+            }
             let main = try await revision(workspace.defaultBranch)
-            let landing = try await revision(workspace.landingBranch)
+            let landing = try await revision(landingBranch)
             let state = await ledger.workingState()
+            let currentConflict = requirement.flatMap { state.nodes[$0.nodeID]?.catchUpConflict }
 
-            if let conflict = state.catchUpConflict,
+            if let conflict = currentConflict,
                try await isAncestor(conflict.mainSHA, of: landing) {
                 try await setManualMergeAid(files: [], enabled: false)
                 try await recordSuccess(main: conflict.mainSHA, tip: landing, method: .manual, busy: busy)
@@ -113,29 +144,29 @@ public actor CatchUpCoordinator {
             }
 
             if try await isAncestor(main, of: landing) {
-                await projectConflict(state.catchUpConflict)
+                await projectConflict(currentConflict)
                 return nil
             }
-            if !force, state.catchUpConflict?.mainSHA == main {
-                await projectConflict(state.catchUpConflict)
+            if !force, currentConflict?.mainSHA == main {
+                await projectConflict(currentConflict)
                 return nil
             }
 
-            if let conflict = state.catchUpConflict {
+            if let conflict = currentConflict {
                 try await setManualMergeAid(files: conflict.files, enabled: false)
             }
-            let result = try await attemptMerge(main: main, landing: landing)
+            let result = try await workspace.mergeRequirementBranch(landingBranch, main: main)
             switch result {
             case .success(let tip):
                 try await setManualMergeAid(files: [], enabled: false)
                 try await recordSuccess(main: main, tip: tip, method: .automatic, busy: busy)
-                return "Caught agentos/main up to \(main.prefix(8))"
+                return "Caught \(landingBranch) up to \(main.prefix(8))"
             case .conflict(let files):
                 let ticketFiles = try await affectedTickets(for: files, state: state)
                 let tickets = ticketFiles.keys.sorted()
                 try await ledger.append([
                     LedgerEvent(
-                        node: nil,
+                        node: requirement?.nodeID,
                         by: .adapter("Catch-up"),
                         kind: .catchUpConflicted(main: main, files: files.sorted(), tickets: tickets)
                     ),
@@ -153,17 +184,22 @@ public actor CatchUpCoordinator {
 
     func status() async -> CatchUpStatus {
         let state = await ledger.workingState()
-        guard let conflict = state.catchUpConflict else {
+        if requirement == nil, let coordinator = presentationCoordinator(in: state) {
+            return await coordinator.status()
+        }
+
+        let node = requirement.flatMap { state.nodes[$0.nodeID] }
+        guard let conflict = node?.catchUpConflict else {
             return CatchUpStatus(
                 conflict: nil,
-                lastSuccess: state.lastCatchUpSuccess,
+                lastSuccess: node?.lastCatchUpSuccess,
                 banner: nil,
                 attentionItems: [],
                 scanFinding: nil
             )
         }
         let message = await conflictMessage(conflict, state: state)
-        let behind = (try? await git(["rev-list", "--count", "\(workspace.landingBranch)..\(workspace.defaultBranch)"],
+        let behind = (try? await git(["rev-list", "--count", "\(landingBranch)..\(workspace.defaultBranch)"],
                                      in: workspace.root)) ?? "0"
         let banner = CatchUpBanner(level: .warning, message: message)
         let item = CatchUpAttentionItem(
@@ -176,19 +212,52 @@ public actor CatchUpCoordinator {
         let finding = Finding(
             check: "repository.catch-up",
             severity: .warning,
-            title: "agentos/main is \(behind) commit\(behind == "1" ? "" : "s") behind main: catch-up conflict in \(conflict.files.count) files"
+            title: "\(landingBranch) is \(behind) commit\(behind == "1" ? "" : "s") behind main: catch-up conflict in \(conflict.files.count) files"
         )
         return CatchUpStatus(
             conflict: conflict,
-            lastSuccess: state.lastCatchUpSuccess,
+            lastSuccess: node?.lastCatchUpSuccess,
             banner: banner,
             attentionItems: [item],
             scanFinding: finding
         )
     }
 
+    func status(for ticket: String) async -> CatchUpStatus {
+        guard let coordinator = await coordinator(for: ticket) else {
+            return CatchUpStatus(conflict: nil, lastSuccess: nil, banner: nil, attentionItems: [], scanFinding: nil)
+        }
+        return await coordinator.status()
+    }
+
+    func conflictDiff(for ticket: String) async throws -> String {
+        guard let coordinator = await coordinator(for: ticket) else {
+            throw AgentFailure("No requirement branch exists for \(ticket).")
+        }
+        return try await coordinator.conflictDiff()
+    }
+
+    func openInTerminal(for ticket: String) async throws -> URL {
+        guard let coordinator = await coordinator(for: ticket) else {
+            throw AgentFailure("No requirement branch exists for \(ticket).")
+        }
+        return try await coordinator.openInTerminal()
+    }
+
+    private func coordinator(for ticket: String) async -> CatchUpCoordinator? {
+        guard let root = await ledger.workingState().roots.first(where: { $0.ticket == ticket }) else { return nil }
+        return CatchUpCoordinator(workspace: workspace, ledger: ledger, tracker: tracker,
+                                  landingQueue: landingQueue, requirement: root.identity)
+    }
+
     func conflictDiff() async throws -> String {
-        guard let conflict = await ledger.workingState().catchUpConflict else {
+        if requirement == nil {
+            guard let coordinator = presentationCoordinator(in: await ledger.workingState()) else {
+                throw AgentFailure("There is no requirement branch to catch up.")
+            }
+            return try await coordinator.conflictDiff()
+        }
+        guard let requirement, let conflict = await ledger.workingState().nodes[requirement.nodeID]?.catchUpConflict else {
             throw AgentFailure("There is no catch-up conflict.")
         }
         let directory = workspace.worktreesDirectory.appending(path: "catch-up-diff-\(UUID().uuidString)")
@@ -205,7 +274,13 @@ public actor CatchUpCoordinator {
     }
 
     func openInTerminal() async throws -> URL {
-        guard let conflict = await ledger.workingState().catchUpConflict else {
+        if requirement == nil {
+            guard let coordinator = presentationCoordinator(in: await ledger.workingState()) else {
+                throw AgentFailure("There is no requirement branch to catch up.")
+            }
+            return try await coordinator.openInTerminal()
+        }
+        guard let requirement, let conflict = await ledger.workingState().nodes[requirement.nodeID]?.catchUpConflict else {
             throw AgentFailure("There is no catch-up conflict.")
         }
         let directory = workspace.worktreesDirectory.appending(path: "catch-up-\(conflict.mainSHA.prefix(12))")
@@ -225,39 +300,6 @@ public actor CatchUpCoordinator {
         return directory
     }
 
-    private enum MergeAttempt {
-        case success(String)
-        case conflict([String])
-    }
-
-    private func attemptMerge(main: String, landing: String) async throws -> MergeAttempt {
-        if try await isAncestor(landing, of: main) {
-            try await git(["update-ref", "refs/heads/\(workspace.landingBranch)", main, landing], in: workspace.root)
-            return .success(main)
-        }
-
-        let directory = workspace.worktreesDirectory.appending(path: "catch-up-attempt-\(UUID().uuidString)")
-        try await addDetachedWorktree(directory)
-        let merge = try await ProcessRunner.run(
-            "/usr/bin/env", ["git", "merge", "--no-commit", "--no-ff", main],
-            in: directory
-        )
-        guard merge.status == 0 else {
-            let files = try await git(["diff", "--name-only", "--diff-filter=U"], in: directory)
-                .split(separator: "\n").map(String.init)
-            try await removeWorktree(directory)
-            return .conflict(files)
-        }
-        try await git([
-            "-c", "user.name=AgentOS", "-c", "user.email=agentos@agents.agentos.local",
-            "commit", "-q", "--no-verify", "-m", "Catch up agentos/main with \(workspace.defaultBranch)",
-        ], in: directory)
-        let tip = try await revision("HEAD", in: directory)
-        try await git(["update-ref", "refs/heads/\(workspace.landingBranch)", tip, landing], in: workspace.root)
-        try await removeWorktree(directory)
-        return .success(tip)
-    }
-
     private func affectedTickets(
         for conflictFiles: [String],
         state: WorkingState
@@ -265,6 +307,7 @@ public actor CatchUpCoordinator {
         var result: [String: Set<String>] = [:]
         let conflicts = Set(conflictFiles)
         for node in state.nodes.values where node.phase == .proven {
+            guard state.lineage(of: node.id).last?.id == requirement?.nodeID else { continue }
             guard let landed = node.landedCommit else { continue }
             var changed = try await changedFiles(in: landed)
             if !changed.isEmpty, changed.allSatisfy(RepositoryWorkspace.isUIEvidence) {
@@ -302,7 +345,9 @@ public actor CatchUpCoordinator {
 
     /// Shows an unresolved conflict on its tickets again, e.g. after a round projected their usual statuses.
     func projectCurrentConflict() async {
-        await projectConflict(ledger.workingState().catchUpConflict)
+        for root in await ledger.workingState().roots {
+            await projectConflict(root.catchUpConflict)
+        }
     }
 
     private func projectConflict(_ conflict: CatchUpConflict?) async {
@@ -331,9 +376,11 @@ public actor CatchUpCoordinator {
         let state = await ledger.workingState()
         let activeLeaves = state.creationOrder.compactMap { id -> NodeID? in
             guard let node = state.nodes[id],
+                  state.lineage(of: id).last?.id == requirement?.nodeID,
                   node.spec.kind == .leaf,
                   node.testsDigest != nil,
                   node.phase != .proven,
+                  !node.ticketClosed,
                   node.activeRun == nil, !busy.contains(id) else { return nil }
             return id
         }
@@ -347,7 +394,7 @@ public actor CatchUpCoordinator {
         let leaves = try await workspace.catchUpActiveLeaves(activeLeaves)
         var events = [
             LedgerEvent(
-                node: nil,
+                node: requirement?.nodeID,
                 by: .adapter("Catch-up"),
                 kind: .catchUpSucceeded(main: main, newAgentOSMainTip: tip, method: method)
             ),
@@ -387,8 +434,8 @@ public actor CatchUpCoordinator {
             in: workspace.root
         )
         let attributes = URL(filePath: common).appending(path: "info/attributes")
-        let start = "# agentos catch-up conflict"
-        let end = "# end agentos catch-up conflict"
+        let start = "# agentos catch-up conflict \(landingBranch)"
+        let end = "# end agentos catch-up conflict \(landingBranch)"
         let existing = (try? String(contentsOf: attributes, encoding: .utf8)) ?? ""
         var lines = existing.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         if let first = lines.firstIndex(of: start), let last = lines[first...].firstIndex(of: end) {
@@ -400,13 +447,13 @@ public actor CatchUpCoordinator {
             lines += files.sorted().map { "\($0) merge=union" }
             lines.append(end)
             _ = try await git(
-                ["config", "branch.\(workspace.landingBranch).mergeOptions", "--no-commit"],
+                ["config", "branch.\(landingBranch).mergeOptions", "--no-commit"],
                 in: workspace.root
             )
         } else {
             let result = try await ProcessRunner.run(
                 "/usr/bin/env",
-                ["git", "config", "--unset", "branch.\(workspace.landingBranch).mergeOptions"],
+                ["git", "config", "--unset", "branch.\(landingBranch).mergeOptions"],
                 in: workspace.root
             )
             if result.status != 0 && result.status != 5 {
@@ -423,7 +470,7 @@ public actor CatchUpCoordinator {
             withIntermediateDirectories: true
         )
         try await git(
-            ["worktree", "add", "-q", "--detach", directory.path, workspace.landingBranch],
+            ["worktree", "add", "-q", "--detach", directory.path, landingBranch],
             in: workspace.root
         )
     }
@@ -461,7 +508,7 @@ public actor CatchUpCoordinator {
         acceptanceTests: @escaping @Sendable (URL) async throws -> Bool
     ) async throws -> CatchUpOutcome? {
         try await workspace.prepare()
-        let oldTip = try await revision(workspace.landingBranch)
+        let oldTip = try await revision(landingBranch)
         let base = try await git(["merge-base", oldTip, target], in: workspace.root)
         let landedCommits = try await commits(from: base, to: oldTip)
         let represented = try await representedCommits(
@@ -470,38 +517,20 @@ public actor CatchUpCoordinator {
             oldTip: oldTip,
             target: target
         )
-        let method: CatchUpReconciliationMethod
-        if represented.count == landedCommits.count {
-            method = .move
-        } else if represented.isEmpty {
-            method = .rebase
-        } else {
-            method = .merge
-        }
+        let method: CatchUpReconciliationMethod = represented.count == landedCommits.count ? .move : .merge
 
         let directory = workspace.worktreesDirectory.appending(path: "catch-up-proposal-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: workspace.worktreesDirectory, withIntermediateDirectories: true)
         let proposalStart = method == .move ? target : oldTip
         try await git(["worktree", "add", "-q", "--detach", directory.path, proposalStart], in: workspace.root)
         do {
-            let mappings: [String: String]
-            switch method {
-            case .move:
-                mappings = [:]
-            case .merge:
+            let mappings: [String: String] = [:]
+            if method == .merge {
                 try await git([
                     "-c", "user.name=AgentOS", "-c", "user.email=agentos@agents.agentos.local",
                     "merge", "-q", "--no-ff", "--no-verify", "-m",
-                    "Catch up \(workspace.landingBranch) with \(workspace.defaultBranch)", target,
+                    "Catch up \(landingBranch) with \(workspace.defaultBranch)", target,
                 ], in: directory)
-                mappings = [:]
-            case .rebase:
-                try await git(["rebase", "-q", "--onto", target, base, oldTip], in: directory)
-                let rebased = try await commits(from: target, to: "HEAD", in: directory)
-                guard rebased.count == landedCommits.count else {
-                    throw AgentFailure("Catch-up rebase did not preserve every landed commit.")
-                }
-                mappings = Dictionary(uniqueKeysWithValues: zip(landedCommits, rebased))
             }
 
             let newTip = try await revision("HEAD", in: directory)
@@ -511,12 +540,13 @@ public actor CatchUpCoordinator {
             }
             try await git([
                 "update-ref", "-m", "agentos: catch up via \(method.rawValue)",
-                "refs/heads/\(workspace.landingBranch)", newTip, oldTip,
+                "refs/heads/\(landingBranch)", newTip, oldTip,
             ], in: workspace.root)
             try await removeWorktree(directory)
+            try await recordSuccess(main: target, tip: newTip, method: .automatic, busy: [])
             try await ledger.append([
                 LedgerEvent(
-                    node: nil,
+                    node: requirement?.nodeID,
                     by: .adapter("Catch-up"),
                     kind: .caughtUp(
                         targetMain: target,
@@ -527,7 +557,7 @@ public actor CatchUpCoordinator {
                     )
                 ),
             ])
-            let title = "\(workspace.landingBranch) caught up to \(target) (\(method.rawValue))"
+            let title = "\(landingBranch) caught up to \(target) (\(method.rawValue))"
             return CatchUpOutcome(
                 targetMain: target,
                 oldLandingTip: oldTip,
@@ -596,5 +626,31 @@ public actor CatchUpCoordinator {
             throw AgentFailure("Could not calculate patch ID for \(commit): \(result.output)")
         }
         return result.output.split(separator: " ").first.map(String.init)
+    }
+
+    private func requirementCoordinators() async throws -> [CatchUpCoordinator] {
+        let state = await ledger.workingState()
+        var coordinators: [CatchUpCoordinator] = []
+        for root in state.roots where !root.ticketClosed {
+            let leaves = state.requirementLeaves(for: root.id)
+            guard root.requirementBranch != nil || leaves.contains(where: { $0.testsDigest != nil }) else { continue }
+            if let from = try await workspace.prepareRequirementBranch(for: root.identity, leaves: leaves.map(\.id)),
+               root.requirementBranch == nil {
+                try await ledger.append([
+                    LedgerEvent(node: root.id, by: .adapter("Catch-up"),
+                                kind: .requirementBranchCreated(branch: "agentos/\(root.ticket)", from: from)),
+                ])
+            }
+            coordinators.append(CatchUpCoordinator(workspace: workspace, ledger: ledger, tracker: tracker,
+                                                   landingQueue: landingQueue, requirement: root.identity))
+        }
+        return coordinators
+    }
+
+    private func presentationCoordinator(in state: WorkingState) -> CatchUpCoordinator? {
+        guard let root = state.roots.first(where: { $0.catchUpConflict != nil })
+            ?? state.roots.first(where: { $0.requirementBranch != nil }) else { return nil }
+        return CatchUpCoordinator(workspace: workspace, ledger: ledger, tracker: tracker,
+                                  landingQueue: landingQueue, requirement: root.identity)
     }
 }

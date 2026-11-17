@@ -132,7 +132,7 @@ extension Reconciler {
         }
 
         if team.reviewer != nil, policy.review.requiresReview {
-            let context = try await workspace.reviewContext(in: directory, against: policy.review.baseBranch)
+            let context = try await workspace.reviewContext(in: directory, against: requirementBranch(for: node.id))
             if policy.review.level(for: node.spec.touches + context.changedFiles) != .none {
                 let result = try await review(node, stage: .acceptanceTests, context: context, in: directory, run: run)
                 if !result.passed {

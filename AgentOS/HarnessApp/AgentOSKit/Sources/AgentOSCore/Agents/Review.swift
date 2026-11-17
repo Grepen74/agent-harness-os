@@ -46,7 +46,7 @@ public struct ReviewPolicy: Sendable, Equatable {
     /// Tried in order when the reviewer's model isn't available: other offered reviewer models that differ from
     /// the implementer's, then the agent CLI's default (nil).
     public var reviewerFallbacks: [String?] = []
-    public var baseBranch = "agentos/main"
+    public var baseBranch = "main"
 
     public init() {}
 

@@ -17,7 +17,7 @@ let usage = """
            agentos work [<repo path>] [--ticket <title> [--description <text>] [--criterion <text>]... [--go]]
                   [--github-account <gh login>]
                                            run Copilot agents on the repo's local tracker until nothing is left
-                                           to do without a human; proven work lands on agentos/main
+                                           to do without a human; proven work lands on requirement branches
     """
 
 let arguments = Array(CommandLine.arguments.dropFirst())

@@ -17,6 +17,7 @@ import Foundation
 /// Production: real repos in GitHub/GitLab/Gerrit, agents in sandboxes, a real merge queue.
 public struct SimulationWorkspace: Workspace, MainTipRepository {
     public let root: URL
+    private let requirementBranches = RequirementBranchBindings()
 
     public init(root: URL) { self.root = root }
 
@@ -25,7 +26,43 @@ public struct SimulationWorkspace: Workspace, MainTipRepository {
     public var artifactsDirectory: URL { root.appending(path: "artifacts") }
 
     public func worktree(for id: NodeID) -> URL { worktreesDirectory.appending(path: id) }
-    public func branch(for id: NodeID) -> String { "node/\(id)" }
+    public func branch(for id: NodeID) -> String { "agentos/leaf/\(id)" }
+
+    public func prepareRequirementBranch(for requirement: NodeIdentity, leaves: [NodeID]) async throws -> String? {
+        let branch = "agentos/\(requirement.ticketKey)"
+        let exists = try await ProcessRunner.run(
+            "/usr/bin/env", ["git", "show-ref", "--verify", "--quiet", "refs/heads/\(branch)"], in: repoDirectory
+        )
+        guard exists.status == 0 || exists.status == 1 else { throw AgentFailure("Could not inspect \(branch): \(exists.output)") }
+        var from: String?
+        if exists.status == 1 {
+            let main = try await localMainTip()
+            try await git(["branch", "--no-track", branch, main], in: repoDirectory)
+            from = main
+        }
+        requirementBranches.bind(leaves, to: branch)
+        return from
+    }
+
+    private func landingBranch(for id: NodeID) throws -> String {
+        try requirementBranches.branch(for: id)
+    }
+
+    public func catchUpRequirementBranch(for requirement: NodeIdentity) async throws -> String {
+        let directory = try await createSnapshot(at: "agentos/\(requirement.ticketKey)")
+        do {
+            let old = try await head(of: directory)
+            try await git(["-c", "user.name=AgentOS", "-c", "user.email=harness@agents.agentos.local",
+                           "merge", "-q", "--no-edit", "main"], in: directory)
+            let tip = try await head(of: directory)
+            try await git(["update-ref", "refs/heads/agentos/\(requirement.ticketKey)", tip, old], in: repoDirectory)
+            await removeSnapshot(directory)
+            return tip
+        } catch {
+            await removeSnapshot(directory)
+            throw error
+        }
+    }
 
     /// Creates the monorepo with an empty first commit on `main`, once.
     public func prepare() async throws {
@@ -46,7 +83,7 @@ public struct SimulationWorkspace: Workspace, MainTipRepository {
         let directory = worktree(for: id)
         try? await removeWorktree(for: id)
         try FileManager.default.createDirectory(at: worktreesDirectory, withIntermediateDirectories: true)
-        try await git(["worktree", "add", "-q", "-B", branch(for: id), directory.path, "main"], in: repoDirectory)
+        try await git(["worktree", "add", "-q", "-B", branch(for: id), directory.path, landingBranch(for: id)], in: repoDirectory)
         return directory
     }
 
@@ -56,9 +93,17 @@ public struct SimulationWorkspace: Workspace, MainTipRepository {
     }
 
     public func createSnapshot() async throws -> URL? {
+        try await createSnapshot(at: "main")
+    }
+
+    public func createSnapshot(for id: NodeID) async throws -> URL? {
+        try await createSnapshot(at: landingBranch(for: id))
+    }
+
+    private func createSnapshot(at branch: String) async throws -> URL {
         let directory = root.appending(path: "snapshots/\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try await git(["worktree", "add", "-q", "--detach", directory.path, "main"], in: repoDirectory)
+        try await git(["worktree", "add", "-q", "--detach", directory.path, branch], in: repoDirectory)
         return directory
     }
 
@@ -108,7 +153,8 @@ public struct SimulationWorkspace: Workspace, MainTipRepository {
 
     /// Every file this branch changed since it left `main`.
     public func changedFiles(in directory: URL) async throws -> [String] {
-        try await git(["diff", "--name-only", "--no-renames", "-z", "main...HEAD"], in: directory)
+        let branch = try landingBranch(for: directory.lastPathComponent)
+        return try await git(["diff", "--name-only", "--no-renames", "-z", "\(branch)...HEAD"], in: directory)
             .split(separator: "\0").map(String.init)
     }
 
@@ -131,7 +177,8 @@ public struct SimulationWorkspace: Workspace, MainTipRepository {
 
     /// Replays the branch on top of the latest `main`. On conflict, everything is put back as it was.
     public func rebaseOntoMain(_ directory: URL) async throws -> RebaseResult {
-        let result = try await ProcessRunner.run("/usr/bin/env", ["git", "rebase", "-q", "main"], in: directory)
+        let branch = try landingBranch(for: directory.lastPathComponent)
+        let result = try await ProcessRunner.run("/usr/bin/env", ["git", "rebase", "-q", branch], in: directory)
         guard result.status != 0 else { return .clean }
         let files = (try? await git(["diff", "--name-only", "--diff-filter=U"], in: directory))?
             .split(separator: "\n").map(String.init) ?? []
@@ -146,16 +193,21 @@ public struct SimulationWorkspace: Workspace, MainTipRepository {
     /// Rework: keep only the branch's first commit (the acceptance tests), drop the implementation, and
     /// move it on top of the latest `main`. The tests touch only the node's own folder, so this can't conflict.
     public func resetForRework(_ directory: URL) async throws {
-        let commits = try await git(["rev-list", "--reverse", "main..HEAD"], in: directory).split(separator: "\n")
+        let branch = try landingBranch(for: directory.lastPathComponent)
+        let commits = try await git(["rev-list", "--reverse", "\(branch)..HEAD"], in: directory).split(separator: "\n")
         guard let testsCommit = commits.first else { return }
         try await git(["reset", "-q", "--hard", String(testsCommit)], in: directory)
-        try await git(["rebase", "-q", "main"], in: directory)
+        try await git(["rebase", "-q", branch], in: directory)
     }
 
     /// Fast-forwards `main` to the leaf's (already rebased and checked) branch. Returns the new `main`.
     public func landOnMain(_ id: NodeID) async throws -> String {
-        try await git(["merge", "-q", "--ff-only", branch(for: id)], in: repoDirectory)
-        return try await head(of: repoDirectory)
+        let landing = try landingBranch(for: id)
+        let old = try await git(["rev-parse", landing], in: repoDirectory).trimmingCharacters(in: .whitespacesAndNewlines)
+        let tip = try await head(of: worktree(for: id))
+        try await git(["merge-base", "--is-ancestor", old, tip], in: repoDirectory)
+        try await git(["update-ref", "refs/heads/\(landing)", tip, old], in: repoDirectory)
+        return tip
     }
 
     // MARK: Swift package
@@ -197,7 +249,7 @@ public struct SimulationWorkspace: Workspace, MainTipRepository {
 
     /// Everything the leaf's working copy changed since it left `main`, committed or not.
     public func changes(for id: NodeID) async throws -> String {
-        try await WorkingChanges.describe(worktree(for: id), since: "main")
+        try await WorkingChanges.describe(worktree(for: id), since: landingBranch(for: id))
     }
 
     @discardableResult
