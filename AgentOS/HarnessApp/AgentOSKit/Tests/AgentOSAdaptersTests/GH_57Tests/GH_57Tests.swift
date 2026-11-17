@@ -420,7 +420,7 @@ import Testing
       "build": {"prepare": "generate-project", "command": "build-app"},
       "test": {"command": "run-tests", "only": "--filter {suite}"},
       "checks": [{"name": "lint", "command": "run-lint"}],
-      "leafTests": {"target": "AppTests", "folder": "Tests/AppTests"},
+      "leafTests": {"target": "AppTests", "folder": "Tests/AppTests", "updatable": ["Tests/UnitTests"]},
       "components": ["Sources/App"],
       "landing": {"branch": "agentos/main"},
       "signals": {"disable": ["go"]},

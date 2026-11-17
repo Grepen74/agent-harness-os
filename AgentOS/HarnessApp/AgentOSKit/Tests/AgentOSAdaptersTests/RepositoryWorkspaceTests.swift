@@ -91,12 +91,13 @@ struct RepositoryWorkspaceTests {
                   implementer: Implementer(alsoEdits: alsoEdits, renames: renames, runsGit: runsGit))
     }
 
-    func session(_ repo: URL, team: AgentTeam, harness: HarnessSettings = HarnessSettings()) async throws -> RepositorySession {
+    func session(_ repo: URL, team: AgentTeam, harness: HarnessSettings = HarnessSettings(),
+                 config: RepoConfig = Self.config) async throws -> RepositorySession {
         let storage = FileManager.default.temporaryDirectory.appending(path: "agentos-storage-\(UUID().uuidString)")
         let ledger = try Ledger(store: FileLedgerStore(fileURL: storage.appending(path: "ledger.jsonl")))
-        let policy = EffectivePolicy.resolve(harness: harness, repo: Self.config, defaultBranch: "main")
+        let policy = EffectivePolicy.resolve(harness: harness, repo: config, defaultBranch: "main")
         let location = RepositoryLocation(root: repo, identity: "test", branch: "main", commit: try await git(["rev-parse", "main"], in: repo))
-        return try RepositorySession(location: location, storage: storage, ledger: ledger, config: Self.config, policy: policy, team: team)
+        return try RepositorySession(location: location, storage: storage, ledger: ledger, config: config, policy: policy, team: team)
     }
 
     func ticket(_ session: RepositorySession, title: String = "Greeting") async -> String {
@@ -222,6 +223,43 @@ struct RepositoryWorkspaceTests {
         #expect(try await git(["show", "--name-only", "--format=", tests], in: repo).split(separator: "\n").map(String.init).sorted()
                 == [ShellTestAuthor.existing, "Tests/AppTests/WORK_1Tests/check.sh"])
         #expect(try await git(["show", "agentos/main:\(ShellTestAuthor.existing)"], in: repo) == "grep -q hello app.txt")
+    }
+
+    @Test("Tests in a folder leafTests.updatable names may be updated too; tests elsewhere may not", arguments: [true, false])
+    func testsInFurtherUpdatableFoldersLand(listed: Bool) async throws {
+        let repo = try await makeRepo()
+        var config = Self.config
+        config.leafTests?.updatable = listed ? ["./Tests/Unit/", "..", "/elsewhere", "", "Tests/AppTests"] : nil
+        let session = try await session(repo, team: AgentTeam(name: "Fake", decomposer: Leaf(),
+                                                              testAuthor: UpdatesUnitTest(), implementer: Implementer()), config: config)
+        let key = await ticket(session)
+
+        let reports = await session.runUntilFinished()
+
+        let node = try #require(await session.ledger.workingState().node(forTicket: key))
+        #expect(node.phase == .proven, "\(node.flags) \(reports.flatMap(\.actions))")
+        #expect(node.updatedOtherTests == (listed ? [UpdatesUnitTest.file] : []))
+        let landed = try await git(["ls-tree", "-r", "--name-only", "agentos/main", "--", "Tests/Unit"], in: repo)
+        #expect(landed == (listed ? UpdatesUnitTest.file : ""))
+
+        let workspace = try RepositoryWorkspace(root: repo, storage: repo, config: config,
+                                                landingBranch: "agentos/main", defaultBranch: "main")
+        #expect(workspace.updatableTestAreas == (listed ? ["Tests/AppTests/", "Tests/Unit/"] : ["Tests/AppTests/"]))
+        #expect(workspace.agentContext.contains("Other work items' existing tests also live in Tests/Unit/.") == listed)
+    }
+
+    /// Updates a test of another test target, as a ticket changing what it checks does.
+    struct UpdatesUnitTest: TestAuthor {
+        static let file = "Tests/Unit/check.sh"
+        func writeAcceptanceTests(_ task: AgentTask) async throws -> AgentReport {
+            let own = task.directory.appending(path: "\(task.testFolder)/check.sh")
+            try FileManager.default.createDirectory(at: own.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try "grep -q hello app.txt\n".write(to: own, atomically: true, encoding: .utf8)
+            let other = task.directory.appending(path: Self.file)
+            try FileManager.default.createDirectory(at: other.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try "grep -q hello app.txt\n".write(to: other, atomically: true, encoding: .utf8)
+            return AgentReport(updatedTests: [Self.file])
+        }
     }
 
     @Test("Older tests the test author updated stay updated when its tests come back from review")

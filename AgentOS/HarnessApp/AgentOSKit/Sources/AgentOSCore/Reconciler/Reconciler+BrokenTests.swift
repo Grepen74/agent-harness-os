@@ -31,6 +31,8 @@ extension Reconciler {
         directory: URL
     ) async throws -> String {
         try await resetForRework(node, in: directory)
+        // Only the harness records where the test lives.
+        var report = BrokenTestReport(testName: report.testName, reason: report.reason)
         let finished = EventKind.runFinished(run: run, outcome: "reported a broken test: \(report.testName)")
 
         let earlier = await brokenReportsSentBackSincePersonSteppedIn(node.id)
@@ -51,7 +53,8 @@ extension Reconciler {
             let reason = if let outOfReach {
                 """
                 \(report.testName) isn't one of this ticket's acceptance tests. Its expectations conflict with this \
-                ticket, and it lives in \(outOfReach), outside \(workspace.testArea), where no agent may change tests:
+                ticket, and it lives in \(outOfReach), outside \(workspace.updatableTestAreas.joined(separator: ", ")), \
+                where no agent may change tests:
                 \(history)
                 \(next)
                 """
@@ -70,6 +73,12 @@ extension Reconciler {
                 Next: review the reports, comment with guidance, then add harness:retry. To have the tests written \
                 again from scratch, add harness:retest instead.
                 """
+            }
+            // As committed on the leaf's branch now (rework just discarded everything else): a retry compares
+            // against it to tell whether a person fixed the test meanwhile.
+            if isOther, let file = outOfReach ?? declaringFiles(of: report.testName, in: directory).first {
+                report.testFile = file
+                report.testFileDigest = Hashing.digest(ofFiles: [file], in: directory)
             }
             try await write(node.id, by: author, [
                 finished,
@@ -118,11 +127,23 @@ extension Reconciler {
         return leading == suite
     }
 
-    /// The file a reported test lives in when that's outside the test area, where agents may not change tests:
-    /// the test author can't settle it, so a person is asked straight away. Nil when it's inside, or not found.
+    /// The file a reported test lives in when that's outside the updatable test areas, where agents may not change
+    /// tests: the test author can't settle it, so a person is asked straight away. Nil when it's inside, or not found.
     private func outsideTestArea(_ testName: String, in directory: URL) -> String? {
-        let area = workspace.testArea
-        guard !area.isEmpty else { return nil }
+        guard !workspace.updatableTestAreas.isEmpty else { return nil }
+        let files = declaringFiles(of: testName, in: directory)
+        return files.contains(where: workspace.isInUpdatableTestArea) ? nil : files.first
+    }
+
+    /// The file a reported test lives in when that's inside the updatable test areas, where the test author may
+    /// update it. Nil when it's outside, or not found.
+    func reachableTestFile(_ testName: String, in directory: URL) -> String? {
+        declaringFiles(of: testName, in: directory).first(where: workspace.isInUpdatableTestArea)
+    }
+
+    /// The files, relative to the repo's top folder, that declare the reported test's suite, or the file the
+    /// report names by path.
+    private func declaringFiles(of testName: String, in directory: URL) -> [String] {
         let root = directory.standardizedFileURL.path + "/"
         let relative = { (url: URL) -> String? in
             let path = url.standardizedFileURL.path
@@ -130,8 +151,8 @@ extension Reconciler {
         }
         if testName.contains("/") {
             let named = directory.appending(path: testName.split(separator: ":").first.map(String.init) ?? testName)
-            guard FileManager.default.fileExists(atPath: named.path), let path = relative(named) else { return nil }
-            return path.hasPrefix(area) ? nil : path
+            guard FileManager.default.fileExists(atPath: named.path), let path = relative(named) else { return [] }
+            return [path]
         }
         // A declaration starts its line (after attributes and modifiers), so a suite named in a string or a
         // comment, say a test fixture's source text, doesn't count.
@@ -140,7 +161,7 @@ extension Reconciler {
                   pattern: #"^[ \t]*(?:@\w+(?:\([^)\n]*\))?\s+)*(?:(?:public|package|internal|fileprivate|private|final|open)\s+)*(?:struct|class|enum|actor)\s+"#
                       + NSRegularExpression.escapedPattern(for: suite) + #"\b"#,
                   options: .anchorsMatchLines)
-        else { return nil }
+        else { return [] }
         let files = FileManager.default.enumerator(at: directory, includingPropertiesForKeys: nil,
                                                    options: [.skipsHiddenFiles, .skipsPackageDescendants])
         var declaredIn: [String] = []
@@ -148,10 +169,9 @@ extension Reconciler {
             guard url.pathExtension == "swift", let text = try? String(contentsOf: url, encoding: .utf8),
                   declaration.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil,
                   let path = relative(url) else { continue }
-            if path.hasPrefix(area) { return nil }
             declaredIn.append(path)
         }
-        return declaredIn.first
+        return declaredIn
     }
 
     /// How often reports about the same test go back to the test author before a person is asked: one rewrite can

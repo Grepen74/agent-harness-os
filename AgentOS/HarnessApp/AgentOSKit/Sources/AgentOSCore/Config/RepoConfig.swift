@@ -49,8 +49,15 @@ public struct RepoConfig: Codable, Sendable, Equatable {
         /// The existing test target leaves add their acceptance tests to.
         public var target: String
         public var folder: String
+        /// More folders holding other work's existing tests (say, other test targets), which the test author may
+        /// update where a criterion deliberately changes what they check. `folder` always counts.
+        public var updatable: [String]?
 
-        public init(target: String, folder: String) { self.target = target; self.folder = folder }
+        public init(target: String, folder: String, updatable: [String]? = nil) {
+            self.target = target
+            self.folder = folder
+            self.updatable = updatable
+        }
     }
 
     public struct Landing: Codable, Sendable, Equatable {

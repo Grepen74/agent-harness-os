@@ -127,7 +127,7 @@ extension Reconciler {
         let changed = try await workspace.changedFiles(in: directory)
         let own = workspace.testFolder(for: node.spec) + "/"
         let others = changed.filter {
-            $0.hasPrefix(workspace.testArea) && !$0.hasPrefix(own) && !node.updatedOtherTests.contains($0)
+            workspace.isInUpdatableTestArea($0) && !$0.hasPrefix(own) && !node.updatedOtherTests.contains($0)
         }
         if !others.isEmpty { return "Changed other nodes' tests (not allowed): \(others.joined(separator: ", "))" }
         let protected = policy.protectedPathViolations(changed)

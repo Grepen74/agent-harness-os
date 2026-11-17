@@ -65,10 +65,16 @@ public struct AgentTask: Sendable {
 public struct BrokenTestReport: Codable, Sendable, Hashable {
     public var testName: String
     public var reason: String
+    /// Set by the harness, never by an agent, when another work's conflicting test makes the node wait for a person:
+    /// the file declaring that test and its fingerprint then, so a retry can tell whether anyone changed it since.
+    public var testFile: String?
+    public var testFileDigest: String?
 
-    public init(testName: String, reason: String) {
+    public init(testName: String, reason: String, testFile: String? = nil, testFileDigest: String? = nil) {
         self.testName = testName
         self.reason = reason
+        self.testFile = testFile
+        self.testFileDigest = testFileDigest
     }
 }
 

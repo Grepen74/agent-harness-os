@@ -180,6 +180,7 @@ is configured, Copilot CLI chooses its own default. Display titles are not confi
 | `leafTests` | Object naming the existing acceptance-test target and folder | Missing is a blocker for agents; not required for baseline alone | Agents need an existing test target; the harness does not restructure the repo |
 | `leafTests.target` | String: existing acceptance-test target name | Required when `leafTests` is present | Must identify the target leaves add their tests to |
 | `leafTests.folder` | String: repository-relative path to the acceptance-test folder | Required when `leafTests` is present | Each leaf writes only its own suite subfolder; approved tests are protected |
+| `leafTests.updatable` | Array of repository-relative folders holding other existing tests (say, other test targets) | Only `leafTests.folder` | Where the test author may update other work's tests a criterion deliberately changes; nobody else may change tests there. The repo's top folder, absolute paths and `..` are ignored |
 | `components` | Array of strings naming source components or repository paths for touch sets | Empty component list | None; declares existing components available to breakdown |
 | `landing` | Object containing a local landing branch | Inherit the harness landing branch | Must keep proven work separate from the default branch |
 | `landing.branch` | String: valid local branch name | Inherit harness setting; built-in `agentos/main` | Cannot be the default branch, a remote/ref name, `agentos`, or an `agentos/leaf/` branch |
@@ -229,7 +230,8 @@ Context paths and globs select tracked files on the scanned default branch. An u
 produces a warning; correct the path/glob, track the document, or remove that entry. These selectors
 do not read untracked files. Protected paths and denied tools, unlike context, only extend the harness's
 lists. The harness always denies agent push/fetch/pull/remote/config/stash operations, `gh` and network
-installs, and protects its steering files and approved acceptance tests.
+installs, and protects its steering files and approved acceptance tests. Agents are told to use git
+only to read history (`git log`, `git show`, `git diff`, `git status`).
 
 ### Choosing and activating repo overrides
 
@@ -318,7 +320,10 @@ changed outside the leaf's test folder (ignored build output stays) and commits 
 defects are found while writing the tests, not one implementer run at a time.
 The one exception is other work's existing tests that this ticket's criteria deliberately supersede (say a
 default that flips): the test author may update them with the smallest change and list them in
-`updatedTests`. Only listed files in the test area that aren't protected are kept. They're committed with
+`updatedTests`. It changes only the lines the criterion requires, leaving the rest as it is even where it
+breaks the rules for new tests (a fixed sleep, say), and restores anything it was asked to from git history
+rather than from memory. Only listed files that aren't protected and lie in the test area, or in a folder
+`leafTests.updatable` names, are kept; the implementer may change none of those. They're committed with
 the acceptance tests, fingerprinted and locked like them, and named in the ticket comment. Work landing on
 `agentos/main` meanwhile may change them too: when the harness moves the leaf onto it (before building,
 at landing, when catching up) and they were as locked just before, uncommitted changes aside, their lock
@@ -329,8 +334,12 @@ When the implementer reports a broken test (its own or, by `Suite.testName`, ano
 with this ticket), the ticket goes back to the test author without charging an attempt. A person is asked
 only on the third report about the same test, or the fifth about any tests, since a person last stepped in
 (an answer, `harness:retry` or `harness:retest`): settled reports about other tests don't use up a test's
-tries. The "Needs input" lists every report. A conflicting test that lives outside the test area (a general test
-of the app, say) goes to a person on the first report: no agent may change it, so a return can't settle it.
+tries. The "Needs input" lists every report. A conflicting test that lives outside the test area and the
+`leafTests.updatable` folders (a general test of the app, say) goes to a person on the first report: no
+agent may change it, so a return can't settle it. On `harness:retry`, a conflicting test the test author
+may now update (the repo has since added its folder, say), and which is still as committed when the ticket
+started waiting, goes to the test author along with the answer. Otherwise, the person is taken to have fixed
+the test, and the implementer tries again.
 Whenever tests come back (compiler errors, review findings, a broken-test report), the leaf's new branch
 starts from the landing branch with its earlier test folder restored, so the author fixes those tests in
 place rather than rewriting them blind. Other work's tests the earlier runs updated are restored and kept

@@ -20,7 +20,8 @@
   },
   "leafTests" : {
     "folder" : "AgentOS/HarnessApp/AgentOSKit/Tests/AgentOSAdaptersTests",
-    "target" : "AgentOSAdaptersTests"
+    "target" : "AgentOSAdaptersTests",
+    "updatable" : ["AgentOS/HarnessApp/AgentOSKit/Tests"]
   },
   "test" : {
     "command" : "cd AgentOS/HarnessApp/AgentOSKit && swift test",

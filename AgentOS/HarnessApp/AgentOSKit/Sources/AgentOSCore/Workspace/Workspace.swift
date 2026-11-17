@@ -49,6 +49,10 @@ public protocol Workspace: Sendable {
     func reviewContext(in directory: URL, against branch: String) async throws -> ReviewContext
     /// Where every node's acceptance tests live, relative to the repo's top folder, ending in "/".
     var testArea: String { get }
+    /// Where other work's existing tests live, which the test author may update where a criterion of its item
+    /// deliberately changes what they check: `testArea` and any further folders the repo names, each ending in "/".
+    /// Neither the implementer nor anyone else may change them.
+    var updatableTestAreas: [String] { get }
     /// The folder with this node's own acceptance tests (inside `testArea`, no trailing "/").
     func testFolder(for spec: NodeSpec) -> String
     /// What agents need to know about the repo: its layout, how to build and test, what not to do.
@@ -102,6 +106,11 @@ public protocol Workspace: Sendable {
 }
 
 public extension Workspace {
+    var updatableTestAreas: [String] { testArea.isEmpty ? [] : [testArea] }
+    /// Whether `path` (relative to the repo's top folder) lies where other work's tests may be updated.
+    func isInUpdatableTestArea(_ path: String) -> Bool {
+        updatableTestAreas.contains { !$0.isEmpty && path.hasPrefix($0) }
+    }
     func createWorktree(for id: NodeID, keeping paths: [String]) async throws -> URL { try await createWorktree(for: id) }
     func discardChanges(keeping paths: [String], in directory: URL) async throws {}
     func saveUnfinishedWork(_ directory: URL, for id: NodeID) async throws -> [String] { [] }

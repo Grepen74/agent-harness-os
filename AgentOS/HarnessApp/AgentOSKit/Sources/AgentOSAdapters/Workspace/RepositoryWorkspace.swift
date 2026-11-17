@@ -35,7 +35,8 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
         self.root = root
         self.storage = storage
         self.config = config
-        self.leafTests = RepoConfig.LeafTests(target: leafTests.target, folder: Self.trimmed(leafTests.folder))
+        self.leafTests = RepoConfig.LeafTests(target: leafTests.target, folder: Self.trimmed(leafTests.folder),
+                                              updatable: leafTests.updatable?.map(Self.trimmed))
         self.landingBranch = landingBranch
         self.defaultBranch = defaultBranch
         self.protectedPaths = protectedPaths
@@ -209,6 +210,17 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
 
     public var testArea: String { leafTests.folder.isEmpty ? "" : leafTests.folder + "/" }
 
+    /// The test area, then the repo's further folders. The repo's top folder, absolute paths and paths with ".."
+    /// never count: other work's tests must be somewhere agents can tell apart from everything else.
+    public var updatableTestAreas: [String] {
+        var areas: [String] = testArea.isEmpty ? [] : [testArea]
+        for folder in leafTests.updatable ?? [] where !folder.isEmpty && folder != "." && !folder.hasPrefix("/")
+            && !folder.split(separator: "/").contains("..") && !areas.contains(folder + "/") {
+            areas.append(folder + "/")
+        }
+        return areas
+    }
+
     /// A folder per leaf in the existing test target; its suite has the same name, so `test.only` can select it.
     public func testFolder(for spec: NodeSpec) -> String { testArea + spec.testTarget }
 
@@ -225,7 +237,12 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
         }
         lines.append("Acceptance tests of work items live in the test target \(leafTests.target), folder \(testArea), " +
                      "one subfolder and one suite per work item.")
-        lines.append("Don't run git commands, don't install packages and don't use the network.")
+        let others = updatableTestAreas.filter { $0 != testArea }
+        if !others.isEmpty {
+            lines.append("Other work items' existing tests also live in \(others.joined(separator: ", ")).")
+        }
+        lines.append("Use git only to read history (git log, git show, git diff, git status); never change branches, " +
+                     "commits or the index. Don't install packages and don't use the network.")
         if !protectedPaths.isEmpty {
             lines.append("Never change these protected paths: \(protectedPaths.joined(separator: ", ")).")
         }
@@ -390,9 +407,10 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
         // The landing branch changed under the placeholders: the tests themselves are what's worth keeping.
         _ = try? await ProcessRunner.run("/usr/bin/env", ["git", "cherry-pick", "--abort"], in: directory)
         try await discardUncommitted(directory)
-        guard !testArea.isEmpty else { return [] }
+        let areas = updatableTestAreas
+        guard !areas.isEmpty else { return [] }
         let changed = Set(paths)
-        let tests = try await git(["ls-tree", "-r", "-z", "--name-only", commit, "--", testArea], in: root)
+        let tests = try await git(["ls-tree", "-r", "-z", "--name-only", commit, "--"] + areas, in: root)
             .split(separator: "\0").map(String.init).filter { changed.contains($0) }
         guard !tests.isEmpty else { return [] }
         _ = try await git(["checkout", commit, "--"] + tests, in: directory)

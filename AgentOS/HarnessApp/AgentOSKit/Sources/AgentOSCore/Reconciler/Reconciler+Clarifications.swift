@@ -63,7 +63,7 @@ extension Reconciler {
     /// the tests are written again with it.
     func resume(_ node: NodeState, answeredOn ticket: Ticket, by person: String) async throws -> String {
         if await isWaitingOnOtherTest(node) {
-            // The person may have fixed the other test instead of answering; the implementer tries again either way.
+            // The person may have fixed the other test instead of answering.
             var kinds: [EventKind] = [.flagCleared(.needsInput)]
             if let answer = Self.answer(on: ticket) {
                 kinds.insert(.questionsAnswered(Clarification(questions: ["How to proceed with the conflicting test"], answer: answer)), at: 0)
@@ -72,6 +72,19 @@ extension Reconciler {
             // Pick up a fix to the other test made since; the implementation was already discarded, the tests are kept.
             let directory = workspace.worktree(for: node.id)
             _ = try await rebaseOntoMain(node, in: directory)
+            // Where the test author may update the test (say, the repo has since allowed it) and it's as it was when
+            // the node started waiting, the conflict is the test author's to settle, with the answer. Catching up
+            // before signals are handled may already have brought a person's fix in, so the comparison is with
+            // then. Reports from before the harness recorded the file count as unchanged.
+            if let report = node.brokenTestReports.last,
+               let reachable = reachableTestFile(report.testName, in: directory),
+               report.testFileDigest == nil
+                || (report.testFile == reachable && Hashing.digest(ofFiles: [reachable], in: directory) == report.testFileDigest) {
+                try await write(node.id, by: .human(person), kinds + [
+                    .brokenTestRouted(testName: report.testName, outcome: .sentBackToTestAuthor),
+                    .phaseChanged(to: .specified)])
+                return "the test author will update \(reachable) where this ticket's criteria require it"
+            }
             try await write(node.id, by: .human(person), kinds)
             return "the implementer will try again on the latest landing branch"
         }

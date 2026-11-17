@@ -287,19 +287,19 @@ extension Reconciler {
         return result + (artifact.map { "\nFull log: \($0.path)" } ?? "") + "\nLast lines:\n" + tail
     }
 
-    /// Files the test author says it updated in other work's tests: only test files of the test area, never
-    /// protected ones. Anything else it changed is thrown away.
+    /// Files the test author says it updated in other work's tests: only test files of the updatable test areas,
+    /// never protected ones. Anything else it changed is thrown away.
     private func updatableOtherTests(_ files: [String], of node: NodeState) -> [String] {
         let own = workspace.testFolder(for: node.spec)
-        let area = workspace.testArea
+        let areas = workspace.updatableTestAreas
         let candidates = Set(files.map { (file: String) -> String in
             var file = file
             while file.hasPrefix("./") { file.removeFirst(2) }
             while file.hasSuffix("/") { file.removeLast() }
             return file
         }).filter { (file: String) -> Bool in
-            // Something inside the test area, never the whole area, the own folder or a folder holding it.
-            !area.isEmpty && file.hasPrefix(area) && file.count > area.count
+            // Something inside an area, never a whole area, the own folder or a folder holding it.
+            areas.contains { !$0.isEmpty && file.hasPrefix($0) && file.count > $0.count }
                 && file != own && !file.hasPrefix(own + "/") && !own.hasPrefix(file + "/")
                 && !file.split(separator: "/").contains("..")
         }

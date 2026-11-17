@@ -31,12 +31,17 @@ struct BrokenTestRoutingTests {
     }
 
     @Test(arguments: [
-        ("FlowTests", "Tests/AgentOSSimulationTests/FlowTests.swift", true),
-        ("FlowTests", "Tests/AgentOSAdaptersTests/FlowTests.swift", false),
-        ("HarnessFlow", "Tests/AgentOSSimulationTests/HarnessFlow.swift", true),
+        ("FlowTests", "Tests/AgentOSSimulationTests/FlowTests.swift", [String](), true),
+        ("FlowTests", "Tests/AgentOSAdaptersTests/FlowTests.swift", [], false),
+        ("HarnessFlow", "Tests/AgentOSSimulationTests/HarnessFlow.swift", [], true),
+        // The repo lets the test author update the other test targets' tests too.
+        ("FlowTests", "Tests/AgentOSSimulationTests/FlowTests.swift", ["Tests/"], false),
     ])
-    func aConflictingTestNoAgentMayChangeGoesStraightToAPerson(suite: String, file: String, outsideTestArea: Bool) async throws {
+    func aConflictingTestNoAgentMayChangeGoesStraightToAPerson(
+        suite: String, file: String, updatable: [String], outsideTestArea: Bool
+    ) async throws {
         let fixture = try await Fixture(
+            updatable: updatable,
             reports: Array(repeating: BrokenTestReport(testName: "\(suite).demoReworks", reason: "It expects a rework."), count: 3),
             files: [
                 file: "@Suite(.serialized)\nfinal class \(suite) {}\n",
@@ -50,6 +55,35 @@ struct BrokenTestRoutingTests {
         #expect(await fixture.testAuthor.runs == (outsideTestArea ? 1 : 3))
         #expect(reason.contains("lives in \(file), outside Tests/AgentOSAdaptersTests/") == outsideTestArea)
         #expect(await fixture.reconciler.isWaitingOnOtherTest(node))
+    }
+
+    @Test(arguments: [false, true])
+    func aRetryHandsAConflictingTestTheRepoNowLetsAgentsUpdateToTheTestAuthor(fixedOnLandingBranch: Bool) async throws {
+        let file = "Tests/AgentOSSimulationTests/FlowTests.swift"
+        let fixture = try await Fixture(
+            reports: [BrokenTestReport(testName: "FlowTests.landsOnMain", reason: "It expects landing on main.")],
+            files: [file: "struct FlowTests {}\n"])
+        await fixture.rounds(2)
+        #expect(await fixture.node()?.flags[.needsInput]?.contains("outside Tests/AgentOSAdaptersTests/") == true)
+        #expect(await fixture.testAuthor.runs == 1)
+
+        // The repo adds the other test targets to leafTests.updatable. Or a person fixed the test as well, which
+        // catching up brought in before the retry was handled.
+        fixture.areas.set(["Tests/"])
+        if fixedOnLandingBranch {
+            try "struct FlowTests { /* fixed */ }\n".write(to: fixture.directory.appending(path: file), atomically: true, encoding: .utf8)
+        }
+        await fixture.tracker.add(.retry)
+        await fixture.rounds(1)
+
+        let resumed = try #require(await fixture.node())
+        #expect(resumed.flags[.needsInput] == nil)
+        #expect(await fixture.testAuthor.runs == (fixedOnLandingBranch ? 1 : 2))
+        // Either the test author settles the conflict with the report, or the implementer tries again straight away.
+        #expect(await fixture.implementer.runs == (fixedOnLandingBranch ? 2 : 1))
+        if !fixedOnLandingBranch {
+            #expect(await fixture.testAuthor.feedback.last == "FlowTests.landsOnMain: It expects landing on main.")
+        }
     }
 
     @Test func aRetestGivesTheRewrittenTestsAFirstBrokenReportBeforeAPersonIsAsked() async throws {
@@ -101,8 +135,11 @@ private extension BrokenTestRoutingTests {
         let implementer: Builder
         let reconciler: Reconciler
 
-        init(reports: [BrokenTestReport], files: [String: String] = [:]) async throws {
-            let directory = FileManager.default.temporaryDirectory.appending(path: "agentos-routing-\(UUID().uuidString)")
+        let areas: Areas
+        let directory: URL
+
+        init(updatable: [String] = [], reports: [BrokenTestReport], files: [String: String] = [:]) async throws {
+            directory = FileManager.default.temporaryDirectory.appending(path: "agentos-routing-\(UUID().uuidString)")
             try FileManager.default.createDirectory(at: directory.appending(path: Stub.folder), withIntermediateDirectories: true)
             for (path, text) in files {
                 let url = directory.appending(path: path)
@@ -115,8 +152,10 @@ private extension BrokenTestRoutingTests {
                 LedgerEvent(node: Self.spec.id, by: .human("Alice"), kind: .gateOpened(.build)),
             ])
             implementer = Builder(reports: reports)
+            areas = Areas(updatable)
             reconciler = Reconciler(
-                ledger: ledger, tracker: tracker, external: Stub(directory: directory), workspace: Stub(directory: directory),
+                ledger: ledger, tracker: tracker, external: Stub(directory: directory),
+                workspace: Stub(directory: directory, areas: areas),
                 artifacts: Stub(directory: directory), checks: Stub(directory: directory),
                 team: AgentTeam(name: "routing", decomposer: Stub(directory: directory), testAuthor: testAuthor, implementer: implementer))
         }
@@ -148,8 +187,10 @@ private extension BrokenTestRoutingTests {
 
     actor Author: TestAuthor {
         private(set) var runs = 0
+        private(set) var feedback: [String?] = []
         func writeAcceptanceTests(_ task: AgentTask) async throws -> AgentReport {
             runs += 1
+            feedback.append(task.previousFailure)
             let file = task.directory.appending(path: "\(task.testFolder)/Tests.swift")
             try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
             try "// revision \(runs)\n".write(to: file, atomically: true, encoding: .utf8)
@@ -167,9 +208,20 @@ private extension BrokenTestRoutingTests {
         }
     }
 
+    /// The repo's further updatable test folders, which its config may change.
+    final class Areas: @unchecked Sendable {
+        private let lock = NSLock()
+        private var updatable: [String]
+        init(_ updatable: [String]) { self.updatable = updatable }
+
+        func set(_ updatable: [String]) { lock.withLock { self.updatable = updatable } }
+        var current: [String] { lock.withLock { updatable } }
+    }
+
     struct Stub: Workspace, CheckRunner, ArtifactStore, ExternalDependencySource, Decomposer {
         static let folder = "Tests/AgentOSAdaptersTests/GH_9_1Tests"
         let directory: URL
+        var areas = Areas([])
 
         func prepare() async throws {}
         func branch(for id: NodeID) -> String { "agentos/\(id)" }
@@ -180,6 +232,7 @@ private extension BrokenTestRoutingTests {
         func head(of directory: URL) async throws -> String { "head" }
         func changedFiles(in directory: URL) async throws -> [String] { [] }
         var testArea: String { "Tests/AgentOSAdaptersTests/" }
+        var updatableTestAreas: [String] { [testArea] + areas.current }
         func testFolder(for spec: NodeSpec) -> String { Self.folder }
         var agentContext: String { "" }
         func rebaseOntoMain(_ directory: URL) async throws -> RebaseResult { .clean }

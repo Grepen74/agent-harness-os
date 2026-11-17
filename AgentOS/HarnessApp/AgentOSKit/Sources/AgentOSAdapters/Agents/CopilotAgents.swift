@@ -528,6 +528,14 @@ public struct CopilotTestAuthor: TestAuthor {
         "test: the reviewer checks it against the diff once the work is built. Name such criteria in the comment " +
         "at the top of the file instead of testing them."
 
+    /// The rules for tests it writes (no fixed sleeps, say) once had it "fixing" other work's tests it only had to
+    /// point at a new branch, and restoring them from memory, round after round of review.
+    static let otherTestsRule = "In another work item's test, change only the lines the criterion requires and " +
+        "leave everything else exactly as it is, even code that breaks the rules here for tests you write (a fixed " +
+        "sleep, say): those rules are for your own tests. To restore something there, copy it from git history " +
+        "(git log and git show on that file), never from memory, and check with git diff on that file that only the " +
+        "lines the criterion requires differ."
+
     /// The findings of earlier review rounds of these tests, which later rounds must not undo.
     static func earlierRounds(_ rounds: [[String]]) -> String {
         guard !rounds.isEmpty else { return "" }
@@ -583,7 +591,7 @@ public struct CopilotTestAuthor: TestAuthor {
         this item deliberately changes behaviour another work item's existing test checks, update that test with \
         the smallest change that makes it expect the new behaviour (never delete it or loosen it beyond that), \
         and list its file in updatedTests. A reviewer checks every such change against the criteria. Where no \
-        criterion asks for the change, leave the other test alone and ask a question instead. Name any other file you add there after the \
+        criterion asks for the change, leave the other test alone and ask a question instead. \(Self.otherTestsRule) Name any other file you add there after the \
         suite (e.g. \(suite)Support.swift): files in one test target need unique names, even in different folders. \
         Build and run your suite before finishing, as the repo's instructions say (only your suite, not every \
         test). Where the API your tests expect doesn't exist yet, add placeholders for it so they build: \
