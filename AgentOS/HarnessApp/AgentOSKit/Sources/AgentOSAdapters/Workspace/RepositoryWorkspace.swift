@@ -309,8 +309,11 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
 
     public func saveUnfinishedWork(_ directory: URL, for id: NodeID) async throws -> [String] {
         let paths = try await save(directory, to: unfinishedRef(for: id), message: "agentos: unfinished work on \(id)")
-        // What it saved started from the kept implementation, if there was one.
-        _ = try? await git(["update-ref", "-d", keptImplementationRef(for: id)], in: root)
+        // What it saved started from the kept implementation, if there was one. Nothing saved (a run that failed
+        // before getting it back, say) leaves the kept implementation for the next run.
+        if !paths.isEmpty {
+            _ = try? await git(["update-ref", "-d", keptImplementationRef(for: id)], in: root)
+        }
         return paths
     }
 
@@ -318,11 +321,35 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
         let ref = keptImplementationRef(for: id)
         let commits = try await git(["rev-list", "--reverse", "\(landingBranch)..HEAD"], in: directory)
             .split(separator: "\n").map(String.init)
-        guard commits.count > 1, let tests = commits.first else {
+        guard let tests = commits.first else {
             _ = try? await git(["update-ref", "-d", ref], in: root)
             return []
         }
-        let tree = try await git(["rev-parse", "HEAD^{tree}"], in: directory).trimmingCharacters(in: .whitespacesAndNewlines)
+        // Uncommitted work counts too (an implementer reporting a broken test hasn't submitted), but not changes to
+        // tests: those are the test author's to make, and would clash with its fixes.
+        let areas = updatableTestAreas.map(Self.trimmed).filter { !$0.isEmpty }
+        let tree: String
+        do {
+            // From the branch as committed, so changes staged earlier don't slip past the exclusions.
+            try await git(["reset", "-q"], in: directory)
+            try await git(["add", "-A", "--", ".", ":(top,exclude,literal).agentos/scratch",
+                           ":(top,exclude,literal).agentos-report.json"]
+                          + areas.map { ":(top,exclude,literal)" + $0 }, in: directory)
+            // Tests as the test author committed them, also where later commits changed them.
+            if !areas.isEmpty {
+                try await git(["reset", "-q", tests, "--"] + areas.map { ":(top,literal)" + $0 }, in: directory)
+            }
+            tree = try await git(["write-tree"], in: directory).trimmingCharacters(in: .whitespacesAndNewlines)
+            try await git(["reset", "-q"], in: directory)
+        } catch {
+            _ = try? await git(["reset", "-q"], in: directory)
+            throw error
+        }
+        let testsTree = try await git(["rev-parse", tests + "^{tree}"], in: directory).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard tree != testsTree else {
+            _ = try? await git(["update-ref", "-d", ref], in: root)
+            return []
+        }
         let commit = try await git(["-c", "user.name=agentos", "-c", "user.email=agentos@agents.agentos.local",
                                     "commit-tree", tree, "-p", tests, "-m", "agentos: implementation kept for \(id)"],
                                    in: directory).trimmingCharacters(in: .whitespacesAndNewlines)

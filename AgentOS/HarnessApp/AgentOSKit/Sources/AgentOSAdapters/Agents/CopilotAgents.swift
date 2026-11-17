@@ -171,7 +171,9 @@ public struct CopilotCLI: Sendable {
                          deadline: ContinuousClock.Instant, agentContext: AgentContext,
                          includeComments: Bool) async throws -> String {
         let limit = ContinuousClock.now.duration(to: deadline)
-        guard limit > .zero else { throw AgentFailure("copilot timed out after \(timeout) (falling back took it all)") }
+        guard limit > .zero else {
+            throw AgentFailure("copilot timed out after \(timeout) (falling back took it all)", outOfTime: true)
+        }
         let count = includeComments ? agentContext.ticketComments.count + (agentContext.parent?.comments.count ?? 0) : 0
         let settings = runSettings()
         let inventory = """
@@ -195,7 +197,7 @@ public struct CopilotCLI: Sendable {
             }
             if let effort = Self.unsupportedEffort(in: result.output) { throw UnsupportedEffort(effort: effort) }
             if result.crashSignal == SIGKILL && result.output.hasSuffix("Timed out after \(limit)\n") {
-                throw AgentFailure("copilot timed out after \(timeout): \(result.output.suffix(300))")
+                throw AgentFailure("copilot timed out after \(timeout): \(result.output.suffix(300))", outOfTime: true)
             }
             throw AgentFailure("copilot exited with \(result.status): \(result.output.suffix(300))")
         }
@@ -555,7 +557,9 @@ public struct CopilotTestAuthor: TestAuthor {
             "\n\nEarlier work on this item ran into the problem below. If \(task.testFolder)/ already holds your " +
             "earlier tests, they are the ones it is about: edit them there rather than starting over. If it lies " +
             "in the acceptance tests, fix it with the smallest change that does, and leave the rest of the tests " +
-            "as they are: every line you rewrite risks a new mistake. Run them again before finishing:\n\($0)"
+            "as they are: every line you rewrite risks a new mistake. A report may name several tests: fix each " +
+            "one, and where the cause is shared (a fixture or helper that relies on behaviour this item changes), " +
+            "check the other tests using it too. Run them again before finishing:\n\($0)"
                 + earlierRounds(task.earlierTestReviews)
         } ?? ""
         let draftFiles = task.unfinishedWork.prefix(40).joined(separator: ", ") + (task.unfinishedWork.count > 40 ? ", …" : "")
@@ -669,7 +673,11 @@ public struct CopilotImplementer: Implementer {
         {"questions": [], "assumptions": [], "brokenTest": \
         {"testName": string, "reason": string}}. Name the test as Suite.testName (for example FlowTests.someTest), \
         so the harness can tell this item's tests from other work's. Report another work item's test the same \
-        way when it expects behaviour this item's criteria deliberately change: the test author may update it. Only if the code already meets every \
+        way when it expects behaviour this item's criteria deliberately change: the test author may update it. \
+        Each report sends the tests back for a round, so before reporting, run the whole test suite once and \
+        report every such test together: name one in testName and list each other one in reason, as \
+        Suite.testName with why it conflicts. If one of them lives outside the folders where tests may be \
+        updated, name that one in testName. Your changes so far are kept for your next attempt. Only if the code already meets every \
         acceptance criterion without any change (for example because other work delivered it), change nothing \
         and write {"alreadySatisfied": true}; the verifier then checks the branch as it is. Passing tests are \
         not enough: a refactor's tests pass before the work too, and criteria such as file layout or size \

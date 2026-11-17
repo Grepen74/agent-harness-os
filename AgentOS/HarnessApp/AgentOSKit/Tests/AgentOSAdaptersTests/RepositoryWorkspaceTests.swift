@@ -629,6 +629,26 @@ struct RepositoryWorkspaceTests {
         #expect(sneakyFlag.contains("Agents for \(honest) ran at the same time"), "\(sneakyFlag)")
     }
 
+    @Test("A run that fails with nothing to save leaves the kept implementation for the next run")
+    func aFailedRunWithNothingToSaveKeepsTheImplementation() async throws {
+        let repo = try await makeRepo()
+        let storage = FileManager.default.temporaryDirectory.appending(path: "agentos-storage-\(UUID().uuidString)")
+        let workspace = try RepositoryWorkspace(root: repo, storage: storage, config: Self.config,
+                                                landingBranch: "agentos/main", defaultBranch: "main")
+        try await workspace.prepare()
+        let directory = try await workspace.createWorktree(for: "wn-1")
+        try FileManager.default.createDirectory(at: directory.appending(path: "Tests/AppTests"), withIntermediateDirectories: true)
+        try "grep -q hello app.txt\n".write(to: directory.appending(path: "Tests/AppTests/check.sh"), atomically: true, encoding: .utf8)
+        try #require(try await workspace.commitAll(in: directory, message: "tests", author: "run-1") != nil)
+        try "hello\n".write(to: directory.appending(path: "app.txt"), atomically: true, encoding: .utf8)
+        #expect(try await workspace.keepImplementation(directory, for: "wn-1") == ["app.txt"])
+        try await workspace.resetForRework(directory)
+
+        #expect(try await workspace.saveUnfinishedWork(directory, for: "wn-1").isEmpty)
+
+        #expect(try await workspace.restoreUnfinishedWork(for: "wn-1", in: directory) == ["app.txt"])
+    }
+
     @Test("Landing refuses to move the landing branch while a checkout has it checked out")
     func refusesToMoveACheckedOutBranch() async throws {
         let repo = try await makeRepo()
@@ -704,6 +724,42 @@ struct RepositoryWorkspaceTests {
             try "{}".write(to: task.directory.appending(path: ".agentos-report.json"), atomically: true, encoding: .utf8)
             try "probe\n".write(to: task.scratchDirectory.appending(path: "probe.txt"), atomically: true, encoding: .utf8)
             throw AgentFailure("copilot timed out after 1200.0 seconds")
+        }
+    }
+
+    @Test("An implementer out of time but further along doesn't use up an attempt; one that got no further does",
+          arguments: [([1, 2, 3], 0, false), ([1, 1, 2, 2], 2, false), ([1, 1, 1], 2, true)])
+    func runningOutOfTimeWithProgressIsNotAFailedAttempt(steps: [Int], failedAttempts: Int, stalls: Bool) async throws {
+        let repo = try await makeRepo()
+        let session = try await session(repo, team: AgentTeam(name: "Fake", decomposer: Leaf(), testAuthor: ShellTestAuthor(),
+                                                              implementer: OutOfTime(steps: steps)))
+        let key = await ticket(session)
+
+        let reports = await session.runUntilFinished()
+
+        let node = try #require(await session.ledger.workingState().node(forTicket: key))
+        #expect(node.failedAttempts == failedAttempts, "\(node.recentFailures)")
+        if stalls {
+            #expect(node.flags[.escalated]?.contains("No progress") == true, "\(node.flags)")
+        } else {
+            #expect(node.phase == .proven, "\(node.flags) \(reports.flatMap(\.actions))")
+        }
+    }
+
+    /// Runs out of time once per step, leaving that many lines of notes; then finishes.
+    actor OutOfTime: AgentOSCore.Implementer {
+        let steps: [Int]
+        private var runs = 0
+        init(steps: [Int]) { self.steps = steps }
+        func implement(_ task: AgentTask) async throws {
+            runs += 1
+            let notes = task.directory.appending(path: "notes.txt")
+            guard runs > steps.count else {
+                try String(repeating: "step\n", count: steps[runs - 1]).write(to: notes, atomically: true, encoding: .utf8)
+                throw AgentFailure("copilot timed out after 1200.0 seconds: \(UUID().uuidString)", outOfTime: true)
+            }
+            try FileManager.default.removeItem(at: notes)
+            try "hello\n".write(to: task.directory.appending(path: "app.txt"), atomically: true, encoding: .utf8)
         }
     }
 
@@ -904,6 +960,7 @@ struct RepositoryWorkspaceTests {
         let cli = CopilotCLI(executable: copilot.path, timeout: .milliseconds(500))
         let error = await #expect(throws: AgentFailure.self) { try await cli.run("implement", in: directory) }
         #expect(error?.description.hasPrefix("copilot timed out after") == true)
+        #expect(error?.outOfTime == true)
     }
 
     @Test func theAgentLogEndsWithTheRequestsDeniedForWantOfAnApprover() async throws {
@@ -1086,6 +1143,109 @@ struct RepositoryWorkspaceTests {
         #expect(node.phase == .proven, "\(node.flags) \(reports.flatMap(\.actions))")
         #expect(await implementer.unfinishedWork == [[], ["app.txt"]])
         #expect(try await git(["for-each-ref", "refs/heads/agentos/kept-implementation/"], in: repo).isEmpty)
+    }
+
+    @Test("When the implementer reports a broken test, it continues from its implementation, without its test changes")
+    func theImplementationIsKeptWhenATestIsReportedBroken() async throws {
+        let repo = try await makeRepo()
+        let implementer = ReportsBrokenTestOnce()
+        let team = AgentTeam(name: "Fake", decomposer: Leaf(), testAuthor: ShellTestAuthor(), implementer: implementer)
+        var config = Self.config
+        config.leafTests?.updatable = ["Tests/Absent*/"]
+        let session = try await session(repo, team: team, config: config)
+        let key = await ticket(session)
+
+        let reports = await session.runUntilFinished()
+
+        let node = try #require(await session.ledger.workingState().node(forTicket: key))
+        #expect(node.phase == .proven, "\(node.flags) \(reports.flatMap(\.actions))")
+        #expect(node.brokenTestReports.count == 1)
+        #expect(await implementer.unfinishedWork == [[], ["app.txt"]])
+        #expect(try await git(["for-each-ref", "refs/heads/agentos/kept-implementation/"], in: repo).isEmpty)
+    }
+
+    @Test("A person's feedback after repeated broken-test reports keeps the implementation for the implementer")
+    func feedbackAfterBrokenTestReportsKeepsTheImplementation() async throws {
+        let repo = try await makeRepo()
+        let implementer = BrokenTestThen(reports: 3)
+        let session = try await session(repo, team: AgentTeam(name: "Fake", decomposer: Leaf(), testAuthor: ShellTestAuthor(),
+                                                              implementer: implementer))
+        let key = await ticket(session)
+        _ = await session.runUntilFinished()
+        #expect(await session.ledger.workingState().node(forTicket: key)?.flags[.needsInput] != nil)
+
+        await session.tracker.addComment("The test is fine; keep it.", to: key, by: .human("Alice"))
+        await session.tracker.addLabel(HarnessCommand.retry.label, to: key, by: .human("Alice"))
+        let reports = await session.runUntilFinished()
+
+        let node = try #require(await session.ledger.workingState().node(forTicket: key))
+        #expect(node.phase == .proven, "\(node.flags) \(reports.flatMap(\.actions))")
+        #expect(await implementer.unfinishedWork == [[], ["app.txt"], ["app.txt"], ["app.txt"]])
+    }
+
+    @Test("A kept implementation the implementer undid entirely before running out of time isn't brought back again")
+    func anUndoneKeptImplementationIsForgotten() async throws {
+        let repo = try await makeRepo()
+        let implementer = BrokenTestThen(reports: 1, undoesThenRunsOutOfTime: true)
+        let session = try await session(repo, team: AgentTeam(name: "Fake", decomposer: Leaf(), testAuthor: ShellTestAuthor(),
+                                                              implementer: implementer))
+        let key = await ticket(session)
+
+        let reports = await session.runUntilFinished()
+
+        let node = try #require(await session.ledger.workingState().node(forTicket: key))
+        #expect(node.phase == .proven, "\(node.flags) \(reports.flatMap(\.actions))")
+        let unfinished = await implementer.unfinishedWork
+        #expect(unfinished == [[], ["app.txt"], []], "\(unfinished) \(reports.flatMap(\.actions))")
+    }
+
+    /// Implements the greeting and reports its own test broken a number of times; optionally then deletes what it got
+    /// back and runs out of time once; then finishes.
+    actor BrokenTestThen: AgentOSCore.Implementer {
+        let reports: Int
+        let undoesThenRunsOutOfTime: Bool
+        private(set) var unfinishedWork: [[String]] = []
+        init(reports: Int, undoesThenRunsOutOfTime: Bool = false) {
+            self.reports = reports
+            self.undoesThenRunsOutOfTime = undoesThenRunsOutOfTime
+        }
+        func implement(_ task: AgentTask) async throws -> AgentReport {
+            unfinishedWork.append(task.unfinishedWork.sorted())
+            let app = task.directory.appending(path: "app.txt")
+            if unfinishedWork.count == reports + 1, undoesThenRunsOutOfTime {
+                _ = try await ProcessRunner.run("/usr/bin/env", ["git", "checkout", "-q", "HEAD", "--", "."], in: task.directory)
+                _ = try await ProcessRunner.run("/usr/bin/env", ["git", "clean", "-fdq", "-e", ".agentos"], in: task.directory)
+                throw AgentFailure("copilot timed out after 1200.0 seconds", outOfTime: true)
+            }
+            try "hello\n".write(to: app, atomically: true, encoding: .utf8)
+            guard unfinishedWork.count <= reports else { return AgentReport() }
+            return AgentReport(brokenTest: BrokenTestReport(testName: "\(task.spec.testTarget).greets",
+                                                            reason: "It checks the wrong file."))
+        }
+    }
+
+    /// Implements the greeting, also edits its acceptance tests (unstaged, staged and committed), and reports a test
+    /// broken; next time it submits
+    /// what it gets back.
+    actor ReportsBrokenTestOnce: AgentOSCore.Implementer {
+        private(set) var unfinishedWork: [[String]] = []
+        func implement(_ task: AgentTask) async throws -> AgentReport {
+            unfinishedWork.append(task.unfinishedWork.sorted())
+            guard unfinishedWork.count == 1 else { return AgentReport() }
+            try "hello\n".write(to: task.directory.appending(path: "app.txt"), atomically: true, encoding: .utf8)
+            try "exit 1\n".write(to: task.directory.appending(path: "\(task.testFolder)/check.sh"), atomically: true, encoding: .utf8)
+            try "exit 1\n".write(to: task.directory.appending(path: "\(task.testFolder)/extra.sh"), atomically: true, encoding: .utf8)
+            try await Self.git(["add", "\(task.testFolder)/extra.sh"], in: task.directory)
+            try await Self.git(["-c", "user.name=x", "-c", "user.email=x@x", "commit", "-qm", "Extra test"], in: task.directory)
+            try await Self.git(["add", "\(task.testFolder)/check.sh"], in: task.directory)
+            return AgentReport(brokenTest: BrokenTestReport(testName: "\(task.spec.testTarget).greets",
+                                                            reason: "It checks the wrong file."))
+        }
+
+        private static func git(_ arguments: [String], in directory: URL) async throws {
+            let result = try await ProcessRunner.run("/usr/bin/env", ["git"] + arguments, in: directory)
+            try #require(result.status == 0, "git \(arguments.joined(separator: " ")): \(result.output)")
+        }
     }
 
     actor RecordsUnfinishedWork: AgentOSCore.Implementer {

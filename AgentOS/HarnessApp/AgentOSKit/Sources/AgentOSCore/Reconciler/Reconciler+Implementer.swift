@@ -28,12 +28,19 @@ extension Reconciler {
         try await write(node.id, by: .reconciler, agentRunStarted(run, .implementer) + [.phaseChanged(to: .building)],
                         expecting: node.version)
         let directory = workspace.worktree(for: node.id)
+        // What the run started from, so a run that runs out of time can tell whether it got any further.
+        var carriedOver: String?
+        var restoredAny = false
+        // Set once the implementation is kept for broken-test routing, which then resets the worktree.
+        var implementationKept = false
         do {
             // Start from the latest landing branch, so work landed since the tests were written (a dependency's,
             // say) is there to build on. On a conflict the branch stays as it was; the landing queue deals with it.
             _ = try await rebaseOntoMain(node, in: directory)
             // An earlier attempt that failed (ran out of time, say) left work to continue rather than redo.
             let unfinished = try await workspace.restoreUnfinishedWork(for: node.id, in: directory)
+            carriedOver = Hashing.digest(ofFiles: unfinished, in: directory)
+            restoredAny = !unfinished.isEmpty
             try await workspace.prepareBuild(in: directory)
             let task = await makeTask(node, run: run, in: directory, log: agentLog(node, run), for: .implementer,
                                       unfinishedWork: unfinished)
@@ -63,7 +70,25 @@ extension Reconciler {
             let assumptions = policy.assumptions(in: report)
             if let brokenTest = report.brokenTest {
                 try await workspace.forgetUnfinishedWork(for: node.id)
-                return try await routeBrokenTest(brokenTest, from: node, run: run, author: author, directory: directory)
+                // The implementation may be fine: the implementer continues from it once the test is settled.
+                let kept: [String]
+                do {
+                    kept = try await workspace.keepImplementation(directory, for: node.id)
+                } catch {
+                    // Resetting now would lose the implementation: the worktree stays as it is, for a person.
+                    let reason = "The implementer reported a broken test (\(brokenTest.testName): \(brokenTest.reason)), "
+                        + "but its implementation couldn't be kept before sending the tests back (\(error)). The "
+                        + "worktree is unchanged.\nCheck the repo, then add harness:retest (or comment and add harness:retry)."
+                    try await write(node.id, by: .reconciler, [
+                        .runFinished(run: run, outcome: "reported a broken test: \(brokenTest.testName)"),
+                        .phaseChanged(to: .ready), .flagSet(.escalated, reason: reason),
+                    ])
+                    await tracker.comment(on: node.ticket, "⚠️ Needs a human: " + reason)
+                    return "\(node.displayName) broken test \(brokenTest.testName) → Needs human (implementation not kept)"
+                }
+                implementationKept = true
+                return try await routeBrokenTest(brokenTest, from: node, run: run, author: author, directory: directory,
+                                                 keptImplementation: kept)
             }
             let commit = try await workspace.commitAll(
                 in: directory,
@@ -125,8 +150,25 @@ extension Reconciler {
                 await tracker.comment(on: node.ticket, "⚠️ Needs a human: \(reason)\nWhen checked, add label harness:retry.")
                 return "\(node.displayName) escalated: \(reason)"
             }
+            let outOfTime = (error as? AgentFailure)?.outOfTime == true
+            if kept.isEmpty, restoredAny, !implementationKept {
+                // It got any kept implementation back and undid all of it: that's not to come back either.
+                let workspace = workspace, id = node.id
+                _ = try? await Task { try await workspace.forgetUnfinishedWork(for: id) }.value
+            }
+            let fingerprint = kept.isEmpty ? "" : Hashing.digest(ofFiles: kept, in: directory)
+            // Out of time but further along than it started: the next run continues, so this isn't a failed attempt.
+            // A run that got no further counts; the run budget still caps how often it goes round.
+            if outOfTime, !kept.isEmpty, let carriedOver, fingerprint != carriedOver {
+                try await write(node.id, by: author, [.runFinished(run: run, outcome: "failed: \(error)"), .phaseChanged(to: .ready)])
+                return "\(node.displayName) implementer ran out of time; will continue from its \(kept.count) unfinished files"
+            }
+            // Out of time, the work's fingerprint tells stalling ("the same failure twice") from progress in between.
+            let summary = outOfTime
+                ? "\(Self.firstLine(of: error)) (\(kept.isEmpty ? "no unfinished work" : "unfinished work \(fingerprint.prefix(8))"))"
+                : "\(error)"
             try await write(node.id, by: author, [
-                .runFinished(run: run, outcome: "failed: \(error)"), .attemptFailed(summary: "\(error)"), .phaseChanged(to: .ready)])
+                .runFinished(run: run, outcome: "failed: \(error)"), .attemptFailed(summary: summary), .phaseChanged(to: .ready)])
             let retry = kept.isEmpty ? "will retry" : "will retry from its \(kept.count) unfinished files"
             return try await escalateIfNeeded(node.id) ?? "\(node.displayName) implementer failed (\(error)); \(retry)"
         }

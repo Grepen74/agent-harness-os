@@ -65,7 +65,8 @@ public protocol Workspace: Sendable {
     /// Rework: keep only the branch's acceptance tests, drop the implementation, move onto the latest `main`.
     func resetForRework(_ directory: URL) async throws
     /// Keeps a failed implementer run's uncommitted changes (say, it ran out of time) outside the working copy,
-    /// which the next run's rebase and catch-up clean. Returns the changed paths; empty when there were none.
+    /// which the next run's rebase and catch-up clean. Returns the changed paths; empty when there were none. Saved
+    /// work replaces a kept implementation; with nothing to save, the kept implementation stays.
     func saveUnfinishedWork(_ directory: URL, for id: NodeID) async throws -> [String]
     /// Puts saved unfinished work (or else a kept implementation) back into the working copy, uncommitted. Returns
     /// its paths; empty when nothing was saved or it no longer applies to the branch (then it's forgotten). It stays
@@ -73,8 +74,8 @@ public protocol Workspace: Sendable {
     /// unfinished work too, but not a kept implementation.
     func restoreUnfinishedWork(for id: NodeID, in directory: URL) async throws -> [String]
     func forgetUnfinishedWork(for id: NodeID) async throws
-    /// Keeps the branch's implementation (everything after its acceptance-tests commit) before the tests go back to
-    /// the test author. New worktrees don't forget it; the next implementer run gets it back as unfinished work
+    /// Keeps the branch's implementation (everything after its acceptance-tests commit, committed or not, except
+    /// changes to tests) before the tests go back to the test author. New worktrees don't forget it; the next implementer run gets it back as unfinished work
     /// when there is none of its own. Returns its paths; empty when there was no implementation.
     func keepImplementation(_ directory: URL, for id: NodeID) async throws -> [String]
     /// Keeps a failed test-author run's uncommitted changes (its tests, placeholders, kept earlier tests) outside

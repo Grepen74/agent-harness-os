@@ -69,7 +69,7 @@ extension Reconciler {
                 kinds.insert(.questionsAnswered(Clarification(questions: ["How to proceed with the conflicting test"], answer: answer)), at: 0)
             }
             if node.flags[.escalated] != nil { kinds += [.flagCleared(.escalated), .attemptsReset] }
-            // Pick up a fix to the other test made since; the implementation was already discarded, the tests are kept.
+            // Pick up a fix to the other test made since; the tests are kept, and so is the implementation (apart).
             let directory = workspace.worktree(for: node.id)
             _ = try await rebaseOntoMain(node, in: directory)
             // Where the test author may update the test (say, the repo has since allowed it) and it's as it was when
@@ -118,7 +118,9 @@ extension Reconciler {
             : Self.resolveAnswers(answer, to: node.openQuestions, signal: .retry)
         var kinds: [EventKind] = answers.map { .questionsAnswered($0) } + [.flagCleared(.needsInput)]
         if isReview && node.spec.kind == .leaf && node.phase == .ready {
-            try? await workspace.removeWorktree(for: node.id)
+            // After broken-test reports the implementation is kept for the implementer to continue from; the test
+            // author's new worktree replaces this one without forgetting it.
+            if !(await isWaitingOnOwnTest(node)) { try? await workspace.removeWorktree(for: node.id) }
             kinds.append(.phaseChanged(to: .specified))
         }
         if node.flags[.escalated] != nil { kinds += [.flagCleared(.escalated), .attemptsReset] }

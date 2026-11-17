@@ -331,7 +331,16 @@ moves along. The reviewer rejects any such change no criterion requires. So the 
 updates to the child whose change breaks those tests, as a criterion naming them and their new
 expectation; it never makes the work wait for a person to change the repo first.
 When the implementer reports a broken test (its own or, by `Suite.testName`, another item's that conflicts
-with this ticket), the ticket goes back to the test author without charging an attempt. A person is asked
+with this ticket), the ticket goes back to the test author without charging an attempt. Since each report
+costs a round, the implementer is told to run the whole suite first and report every conflicting test at once
+(one in `testName`, the others in `reason`; a test outside the updatable folders goes in `testName`, so a
+person is asked); the test author is told to fix each, and to check other tests
+sharing a fixture or helper with the cause. The implementation
+so far, committed or not, is kept on `agentos/kept-implementation/<node>` (without any changes to the test
+area or the `leafTests.updatable` folders), and the implementer continues from it once the tests are fixed;
+the comment says how many files were kept. Feedback with `harness:retry` after a person is asked keeps it too.
+If it can't be kept, the tests aren't sent back: the ticket goes to
+a person with the worktree unchanged. A person is asked
 only on the third report about the same test, or the fifth about any tests, since a person last stepped in
 (an answer, `harness:retry` or `harness:retest`): settled reports about other tests don't use up a test's
 tries. The "Needs input" lists every report. A conflicting test that lives outside the test area and the
@@ -624,10 +633,16 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
   uncommitted changes are kept on the branch `agentos/unfinished/<node>`, out of reach of the next run's
   rebase and of catch-up. The next attempt gets them back, uncommitted, and is told to continue from them
   and to reuse the before screenshots already taken. They stay kept until that attempt ends: failing again
-  keeps its changes instead; submitting, asking questions or reporting a broken test forgets them. Changes
+  keeps its changes instead; submitting or asking questions forgets them, and reporting a broken test moves
+  them to the kept implementation (see the broken-test routing). A run that got them back and undid all of
+  them before failing forgets them, so they don't come back again. Changes
   that no longer apply after the rebase are dropped. A new worktree (new tests, `harness:retest`) forgets
   them. If the changes can't be kept, the ticket goes to a person rather than to a retry that would clean
-  them away.
+  them away. A run that ran out of time but left its work further along than it started (the kept changes
+  differ from what it got back) isn't a failed attempt: the next run continues it. One that got no further
+  counts, and the ticket's run budget (`maxAgentRuns`) still caps how often it goes round. A counted timeout is
+  recorded with its unfinished work's fingerprint (not the agent's last output, which differs every time), so
+  two timeouts leaving the same work are "the same failure twice".
   The test author's work is kept the same way: a test-author run that fails or is stopped leaves its test
   files as a draft in the worktree, recorded in the ledger (also when a person stops it). If tests an
   earlier run left uncommitted can't be kept as a draft, the ticket goes to a person and the worktree

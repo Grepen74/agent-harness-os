@@ -253,7 +253,12 @@ public struct ChildProposal: Codable, Sendable {
 
 public struct AgentFailure: Error, CustomStringConvertible {
     public let description: String
-    public init(_ description: String) { self.description = description }
+    /// The agent ran out of time, rather than failing.
+    public var outOfTime = false
+    public init(_ description: String, outOfTime: Bool = false) {
+        self.description = description
+        self.outOfTime = outOfTime
+    }
 }
 
 /// An agent run changed repo state outside the harness's own branches (see `Workspace.userGitState`).

@@ -5,22 +5,33 @@ extension Reconciler {
     /// a broken-test report (same run, nothing started in between) routed as another test's conflict.
     /// The routing outcome is used because a test outside the test area may not look like another suite by name.
     func isWaitingOnOtherTest(_ node: NodeState) async -> Bool {
-        guard node.flags[.needsInput] != nil else { return false }
+        await brokenTestWait(node) == .otherTestWaitingForPerson
+    }
+
+    /// Whether the node waits for a person after its own acceptance test was reported broken too often.
+    func isWaitingOnOwnTest(_ node: NodeState) async -> Bool {
+        await brokenTestWait(node) == .waitingForPerson
+    }
+
+    /// How the broken-test report the node's latest "Needs input" came from was routed; nil when it came from elsewhere.
+    private func brokenTestWait(_ node: NodeState) async -> BrokenTestRoutingOutcome? {
+        guard node.flags[.needsInput] != nil else { return nil }
         let records = await ledger.records(for: node.id)
         guard let flag = records.last(where: {
             if case .flagSet(.needsInput, _) = $0.event.kind { return true }
             return false
-        }) else { return false }
+        }) else { return nil }
         for record in records.reversed() where record.position < flag.position {
             switch record.event.kind {
-            case .brokenTestRouted(_, let outcome): return outcome == .otherTestWaitingForPerson
+            case .brokenTestRouted(_, let outcome): return outcome
             // Older ledgers have no routing outcome; fall back to the test's name.
-            case .brokenTestReported(let report): return !isOwnTest(report.testName, of: node)
-            case .runStarted: return false
+            case .brokenTestReported(let report):
+                return isOwnTest(report.testName, of: node) ? .waitingForPerson : .otherTestWaitingForPerson
+            case .runStarted: return nil
             default: continue
             }
         }
-        return false
+        return nil
     }
 
     func routeBrokenTest(
@@ -28,9 +39,12 @@ extension Reconciler {
         from node: NodeState,
         run: RunID,
         author: Participant,
-        directory: URL
+        directory: URL,
+        keptImplementation: [String] = []
     ) async throws -> String {
         try await resetForRework(node, in: directory)
+        let kept = keptImplementation.isEmpty ? ""
+            : "\nThe implementation so far (\(keptImplementation.count) files) is kept: the implementer continues from it."
         // Only the harness records where the test lives.
         var report = BrokenTestReport(testName: report.testName, reason: report.reason)
         let finished = EventKind.runFinished(run: run, outcome: "reported a broken test: \(report.testName)")
@@ -87,13 +101,13 @@ extension Reconciler {
                 .phaseChanged(to: .ready),
                 .flagSet(.needsInput, reason: reason),
             ])
-            await tracker.comment(on: node.ticket, isOther
+            await tracker.comment(on: node.ticket, (isOther
                 ? "\(Self.needsInputMarker): another test conflicts with this ticket.\n\(reason)"
                 : """
                 \(Self.needsInputMarker): broken acceptance test \(report.testName): \(report.reason)
                 waiting for a person: the test author already reworked these tests.
                 \(reason)
-                """)
+                """) + kept)
             return isOther
                 ? "\(node.ticket) conflicts with \(report.testName) → waiting for a person"
                 : "\(node.displayName) broken test \(report.testName) → waiting for a person"
@@ -111,7 +125,7 @@ extension Reconciler {
             : ""
         await tracker.comment(on: node.ticket, """
             🔁 Broken acceptance test \(report.testName): \(report.reason)
-            sent back to the test author.\(otherNote)
+            sent back to the test author.\(otherNote)\(kept)
             """)
         return "\(node.displayName) broken test \(report.testName) → sent back to the test author"
     }
