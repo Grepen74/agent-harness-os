@@ -1,4 +1,4 @@
-// API contract: CatchUpCoordinator reconciles agentos/main to a passed main baseline through the shared
+// API contract: CatchUpCoordinator reconciles agentos/GH-402 to a passed main baseline through the shared
 // LandingQueue, validates the proposed result before moving the ref, records the reconciliation, and returns
 // the repository banner and scan finding shown to users.
 
@@ -12,7 +12,7 @@ struct GH_4_2Tests {
     @Test
     func catchUpWaitsForAPassedBaselineAndRunsSeriallyWithLanding() async throws {
         let fixture = try await Fixture()
-        _ = try await fixture.commit(on: "agentos/main", file: "landed.txt", contents: "landed\n")
+        _ = try await fixture.commit(on: "agentos/GH-402", file: "landed.txt", contents: "landed\n")
         let target = try await fixture.commit(on: "main", file: "upstream.txt", contents: "upstream\n")
         let probe = ConcurrencyProbe()
 
@@ -36,33 +36,33 @@ struct GH_4_2Tests {
         #expect(await probe.peak == 1)
         #expect(await probe.order == ["landing", "catch-up"])
 
-        let beforeFailure = try await fixture.revision("agentos/main")
+        let beforeFailure = try await fixture.revision("agentos/GH-402")
         let failed = Baseline(commit: target, passed: false, summary: "failed", seconds: 1, log: nil)
         let result = try await fixture.coordinator.catchUp(after: failed) { _ in
             Issue.record("Acceptance tests must not run after a failed baseline")
             return true
         }
         #expect(result == nil)
-        #expect(try await fixture.revision("agentos/main") == beforeFailure)
+        #expect(try await fixture.revision("agentos/GH-402") == beforeFailure)
     }
 
     @Test
-    func rebasesWhenNoneOfTheLandedCommitsAreOnMain() async throws {
+    func mergesWithoutRewritingWhenNoneOfTheLandedCommitsAreOnMain() async throws {
         let fixture = try await Fixture()
-        let oldLanded = try await fixture.commit(on: "agentos/main", file: "landed.txt", contents: "landed\n")
+        let oldLanded = try await fixture.commit(on: "agentos/GH-402", file: "landed.txt", contents: "landed\n")
         let target = try await fixture.commit(on: "main", file: "upstream.txt", contents: "upstream\n")
 
         let outcome = try #require(try await fixture.catchUp(to: target))
 
-        #expect(outcome.method == .rebase)
-        #expect(outcome.commitMappings[oldLanded] != nil)
-        #expect(outcome.commitMappings[oldLanded] != oldLanded)
+        #expect(outcome.method == .merge)
+        #expect(outcome.commitMappings.isEmpty)
+        #expect(try await fixture.isAncestor(oldLanded, of: outcome.newLandingTip))
     }
 
     @Test(arguments: [Representation.reachable, .equivalentPatch, .identicalTree])
     func movesToMainWhenAllLandedWorkIsRepresented(_ representation: Representation) async throws {
         let fixture = try await Fixture()
-        let landed = try await fixture.commit(on: "agentos/main", file: "feature.txt", contents: "feature\n")
+        let landed = try await fixture.commit(on: "agentos/GH-402", file: "feature.txt", contents: "feature\n")
         try await fixture.representOnMain(landed, as: representation)
         let target = try await fixture.revision("main")
 
@@ -70,14 +70,14 @@ struct GH_4_2Tests {
 
         #expect(outcome.method == .move)
         #expect(outcome.newLandingTip == target)
-        #expect(try await fixture.revision("agentos/main") == target)
+        #expect(try await fixture.revision("agentos/GH-402") == target)
     }
 
     @Test
     func mergesMainWhenOnlySomeLandedCommitsAreRepresented() async throws {
         let fixture = try await Fixture()
-        let represented = try await fixture.commit(on: "agentos/main", file: "one.txt", contents: "one\n")
-        let remaining = try await fixture.commit(on: "agentos/main", file: "two.txt", contents: "two\n")
+        let represented = try await fixture.commit(on: "agentos/GH-402", file: "one.txt", contents: "one\n")
+        let remaining = try await fixture.commit(on: "agentos/GH-402", file: "two.txt", contents: "two\n")
         try await fixture.cherryPick(represented, onto: "main")
         let target = try await fixture.commit(on: "main", file: "upstream.txt", contents: "upstream\n")
 
@@ -91,8 +91,8 @@ struct GH_4_2Tests {
     @Test
     func failingAcceptanceTestsLeaveAgentOSMainUnchanged() async throws {
         let fixture = try await Fixture()
-        _ = try await fixture.commit(on: "agentos/main", file: "landed.txt", contents: "landed\n")
-        let oldTip = try await fixture.revision("agentos/main")
+        _ = try await fixture.commit(on: "agentos/GH-402", file: "landed.txt", contents: "landed\n")
+        let oldTip = try await fixture.revision("agentos/GH-402")
         let target = try await fixture.commit(on: "main", file: "upstream.txt", contents: "upstream\n")
         let proposedResultWasTested = ValueBox(false)
 
@@ -105,13 +105,13 @@ struct GH_4_2Tests {
 
         #expect(outcome == nil)
         #expect(await proposedResultWasTested.value)
-        #expect(try await fixture.revision("agentos/main") == oldTip)
+        #expect(try await fixture.revision("agentos/GH-402") == oldTip)
     }
 
     @Test
     func successfulCatchUpContainsTheTargetAndAllLandedWork() async throws {
         let fixture = try await Fixture()
-        let landed = try await fixture.commit(on: "agentos/main", file: "landed.txt", contents: "landed\n")
+        let landed = try await fixture.commit(on: "agentos/GH-402", file: "landed.txt", contents: "landed\n")
         let target = try await fixture.commit(on: "main", file: "upstream.txt", contents: "upstream\n")
 
         let outcome = try #require(try await fixture.catchUp(to: target))
@@ -119,16 +119,16 @@ struct GH_4_2Tests {
         #expect(try await fixture.isAncestor(target, of: outcome.newLandingTip))
         let mappedLanded = outcome.commitMappings[landed] ?? landed
         #expect(try await fixture.isAncestor(mappedLanded, of: outcome.newLandingTip))
-        #expect(try await fixture.file("landed.txt", at: "agentos/main") == "landed")
-        #expect(try await fixture.file("upstream.txt", at: "agentos/main") == "upstream")
+        #expect(try await fixture.file("landed.txt", at: "agentos/GH-402") == "landed")
+        #expect(try await fixture.file("upstream.txt", at: "agentos/GH-402") == "upstream")
     }
 
     @Test
-    func ledgerRecordsTipsTargetMethodAndEveryRebasedCommitMapping() async throws {
+    func ledgerRecordsTipsTargetAndMergeWithoutRewritingLandedCommits() async throws {
         let fixture = try await Fixture()
-        let first = try await fixture.commit(on: "agentos/main", file: "one.txt", contents: "one\n")
-        let second = try await fixture.commit(on: "agentos/main", file: "two.txt", contents: "two\n")
-        let oldTip = try await fixture.revision("agentos/main")
+        let first = try await fixture.commit(on: "agentos/GH-402", file: "one.txt", contents: "one\n")
+        let second = try await fixture.commit(on: "agentos/GH-402", file: "two.txt", contents: "two\n")
+        let oldTip = try await fixture.revision("agentos/GH-402")
         let target = try await fixture.commit(on: "main", file: "upstream.txt", contents: "upstream\n")
 
         let outcome = try #require(try await fixture.catchUp(to: target))
@@ -147,21 +147,23 @@ struct GH_4_2Tests {
         #expect(recordedTarget == target)
         #expect(recordedOldTip == oldTip)
         #expect(recordedNewTip == outcome.newLandingTip)
-        #expect(method == .rebase)
+        #expect(method == .merge)
         #expect(mappings == outcome.commitMappings)
-        #expect(Set(mappings.keys) == [first, second])
+        #expect(mappings.isEmpty)
+        #expect(try await fixture.isAncestor(first, of: recordedNewTip))
+        #expect(try await fixture.isAncestor(second, of: recordedNewTip))
     }
 
     @Test
     func bannerAndScanNameTheTargetAndMethod() async throws {
         let fixture = try await Fixture()
-        _ = try await fixture.commit(on: "agentos/main", file: "landed.txt", contents: "landed\n")
+        _ = try await fixture.commit(on: "agentos/GH-402", file: "landed.txt", contents: "landed\n")
         let target = try await fixture.commit(on: "main", file: "upstream.txt", contents: "upstream\n")
 
         let outcome = try #require(try await fixture.catchUp(to: target))
 
-        #expect(outcome.status.banner == "agentos/main caught up to \(target) (rebase)")
-        #expect(outcome.status.scanFinding.title == "agentos/main caught up to \(target) (rebase)")
+        #expect(outcome.status.banner == "agentos/GH-402 caught up to \(target) (merge)")
+        #expect(outcome.status.scanFinding.title == "agentos/GH-402 caught up to \(target) (merge)")
         #expect(outcome.status.scanFinding.severity == .info)
     }
 }
@@ -197,11 +199,29 @@ private extension GH_4_2Tests {
                 root: root,
                 storage: storage,
                 config: config,
-                landingBranch: "agentos/main",
+                landingBranch: "agentos/GH-402",
                 defaultBranch: "main"
             )
             try await workspace.prepare()
             let ledger = try Ledger()
+            let requirement = NodeSpec(
+                id: "requirement", parent: nil, kind: .composite, title: "Catch up requirement",
+                intent: "Preserve landed work while including main", acceptanceCriteria: ["Catch up locally"]
+            )
+            try await ledger.append([
+                LedgerEvent(node: requirement.id, by: .human("Developer"),
+                            kind: .nodeCreated(spec: requirement, ticket: "GH-402")),
+                LedgerEvent(node: requirement.id, by: .human("Developer"), kind: .gateOpened(.build)),
+                LedgerEvent(node: requirement.id, by: .reconciler, kind: .phaseChanged(to: .split)),
+            ])
+            if let from = try await workspace.prepareRequirementBranch(
+                for: NodeIdentity(ticketKey: "GH-402", nodeID: requirement.id), leaves: []
+            ) {
+                try await ledger.append([
+                    LedgerEvent(node: requirement.id, by: .reconciler,
+                                kind: .requirementBranchCreated(branch: "agentos/GH-402", from: from)),
+                ])
+            }
             let queue = LandingQueue()
             self.root = root
             self.workspace = workspace
@@ -239,7 +259,7 @@ private extension GH_4_2Tests {
             case .equivalentPatch:
                 try await cherryPick(commit, onto: "main")
             case .identicalTree:
-                try await merge("agentos/main", onto: "main", squash: true)
+                try await merge("agentos/GH-402", onto: "main", squash: true)
             }
         }
 

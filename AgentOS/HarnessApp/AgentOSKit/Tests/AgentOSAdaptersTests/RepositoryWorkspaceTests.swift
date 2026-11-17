@@ -107,7 +107,7 @@ struct RepositoryWorkspaceTests {
         return key
     }
 
-    @Test("A leaf lands on agentos/main; your checkout and main stay as they were")
+    @Test("A leaf lands on its requirement branch; your checkout and main stay as they were")
     func landsOnTheLandingBranchOnly() async throws {
         let repo = try await makeRepo()
         let main = try await git(["rev-parse", "main"], in: repo)
@@ -118,17 +118,17 @@ struct RepositoryWorkspaceTests {
 
         let node = try #require(await session.ledger.workingState().node(forTicket: key))
         #expect(node.phase == .proven, "\(reports.flatMap(\.actions))")
-        #expect(try await git(["show", "agentos/main:app.txt"], in: repo) == "hello")
+        #expect(try await git(["show", "agentos/\(key):app.txt"], in: repo) == "hello")
         #expect(try await git(["rev-parse", "main"], in: repo) == main)
         #expect(try await git(["branch", "--show-current"], in: repo) == "main")
         #expect(try await git(["status", "--porcelain"], in: repo).isEmpty)
         #expect(try String(contentsOf: repo.appending(path: "app.txt"), encoding: .utf8) == "hi\n")
-        let landed = try await git(["diff", "--name-only", "main", "agentos/main"], in: repo)
+        let landed = try await git(["diff", "--name-only", "main", "agentos/\(key)"], in: repo)
         #expect(landed.split(separator: "\n").sorted() == ["Tests/AppTests/WORK_1Tests/check.sh", "app.txt"])
         #expect(!FileManager.default.fileExists(atPath: session.workspace.worktree(for: node.id).path))
     }
 
-    @Test("The decomposer reads a snapshot of agentos/main that is thrown away afterwards")
+    @Test("The decomposer reads a snapshot of main that is thrown away afterwards")
     func decomposerReadsASnapshot() async throws {
         let repo = try await makeRepo()
         let seen = Seen()
@@ -143,7 +143,7 @@ struct RepositoryWorkspaceTests {
         #expect(!FileManager.default.fileExists(atPath: snapshot.path))
         #expect(try await !git(["worktree", "list"], in: repo).contains(snapshot.lastPathComponent))
         #expect(try await session.ledger.workingState().node(forTicket: key)?.phase == .proven)
-        #expect(try await !git(["ls-tree", "-r", "--name-only", "agentos/main"], in: repo).contains("stray.txt"))
+        #expect(try await !git(["ls-tree", "-r", "--name-only", "agentos/\(key)"], in: repo).contains("stray.txt"))
         #expect(try await git(["status", "--porcelain"], in: repo).isEmpty)
     }
 
@@ -175,7 +175,7 @@ struct RepositoryWorkspaceTests {
         #expect(node.phase != .proven)
         #expect(node.flags[.escalated] != nil)
         #expect(node.recentFailures.first == "Changed protected files (not allowed): AGENTS.md", "\(node.recentFailures)")
-        #expect(try await git(["rev-parse", "agentos/main"], in: repo) == git(["rev-parse", "main"], in: repo))
+        #expect(try await git(["rev-parse", "agentos/\(key)"], in: repo) == git(["rev-parse", "main"], in: repo))
     }
 
     @Test("Moving a protected file away counts as changing it")
@@ -189,7 +189,7 @@ struct RepositoryWorkspaceTests {
         let node = try #require(await session.ledger.workingState().node(forTicket: key))
         #expect(node.phase != .proven)
         #expect(node.recentFailures.first == "Changed protected files (not allowed): AGENTS.md", "\(node.recentFailures)")
-        #expect(try await git(["rev-parse", "agentos/main"], in: repo) == git(["rev-parse", "main"], in: repo))
+        #expect(try await git(["rev-parse", "agentos/\(key)"], in: repo) == git(["rev-parse", "main"], in: repo))
     }
 
     @Test("Only the test author's tests are committed: the placeholder code it ran them against is thrown away")
@@ -202,9 +202,9 @@ struct RepositoryWorkspaceTests {
 
         let node = try #require(await session.ledger.workingState().node(forTicket: key))
         #expect(node.phase == .proven, "\(node.flags) \(reports.flatMap(\.actions))")
-        let tests = try await git(["log", "agentos/main", "--format=%H", "--grep=acceptance tests"], in: repo)
+        let tests = try await git(["log", "agentos/\(key)", "--format=%H", "--grep=acceptance tests"], in: repo)
         #expect(try await git(["show", "--name-only", "--format=", tests], in: repo) == "Tests/AppTests/WORK_1Tests/check.sh")
-        let landed = try await git(["diff", "--name-only", "main", "agentos/main"], in: repo)
+        let landed = try await git(["diff", "--name-only", "main", "agentos/\(key)"], in: repo)
         #expect(landed.split(separator: "\n").sorted() == ["Tests/AppTests/WORK_1Tests/check.sh", "app.txt"])
     }
 
@@ -219,10 +219,10 @@ struct RepositoryWorkspaceTests {
         let node = try #require(await session.ledger.workingState().node(forTicket: key))
         #expect(node.phase == .proven, "\(node.flags) \(reports.flatMap(\.actions))")
         #expect(node.updatedOtherTests == [ShellTestAuthor.existing])
-        let tests = try await git(["log", "agentos/main", "--format=%H", "--grep=acceptance tests"], in: repo)
+        let tests = try await git(["log", "agentos/\(key)", "--format=%H", "--grep=acceptance tests"], in: repo)
         #expect(try await git(["show", "--name-only", "--format=", tests], in: repo).split(separator: "\n").map(String.init).sorted()
                 == [ShellTestAuthor.existing, "Tests/AppTests/WORK_1Tests/check.sh"])
-        #expect(try await git(["show", "agentos/main:\(ShellTestAuthor.existing)"], in: repo) == "grep -q hello app.txt")
+        #expect(try await git(["show", "agentos/\(key):\(ShellTestAuthor.existing)"], in: repo) == "grep -q hello app.txt")
     }
 
     @Test("Tests in a folder leafTests.updatable names may be updated too; tests elsewhere may not", arguments: [true, false])
@@ -239,7 +239,7 @@ struct RepositoryWorkspaceTests {
         let node = try #require(await session.ledger.workingState().node(forTicket: key))
         #expect(node.phase == .proven, "\(node.flags) \(reports.flatMap(\.actions))")
         #expect(node.updatedOtherTests == (listed ? [UpdatesUnitTest.file] : []))
-        let landed = try await git(["ls-tree", "-r", "--name-only", "agentos/main", "--", "Tests/Unit"], in: repo)
+        let landed = try await git(["ls-tree", "-r", "--name-only", "agentos/\(key)", "--", "Tests/Unit"], in: repo)
         #expect(landed == (listed ? UpdatesUnitTest.file : ""))
 
         let workspace = try RepositoryWorkspace(root: repo, storage: repo, config: config,
@@ -276,7 +276,7 @@ struct RepositoryWorkspaceTests {
         #expect(node.phase == .proven, "\(node.flags) \(reports.flatMap(\.actions))")
         #expect(node.reviews.contains { $0.stage == .acceptanceTests && !$0.result.passed })
         #expect(node.updatedOtherTests == [ShellTestAuthor.existing])
-        #expect(try await git(["show", "agentos/main:\(ShellTestAuthor.existing)"], in: repo) == "grep -q hello app.txt")
+        #expect(try await git(["show", "agentos/\(key):\(ShellTestAuthor.existing)"], in: repo) == "grep -q hello app.txt")
     }
 
     /// Updates the older `Existing` suite on its first run only; the run fixing review findings doesn't list it.
@@ -313,7 +313,7 @@ struct RepositoryWorkspaceTests {
         let node = try #require(await session.ledger.workingState().node(forTicket: key))
         #expect(node.phase != .proven)
         #expect(node.recentFailures.first?.contains("updated were changed afterwards") == true, "\(node.recentFailures)")
-        #expect(try await git(["rev-parse", "agentos/main"], in: repo) == git(["rev-parse", "main"], in: repo))
+        #expect(try await git(["rev-parse", "agentos/\(key)"], in: repo) == git(["rev-parse", "main"], in: repo))
     }
 
     @Test("An older test a leaf updated may change on the landing branch meanwhile; the leaf still lands")
@@ -332,7 +332,7 @@ struct RepositoryWorkspaceTests {
 
         // Other work lands a change to the same test, elsewhere in the file.
         let other = FileManager.default.temporaryDirectory.appending(path: "agentos-other-\(UUID().uuidString)")
-        try await git(["worktree", "add", "-q", other.path, "agentos/main"], in: repo)
+        try await git(["worktree", "add", "-q", other.path, "agentos/\(key)"], in: repo)
         try "true\n# a\n# b\n# c\n# d\n# e, landed meanwhile\n".write(to: other.appending(path: existing), atomically: true, encoding: .utf8)
         try await git(["-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-qam", "other work"], in: other)
         try await git(["worktree", "remove", "--force", other.path], in: repo)
@@ -341,7 +341,7 @@ struct RepositoryWorkspaceTests {
 
         let node = try #require(await session.ledger.workingState().node(forTicket: key))
         #expect(node.phase == .proven, "\(node.recentFailures)")
-        #expect(try await git(["show", "agentos/main:\(existing)"], in: repo)
+        #expect(try await git(["show", "agentos/\(key):\(existing)"], in: repo)
                 == "grep -q hello app.txt\n# a\n# b\n# c\n# d\n# e, landed meanwhile")
     }
 
@@ -363,11 +363,11 @@ struct RepositoryWorkspaceTests {
         #expect(await implementer.runs == 0, "main must move before the implementation starts")
 
         let other = FileManager.default.temporaryDirectory.appending(path: "agentos-other-\(UUID().uuidString)")
-        try await git(["worktree", "add", "-q", other.path, "agentos/main"], in: repo)
+        try await git(["worktree", "add", "-q", other.path, "agentos/\(key)"], in: repo)
         try "true\n# a\n# b\n# c\n# d\n# e, landed meanwhile\n".write(to: other.appending(path: existing), atomically: true, encoding: .utf8)
         try await git(["-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-qam", "other work"], in: other)
         try await git(["worktree", "remove", "--force", other.path], in: repo)
-        let landed = try await git(["rev-parse", "agentos/main"], in: repo)
+        let landed = try await git(["rev-parse", "agentos/\(key)"], in: repo)
 
         await session.runUntilFinished()
 
@@ -375,7 +375,7 @@ struct RepositoryWorkspaceTests {
         #expect(await implementer.runs > 0)
         #expect(node.phase != .proven)
         #expect(node.recentFailures.first?.contains("updated were changed afterwards") == true, "\(node.recentFailures)")
-        #expect(try await git(["rev-parse", "agentos/main"], in: repo) == landed)
+        #expect(try await git(["rev-parse", "agentos/\(key)"], in: repo) == landed)
     }
 
     @Test("An implementer's uncommitted change to an updated older test, thrown away when it asks, doesn't stop the lock moving")
@@ -400,7 +400,7 @@ struct RepositoryWorkspaceTests {
 
         let node = try #require(await session.ledger.workingState().node(forTicket: key))
         #expect(node.phase == .proven, "\(node.recentFailures) \(node.flags)")
-        #expect(try await git(["show", "agentos/main:\(existing)"], in: repo)
+        #expect(try await git(["show", "agentos/\(key):\(existing)"], in: repo)
                 == "grep -q hello app.txt\n# a\n# b\n# c\n# d\n# e, landed meanwhile")
     }
 
@@ -419,7 +419,8 @@ struct RepositoryWorkspaceTests {
             let existing = ShellTestAuthor.existing
             let other = FileManager.default.temporaryDirectory.appending(path: "agentos-other-\(UUID().uuidString)")
             let commit = ["-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-qam", "other work"]
-            _ = try await ProcessRunner.run("/usr/bin/env", ["git", "worktree", "add", "-q", other.path, "agentos/main"], in: repo)
+            _ = try await ProcessRunner.run("/usr/bin/env", ["git", "worktree", "add", "-q", other.path,
+                                                           "agentos/\(task.identity.ticketKey)"], in: repo)
             try "true\n# a\n# b\n# c\n# d\n# e, landed meanwhile\n".write(to: other.appending(path: existing), atomically: true, encoding: .utf8)
             _ = try await ProcessRunner.run("/usr/bin/env", ["git"] + commit, in: other)
             _ = try await ProcessRunner.run("/usr/bin/env", ["git", "worktree", "remove", "--force", other.path], in: repo)
@@ -456,7 +457,7 @@ struct RepositoryWorkspaceTests {
         #expect(node.phase != .proven)
         #expect(node.failedAttempts == 1, "escalated straight away")
         #expect(node.flags[.escalated]?.contains("changed your repo outside agentos/: \(named)") == true, "\(node.flags)")
-        #expect(try await git(["rev-parse", "agentos/main"], in: repo) == git(["rev-parse", "main"], in: repo))
+        #expect(try await git(["rev-parse", "agentos/\(key)"], in: repo) == git(["rev-parse", "main"], in: repo))
     }
 
     /// Counts implementers at work. Each one waits until as many are at work as the harness may run at once (or
@@ -634,8 +635,9 @@ struct RepositoryWorkspaceTests {
         let repo = try await makeRepo()
         let storage = FileManager.default.temporaryDirectory.appending(path: "agentos-storage-\(UUID().uuidString)")
         let workspace = try RepositoryWorkspace(root: repo, storage: storage, config: Self.config,
-                                                landingBranch: "agentos/main", defaultBranch: "main")
+                                                landingBranch: "agentos/GH-1", defaultBranch: "main")
         try await workspace.prepare()
+        _ = try await workspace.prepareRequirementBranch(for: NodeIdentity(ticketKey: "GH-1", nodeID: "wn-1"), leaves: ["wn-1"])
         let directory = try await workspace.createWorktree(for: "wn-1")
         try FileManager.default.createDirectory(at: directory.appending(path: "Tests/AppTests"), withIntermediateDirectories: true)
         try "grep -q hello app.txt\n".write(to: directory.appending(path: "Tests/AppTests/check.sh"), atomically: true, encoding: .utf8)
@@ -654,18 +656,19 @@ struct RepositoryWorkspaceTests {
         let repo = try await makeRepo()
         let storage = FileManager.default.temporaryDirectory.appending(path: "agentos-storage-\(UUID().uuidString)")
         let workspace = try RepositoryWorkspace(root: repo, storage: storage, config: Self.config,
-                                                landingBranch: "agentos/main", defaultBranch: "main")
+                                                landingBranch: "agentos/GH-1", defaultBranch: "main")
         try await workspace.prepare()
+        _ = try await workspace.prepareRequirementBranch(for: NodeIdentity(ticketKey: "GH-1", nodeID: "wn-1"), leaves: ["wn-1"])
         let directory = try await workspace.createWorktree(for: "wn-1")
         try "hello\n".write(to: directory.appending(path: "app.txt"), atomically: true, encoding: .utf8)
         try #require(try await workspace.commitAll(in: directory, message: "work", author: "run-1") != nil)
-        try await git(["checkout", "-q", "agentos/main"], in: repo)
+        try await git(["checkout", "-q", "agentos/GH-1"], in: repo)
 
         await #expect(throws: AgentFailure.self) { try await workspace.landOnMain("wn-1") }
 
         try await git(["checkout", "-q", "main"], in: repo)
         let landed = try await workspace.landOnMain("wn-1")
-        #expect(try await git(["rev-parse", "agentos/main"], in: repo) == landed)
+        #expect(try await git(["rev-parse", "agentos/GH-1"], in: repo) == landed)
     }
 
     @Test("A leaf's worktree can keep its earlier tests while everything else starts again from the landing branch")
@@ -673,8 +676,9 @@ struct RepositoryWorkspaceTests {
         let repo = try await makeRepo()
         let storage = FileManager.default.temporaryDirectory.appending(path: "agentos-storage-\(UUID().uuidString)")
         let workspace = try RepositoryWorkspace(root: repo, storage: storage, config: Self.config,
-                                                landingBranch: "agentos/main", defaultBranch: "main")
+                                                landingBranch: "agentos/GH-1", defaultBranch: "main")
         try await workspace.prepare()
+        _ = try await workspace.prepareRequirementBranch(for: NodeIdentity(ticketKey: "GH-1", nodeID: "wn-1"), leaves: ["wn-1"])
         let folder = "Tests/AppTests/WORK_1Tests"
         var directory = try await workspace.createWorktree(for: "wn-1")
         try FileManager.default.createDirectory(at: directory.appending(path: folder), withIntermediateDirectories: true)
@@ -686,7 +690,7 @@ struct RepositoryWorkspaceTests {
 
         #expect(try String(contentsOf: directory.appending(path: "\(folder)/check.sh"), encoding: .utf8) == "grep -q hello app.txt\n")
         #expect(try String(contentsOf: directory.appending(path: "app.txt"), encoding: .utf8) == "hi\n")
-        #expect(try await git(["rev-parse", "HEAD"], in: directory) == git(["rev-parse", "agentos/main"], in: repo))
+        #expect(try await git(["rev-parse", "HEAD"], in: directory) == git(["rev-parse", "agentos/GH-1"], in: repo))
 
         directory = try await workspace.createWorktree(for: "wn-1")
         #expect(!FileManager.default.fileExists(atPath: directory.appending(path: folder).path))
@@ -705,7 +709,7 @@ struct RepositoryWorkspaceTests {
         let node = try #require(await session.ledger.workingState().node(forTicket: key))
         #expect(node.phase == .proven, "\(reports.flatMap(\.actions))")
         #expect(await implementer.carriedOver == ["Sources/Greeting.swift", "app.txt"])
-        #expect(try await git(["show", "agentos/main:Sources/Greeting.swift"], in: repo) == "let greeting = \"hello\"")
+        #expect(try await git(["show", "agentos/\(key):Sources/Greeting.swift"], in: repo) == "let greeting = \"hello\"")
         #expect(try await git(["for-each-ref", "refs/heads/agentos/unfinished/"], in: repo).isEmpty)
     }
 
@@ -824,8 +828,9 @@ struct RepositoryWorkspaceTests {
         let repo = try await makeRepo()
         let storage = FileManager.default.temporaryDirectory.appending(path: "agentos-storage-\(UUID().uuidString)")
         let workspace = try RepositoryWorkspace(root: repo, storage: storage, config: Self.config,
-                                                landingBranch: "agentos/main", defaultBranch: "main")
+                                                landingBranch: "agentos/GH-1", defaultBranch: "main")
         try await workspace.prepare()
+        _ = try await workspace.prepareRequirementBranch(for: NodeIdentity(ticketKey: "GH-1", nodeID: "wn-1"), leaves: ["wn-1"])
         var directory = try await workspace.createWorktree(for: "wn-1")
         func leaveWork() throws {
             try "hello\n".write(to: directory.appending(path: "app.txt"), atomically: true, encoding: .utf8)
@@ -838,7 +843,7 @@ struct RepositoryWorkspaceTests {
 
         // The landing branch moves on, and catching up cleans the worktree.
         try await git(["-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "later"], in: directory)
-        try await git(["update-ref", "refs/heads/agentos/main", "HEAD"], in: directory)
+        try await git(["update-ref", "refs/heads/agentos/GH-1", "HEAD"], in: directory)
         try await git(["reset", "-q", "--hard", "HEAD~1"], in: directory)
         _ = try await workspace.catchUpActiveLeaves(["wn-1"])
         #expect(try await git(["status", "--porcelain"], in: directory).isEmpty)
@@ -888,23 +893,24 @@ struct RepositoryWorkspaceTests {
         try await git(["-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-q", "-m", "older evidence"], in: repo)
         let storage = FileManager.default.temporaryDirectory.appending(path: "agentos-storage-\(UUID().uuidString)")
         let workspace = try RepositoryWorkspace(root: repo, storage: storage, config: Self.config,
-                                                landingBranch: "agentos/main", defaultBranch: "main")
+                                                landingBranch: "agentos/GH-1", defaultBranch: "main")
         try await workspace.prepare()
+        _ = try await workspace.prepareRequirementBranch(for: NodeIdentity(ticketKey: "GH-1", nodeID: "wn-1"), leaves: ["wn-1"])
         let directory = try await workspace.createWorktree(for: "wn-1")
         try "hello\n".write(to: directory.appending(path: "app.txt"), atomically: true, encoding: .utf8)
         try #require(try await workspace.commitAll(in: directory, message: "work", author: "run-1") != nil)
-        #expect(try await workspace.reviewContext(in: directory, against: "agentos/main").uiEvidence == nil)
+        #expect(try await workspace.reviewContext(in: directory, against: "agentos/GH-1").uiEvidence == nil)
 
         try FileManager.default.createDirectory(at: directory.appending(path: ".agentos-ui-evidence"), withIntermediateDirectories: true)
         try Data([1, 2, 3]).write(to: directory.appending(path: ".agentos-ui-evidence/after.png"))
         try #"{"snapshotPaths": [".agentos-ui-evidence/after.png"], "windowsOpened": true, "windowsClosed": true}"#
             .write(to: directory.appending(path: ".agentos-ui-evidence.json"), atomically: true, encoding: .utf8)
         let reviewed = try #require(try await workspace.commitAll(in: directory, message: "evidence", author: "run-1"))
-        let evidence = try #require(try await workspace.reviewContext(in: directory, against: "agentos/main").uiEvidence)
+        let evidence = try #require(try await workspace.reviewContext(in: directory, against: "agentos/GH-1").uiEvidence)
         #expect(try Data(contentsOf: URL(filePath: try #require(evidence.snapshotPaths.first))) == Data([1, 2, 3]))
 
         let landed = try await workspace.landOnMain("wn-1")
-        #expect(try await git(["rev-parse", "agentos/main"], in: repo) == landed)
+        #expect(try await git(["rev-parse", "agentos/GH-1"], in: repo) == landed)
         #expect(try await git(["rev-parse", "\(landed)^"], in: repo) == reviewed)
         #expect(try await git(["rev-parse", workspace.branch(for: "wn-1")], in: repo) == reviewed)
         #expect(try await git(["ls-tree", "-r", "--name-only", landed], in: repo).split(separator: "\n").sorted()
@@ -1099,8 +1105,9 @@ struct RepositoryWorkspaceTests {
         let repo = try await makeRepo()
         let storage = FileManager.default.temporaryDirectory.appending(path: "agentos-storage-\(UUID().uuidString)")
         let workspace = try RepositoryWorkspace(root: repo, storage: storage, config: Self.config,
-                                                landingBranch: "agentos/main", defaultBranch: "main")
+                                                landingBranch: "agentos/GH-1", defaultBranch: "main")
         try await workspace.prepare()
+        _ = try await workspace.prepareRequirementBranch(for: NodeIdentity(ticketKey: "GH-1", nodeID: "wn-1"), leaves: ["wn-1"])
         var directory = try await workspace.createWorktree(for: "wn-1")
         let test = "Tests/AppTests/WORK_1Tests/check.sh"
         try FileManager.default.createDirectory(at: directory.appending(path: "Tests/AppTests/WORK_1Tests"), withIntermediateDirectories: true)
@@ -1115,7 +1122,7 @@ struct RepositoryWorkspaceTests {
         #expect(try String(contentsOf: directory.appending(path: "app.txt"), encoding: .utf8) == "placeholder\n")
 
         // Other work lands on the placeholder's file.
-        try await git(["checkout", "-q", "agentos/main"], in: repo)
+        try await git(["checkout", "-q", "agentos/GH-1"], in: repo)
         try "landed\n".write(to: repo.appending(path: "app.txt"), atomically: true, encoding: .utf8)
         try await git(["-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-qam", "landed"], in: repo)
         try await git(["checkout", "-q", "main"], in: repo)
@@ -1529,7 +1536,7 @@ struct RepositoryWorkspaceTests {
         #expect(node.flags[.escalated]?.contains("couldn't be kept before sending them back") == true, "\(node.flags)")
         let directory = session.workspace.worktree(for: node.id)
         #expect(try String(contentsOf: directory.appending(path: "app.txt"), encoding: .utf8) == "hello\n")
-        #expect(try await git(["rev-list", "--count", "agentos/main..HEAD"], in: directory) == "2")
+        #expect(try await git(["rev-list", "--count", "agentos/\(key)..HEAD"], in: directory) == "2")
         #expect(await implementer.unfinishedWork.count == 1)
     }
 

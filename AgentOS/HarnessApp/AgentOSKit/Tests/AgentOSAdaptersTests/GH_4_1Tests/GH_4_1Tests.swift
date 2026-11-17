@@ -117,7 +117,7 @@ struct GH_4_1Tests {
         let banner = try #require(await coordinator.banner(at: Date(timeIntervalSince1970: 234)))
 
         #expect(banner.title == "Baseline running on main at 12345678 · started because main moved from abcdef01 · 2m 14s")
-        #expect(banner.message == "Catching up agentos/main waits; agents keep working.")
+        #expect(banner.message == "Catching up requirement branches waits; agents keep working.")
         #expect(banner.latestLogLine == "Compiling AgentOSAdapters")
         #expect(banner.fullLog != nil)
         #expect(banner.actions == [.stop])
@@ -145,7 +145,7 @@ struct GH_4_1Tests {
         #expect(missingBeforeWork.severity == .blocker)
         #expect(missingBeforeWork.message == "Baseline not checked at 12345678")
         #expect(missingWithWork.severity == .warning)
-        #expect(missingWithWork.message == "agentos/main is 3 commits behind main; catching up waits for a baseline")
+        #expect(missingWithWork.message == "Requirement branches are 3 commits behind main; catching up waits for a baseline")
         #expect(failed.severity == .warning)
         #expect(failed.message == "Baseline fails on main at 12345678")
         #expect(failed.actions == [.retry, .dismiss])

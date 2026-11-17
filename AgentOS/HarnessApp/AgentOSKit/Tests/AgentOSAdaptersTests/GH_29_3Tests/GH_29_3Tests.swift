@@ -144,7 +144,7 @@ struct GH_29_3Tests {
 
         let node = try #require(await session.ledger.workingState().node(forTicket: ticket))
         #expect(node.phase == .proven)
-        let submittedFiles = try await git(["ls-tree", "-r", "--name-only", "agentos/main"], in: repo)
+        let submittedFiles = try await git(["ls-tree", "-r", "--name-only", "agentos/\(ticket)"], in: repo)
             .split(separator: "\n")
             .map(String.init)
         return await observation.result(submittedFiles: submittedFiles)

@@ -16,17 +16,17 @@ struct PolicyTests {
     @Test func withoutARepoConfigTheHarnessSettingsApply() {
         let policy = resolve(nil)
         #expect(policy.problems.isEmpty)
-        #expect(policy.landingBranch == "agentos/main")
+        #expect(policy.landingBranch == "agentos/<ticket key>")
         #expect(policy.policy.allowedSignals == Set(HarnessCommand.allCases))
         #expect(policy.settings.allSatisfy { $0.source == .harness })
     }
 
     @Test func aRepoMayTightenLimits() throws {
         let policy = resolve(config(limits: .init(maxAttempts: 1, maxParallelAgents: 2), landing: "agents/landing", disable: ["harness:go"]))
-        #expect(policy.problems.isEmpty)
+        #expect(policy.problems.map(\.severity) == [.warning])
         #expect(policy.policy.maxAttempts == 1)
         #expect(policy.policy.maxReworks == 3)
-        #expect(policy.landingBranch == "agents/landing")
+        #expect(policy.landingBranch == "agentos/<ticket key>")
         #expect(!policy.policy.allowedSignals.contains(.go))
         let attempts = try #require(policy.settings.first { $0.name == "Max attempts per leaf" })
         #expect(attempts.source == .repo)
@@ -36,10 +36,11 @@ struct PolicyTests {
 
     @Test func aRepoCannotLoosenLimitsOrLandOnItsDefaultBranch() {
         let policy = resolve(config(limits: .init(maxAttempts: 10, maxReworks: 0), landing: "main"))
-        #expect(policy.problems.map(\.severity) == [.blocker, .blocker, .blocker])
+        #expect(policy.problems.filter { $0.severity == .blocker }.count == 2)
+        #expect(policy.problems.filter { $0.severity == .warning }.count == 1)
         #expect(policy.policy.maxAttempts == 3)
         #expect(policy.policy.maxReworks == 3)
-        #expect(policy.landingBranch == "agentos/main")
+        #expect(policy.landingBranch == "agentos/<ticket key>")
         #expect(policy.settings.first { $0.name == "Max attempts per leaf" }?.note == "repo asked for 10: refused")
     }
 
@@ -65,7 +66,7 @@ struct PolicyTests {
 
     @Test func invalidBranchesAndUnknownSignalsAreReported() {
         let policy = resolve(config(landing: "origin/main", disable: ["preview", "merge"]))
-        #expect(policy.problems.map(\.severity) == [.blocker, .warning])
+        #expect(policy.problems.map(\.severity) == [.warning, .warning])
         #expect(policy.problems.last?.title == "Repo config disables unknown signals: merge")
         #expect(policy.policy.allowedSignals == Set(HarnessCommand.allCases).subtracting([.preview]))
     }
@@ -126,9 +127,9 @@ struct PolicyTests {
     }
 
     @Test func leafBranchNamesAreReserved() {
-        #expect(resolve(config(landing: "agentos")).problems.count == 1)
-        #expect(resolve(config(landing: "agentos/leaf/x")).problems.count == 1)
-        #expect(resolve(config(landing: "agentos/landing")).problems.isEmpty)
+        #expect(resolve(config(landing: "agentos")).problems.map(\.severity) == [.warning])
+        #expect(resolve(config(landing: "agentos/leaf/x")).problems.map(\.severity) == [.warning])
+        #expect(resolve(config(landing: "agentos/landing")).problems.map(\.severity) == [.warning])
     }
 
     @Test func settingsSavedByAnOlderVersionStillLoad() throws {

@@ -213,7 +213,7 @@ import Testing
         defer { pane.window.close() }
         let text = try Self.text(of: pane.view)
         #expect(RenderedUI.shows("Landing branch", in: text))
-        #expect(RenderedUI.shows("agentos/main", in: text))
+        #expect(RenderedUI.shows("agentos/<ticket key>", in: text))
         #expect(Self.hasSource("harness", label: "Landing branch", in: text), "\(text)")
         #expect(!Self.hasSource("repo", label: "Landing branch", in: text),
                 "The repo mentioned in the pane header must not look like the row's source.")

@@ -130,12 +130,15 @@ struct FlowTests {
         #expect(await sim.ledger.verifyChain().isIntact)
 
         // Leaves that overlap in WeatherUI/WeatherService either wait for each other or are reworked on the
-        // latest main. Neither counts as a failed attempt.
+        // latest requirement branch. Neither counts as a failed attempt.
         #expect(state.nodes.values.allSatisfy { $0.failedAttempts == 0 })
-        // Everything is on main, combined.
-        let service = ScriptedFacts.read(ScriptedFacts.sourceFile("WeatherService", in: sim.workspace.repoDirectory))
+        // The requirement combines its leaves without changing main.
+        let snapshot = try #require(try await sim.workspace.createSnapshot(for: waiting.id))
+        let service = ScriptedFacts.read(ScriptedFacts.sourceFile("WeatherService", in: snapshot))
         #expect(service["temperature unit"]?.value == "Celsius")
         #expect(service["fetches the forecast from backend-42"]?.value == "yes")
+        await sim.workspace.removeSnapshot(snapshot)
+        #expect(try await sim.workspace.mainLog().count == 1)
     }
 
     @Test func aSmallTicketIsItsOwnLeaf() async throws {
@@ -261,7 +264,7 @@ struct FlowTests {
         #expect(await sim.lastComment("APP-1").contains("isn't enabled"))
     }
 
-    @Test func aLeafIsProvenOnlyOnceItHasLandedOnMain() async throws {
+    @Test func aLeafIsProvenOnlyOnceItHasLandedOnItsRequirementBranch() async throws {
         let sim = try makeSimulation()
         await sim.tracker.createTicket(title: "Greeting", description: "Say hi", acceptanceCriteria: ["Says hello"], by: alice)
         await sim.signal(.breakdown, "APP-1")
@@ -271,14 +274,19 @@ struct FlowTests {
         let leaf = try #require(await sim.node("APP-1"))
         #expect(leaf.phase == .proven)
         let landed = try #require(leaf.landedCommit)
-        let log = try await sim.workspace.mainLog()
+        let history = try await ProcessRunner.run(
+            "/usr/bin/env", ["git", "log", "--format=%h %an: %s", "agentos/APP-1"], in: sim.workspace.repoDirectory
+        )
+        try #require(history.status == 0, "\(history.output)")
+        let log = history.output.split(separator: "\n").map(String.init)
         #expect(log.first?.hasPrefix(String(landed.prefix(7))) == true)
         #expect(log.first?.contains(leaf.lastSubmission!.run) == true) // the commit is authored by the run that built it
         #expect(leaf.evidence.last?.check.contains("landing") == true)
         #expect(leaf.evidence.last?.builtBy != leaf.evidence.last?.checkedBy)
+        #expect(try await sim.workspace.mainLog().count == 1)
     }
 
-    @Test func contradictingWorkIsEscalatedAsARequirementsConflict() async throws {
+    @Test func contradictingWorkOnSeparateRequirementBranchesDoesNotConflict() async throws {
         let sim = try makeSimulation()
         await sim.tracker.createTicket(title: "Units", description: "Metric", acceptanceCriteria: ["Temperature unit: Celsius [Weather]"], by: alice)
         await sim.signal(.breakdown, "APP-1")
@@ -290,13 +298,13 @@ struct FlowTests {
         await sim.signal(.build, "APP-2")
 
         let contradicting = try #require(await sim.node("APP-2"))
-        #expect(contradicting.phase != .proven)
-        #expect(contradicting.flags[.escalated]?.hasPrefix("Requirements conflict") == true)
-        #expect(contradicting.flags[.escalated]?.contains("APP-1") == true)
-        #expect(await sim.lastComment("APP-1").contains("APP-2"))
-        // main still has the proven behaviour.
-        let facts = ScriptedFacts.read(ScriptedFacts.sourceFile("Weather", in: sim.workspace.repoDirectory))
+        #expect(contradicting.phase == .proven)
+        #expect(contradicting.flags[.escalated] == nil)
+        let first = try #require(await sim.node("APP-1"))
+        let firstSnapshot = try #require(try await sim.workspace.createSnapshot(for: first.id))
+        let facts = ScriptedFacts.read(ScriptedFacts.sourceFile("Weather", in: firstSnapshot))
         #expect(facts["temperature unit"]?.value == "Celsius")
+        await sim.workspace.removeSnapshot(firstSnapshot)
     }
 
     @Test func repeatedFailureEscalatesAndRetryResumes() async throws {

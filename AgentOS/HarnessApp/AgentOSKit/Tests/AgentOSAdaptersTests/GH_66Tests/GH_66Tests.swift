@@ -40,7 +40,7 @@ import AgentOSCore
             $0.passed && $0.check == "own acceptance tests on branch"
         })
         #expect(proven.evidence.contains {
-            $0.passed && $0.check == "all tests on latest main (landing)"
+            $0.passed && $0.check == "all tests on latest agentos/GH-66 (landing)"
         })
         #expect(proven.evidence.allSatisfy {
             $0.builtBy == submission.run && $0.checkedBy != submission.run
@@ -49,7 +49,7 @@ import AgentOSCore
         let finalProjection = await fixture.reconciler.runRound(waitForAgents: true)
         try #require(finalProjection.safeStop == nil)
         #expect(await fixture.tracker.status == final.status(of: proven))
-        #expect(await fixture.tracker.comments.contains { $0.contains("Landed on main") })
+        #expect(await fixture.tracker.comments.contains { $0.contains("Landed on agentos/GH-66") })
         #expect(await fixture.reconciler.busyNodes.isEmpty)
         #expect(await fixture.ledger.verifyChain().isIntact)
     }
