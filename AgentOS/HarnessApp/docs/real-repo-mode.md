@@ -301,7 +301,10 @@ Review level and Reviewer rows each retain their own harness/repo source.
 
 Before the acceptance-test review, a Swift package's tests are compiled. Errors only the tests can cause (syntax, clashing
 names, a test nested in another test, a file named like another in the same test target) send them back to
-the test author without using a review round; errors from API that doesn't exist yet are expected. On such
+the test author without using a review round; errors from API that doesn't exist yet are expected. That
+includes a member the test author reported on a protocol but calls on a type that conforms to it, and calls
+whose arguments don't match the current signature. A missing member of an existing type that the test author
+didn't report counts as its own mistake. On such
 a return the test author is told to make the smallest fix: every rewritten line risks a new mistake.
 The test author builds and runs its own suite before finishing. Where the API its tests expect doesn't exist
 yet, it adds placeholders (minimal bodies that compile, never a crash). Its new-behaviour tests should fail

@@ -56,6 +56,51 @@ struct AcceptanceTestFeedbackTests {
         #expect(result.diagnostics.map(\.classification) == [.expected, .expected, .testAuthorMistake])
     }
 
+    @Test func aMemberExpectedOnAProtocolIsExpectedOnAConformingProductionType() throws {
+        let root = try tempRoot()
+        let sources = root.appending(path: "Kit/Sources/Adapters")
+        let tests = root.appending(path: "Kit/Tests/KitTests/GH_88Tests")
+        for folder in [sources, tests] { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true) }
+        try "// swift-tools-version:6.0".write(to: root.appending(path: "Kit/Package.swift"), atomically: true, encoding: .utf8)
+        try "public actor RepositoryWorkspace: Workspace {}\n"
+            .write(to: sources.appending(path: "RepositoryWorkspace.swift"), atomically: true, encoding: .utf8)
+        let file = tests.appending(path: "GH_88Tests.swift").path
+        let log = [
+            "\(file):32:45: error: value of type 'RepositoryWorkspace' has no member 'prepareRequirementBranch'",
+            "\(file):247:35: error: value of type 'RepositoryWorkspace' has no member 'catchUpRequirementBranch'",
+            "\(file):250:35: error: value of type 'RepositoryWorkspace' has no member 'catchUp'",
+        ].joined(separator: "\n")
+
+        let result = SwiftAcceptanceTestPreflight.classify(
+            log: log, in: root, testFolder: "Kit/Tests/KitTests/GH_88Tests",
+            expectedAPI: [
+                "AgentOSCore.Workspace.prepareRequirementBranch(for requirement: NodeIdentity, leaves: [NodeID]) async throws -> String?",
+                "AgentOSCore.Workspace.catchUpRequirementBranch(for requirement: NodeIdentity) async throws -> String",
+            ])
+
+        #expect(result.diagnostics.map(\.classification) == [.expected, .expected, .testAuthorMistake])
+    }
+
+    @Test func argumentLabelsNamedLikeATestLocalAreExpectedSignatureChanges() throws {
+        let root = try tempRoot()
+        let folder = root.appending(path: "Tests/GH_90Tests")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try "struct Fixture { let publisher = Spy(); let landingBranch = \"main\" }\n"
+            .write(to: folder.appending(path: "GH_90TestsSupport.swift"), atomically: true, encoding: .utf8)
+        let file = folder.appending(path: "GH_90TestsSupport.swift").path
+        let log = [
+            "\(file):123:44: error: extra argument 'publisher' in call",
+            "\(file):19:99: error: missing argument for parameter 'landingBranch' in call",
+        ].joined(separator: "\n")
+
+        let result = SwiftAcceptanceTestPreflight.classify(
+            log: log, in: root, testFolder: "Tests/GH_90Tests",
+            expectedAPI: ["AgentOSCore.Reconciler.init(ledger: Ledger, policy: Policy = Policy(), publisher: (any RequirementPublisher)? = nil)"])
+
+        #expect(result.testAuthorMistakes.isEmpty)
+        #expect(result.diagnostics.count == 2)
+    }
+
     @Test func aTestNestedInAnotherTestIsTheTestsOwnMistake() throws {
         let root = try tempRoot()
         let file = root.appending(path: "Tests/GH_1Tests/GH_1Tests.swift").path

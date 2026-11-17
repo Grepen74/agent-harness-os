@@ -139,6 +139,9 @@ public struct SwiftAcceptanceTestPreflight: AcceptanceTestPreflight {
         expectedAPI: [String]
     ) -> CompilerDiagnosticClassification {
         if isSyntaxError(message) || isOwnNamingMistake(message) || isMisplacedTest(message) { return .testAuthorMistake }
+        // The quoted names are argument labels, not symbols, so a test local of the same name says nothing: a call
+        // to a signature the change hasn't added yet.
+        if isArgumentMismatch(message) { return .expected }
 
         let quoted = quotedSymbols(in: message)
         let member = memberReference(in: message)
@@ -152,6 +155,10 @@ public struct SwiftAcceptanceTestPreflight: AcceptanceTestPreflight {
             if expectedAPI.contains(where: { api in
                 api.contains(member.type) && api.contains(member.member)
             }) {
+                return .expected
+            }
+            // Expected on a protocol or supertype, e.g. `Workspace.prepareRequirementBranch` called on a conforming type.
+            if expectedAPI.contains(where: { names(member.member, asMemberIn: $0) }) {
                 return .expected
             }
             if isProductionType(member.type, under: root, testFolder: testFolder) {
@@ -186,6 +193,20 @@ public struct SwiftAcceptanceTestPreflight: AcceptanceTestPreflight {
     /// A test declared where Swift Testing can't run it, e.g. nested in another test by a misplaced brace.
     private static func isMisplacedTest(_ message: String) -> Bool {
         message.contains("Attribute 'Test' cannot be applied") || message.contains("Attribute 'Suite' cannot be applied")
+    }
+
+    private static func isArgumentMismatch(_ message: String) -> Bool {
+        let fragments = [
+            "extra argument '", "extra arguments at positions", "missing argument for parameter '",
+            "missing arguments for parameters '", "incorrect argument label", "argument passed to call that takes no arguments",
+            "extraneous argument label '",
+        ]
+        return fragments.contains { message.contains($0) }
+    }
+
+    private static func names(_ member: String, asMemberIn api: String) -> Bool {
+        let pattern = #"\."# + NSRegularExpression.escapedPattern(for: member) + #"(?![A-Za-z0-9_])"#
+        return api.range(of: pattern, options: .regularExpression) != nil
     }
 
     private static func matchesMissingProductionAPIPattern(_ message: String) -> Bool {
