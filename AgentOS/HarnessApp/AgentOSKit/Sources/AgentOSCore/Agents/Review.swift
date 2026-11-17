@@ -148,10 +148,14 @@ public struct ReviewRequest: Sendable {
     public let testFolder: String
     /// Where the reviewer's output is kept, so a review that fails can be looked into.
     public let log: URL?
+    /// Acceptance-test stage: the implementer's broken-test reports the tests were changed for since they were last
+    /// started over, as "Suite.test: reason". Changes that settle them are this work's, whatever test they're in.
+    public let brokenTestReports: [String]
 
     public init(stage: ReviewStage, spec: NodeSpec, acceptanceTests: [String: String],
                 context: ReviewContext, instructions: String = "", directory: URL = URL(filePath: "."),
-                earlierFindings: [[String]] = [], testFolder: String = "", log: URL? = nil) {
+                earlierFindings: [[String]] = [], testFolder: String = "", log: URL? = nil,
+                brokenTestReports: [String] = []) {
         self.stage = stage
         self.spec = spec
         self.acceptanceTests = acceptanceTests
@@ -161,6 +165,7 @@ public struct ReviewRequest: Sendable {
         self.earlierFindings = earlierFindings
         self.testFolder = testFolder
         self.log = log
+        self.brokenTestReports = brokenTestReports
     }
 
     /// 1 for the first review of this work at this stage.

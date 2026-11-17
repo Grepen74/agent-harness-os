@@ -1181,6 +1181,13 @@ struct RepositoryWorkspaceTests {
         let node = try #require(await session.ledger.workingState().node(forTicket: key))
         #expect(node.phase == .proven, "\(node.flags) \(reports.flatMap(\.actions))")
         #expect(await implementer.unfinishedWork == [[], ["app.txt"], ["app.txt"], ["app.txt"]])
+        // The report goes back with the feedback, so later test rounds and reviews still know about it.
+        let records = await session.ledger.records(for: node.id)
+        let retried = try #require(records.lastIndex { if case .flagCleared(.needsInput) = $0.event.kind { true } else { false } })
+        let routings = records[retried...].compactMap { record -> BrokenTestRoutingOutcome? in
+            if case .brokenTestRouted(_, let outcome) = record.event.kind { outcome } else { nil }
+        }
+        #expect(routings == [.sentBackToTestAuthor])
     }
 
     @Test("A kept implementation the implementer undid entirely before running out of time isn't brought back again")
@@ -1197,6 +1204,48 @@ struct RepositoryWorkspaceTests {
         #expect(node.phase == .proven, "\(node.flags) \(reports.flatMap(\.actions))")
         let unfinished = await implementer.unfinishedWork
         #expect(unfinished == [[], ["app.txt"], []], "\(unfinished) \(reports.flatMap(\.actions))")
+    }
+
+    @Test("Test-author rounds after a broken-test report, and their reviews, still get that report")
+    func laterTestRoundsKeepBrokenTestReportsInView() async throws {
+        let repo = try await makeRepo()
+        let author = RecordsTestTasks()
+        var team = AgentTeam(name: "Fake", decomposer: Leaf(), testAuthor: author, implementer: BrokenTestThen(reports: 1))
+        let reviewer = FailsTestsReviewAfterReport()
+        team.reviewer = reviewer
+        let session = try await session(repo, team: team)
+        let key = await ticket(session)
+
+        let reports = await session.runUntilFinished()
+
+        let node = try #require(await session.ledger.workingState().node(forTicket: key))
+        #expect(node.phase == .proven, "\(node.flags) \(reports.flatMap(\.actions))")
+        let report = "\(node.spec.testTarget).greets: It checks the wrong file."
+        let tasks = await author.tasks
+        #expect(tasks.map(\.earlierBrokenTests) == [[], [], [report]])
+        #expect(tasks.last?.previousFailure == "Name the greeting.")
+        #expect(CopilotTestAuthor.prompt(for: try #require(tasks.last)).contains("- \(report)"))
+        let requests = await reviewer.requests
+        #expect(requests.map(\.brokenTestReports) == [[], [report], [report]])
+        #expect(CopilotReviewer.prompt(for: try #require(requests.last)).contains("- \(report)"))
+    }
+
+    actor RecordsTestTasks: TestAuthor {
+        private(set) var tasks: [AgentTask] = []
+        func writeAcceptanceTests(_ task: AgentTask) async throws -> AgentReport {
+            tasks.append(task)
+            return try await ShellTestAuthor().writeAcceptanceTests(task)
+        }
+    }
+
+    /// Records the acceptance-test reviews; fails the first one after a broken-test report.
+    actor FailsTestsReviewAfterReport: Reviewer {
+        private(set) var requests: [ReviewRequest] = []
+        func review(_ request: ReviewRequest) async throws -> ReviewResult {
+            guard request.stage == .acceptanceTests else { return ReviewResult(passed: true, findings: []) }
+            requests.append(request)
+            return ReviewResult(passed: requests.count != 2, findings: requests.count == 2 ? ["Name the greeting."] : [])
+        }
     }
 
     /// Implements the greeting and reports its own test broken a number of times; optionally then deletes what it got
@@ -1485,14 +1534,18 @@ struct RepositoryWorkspaceTests {
     }
 
     /// Finds a problem in the tests, after locking the ref the implementation would be kept in.
-    struct BlocksKeptImplementations: Reviewer {
+    actor BlocksKeptImplementations: Reviewer {
+        // Held open, so the harness doesn't take the lock for one a killed git left behind once it's a few seconds old.
+        private var lock: FileHandle?
         func review(_ request: ReviewRequest) async throws -> ReviewResult {
             guard request.stage == .change else { return ReviewResult(passed: true, findings: []) }
             let common = try await ProcessRunner.run("/usr/bin/env", ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
                                                      in: request.directory).output.trimmingCharacters(in: .whitespacesAndNewlines)
             let refs = URL(filePath: common).appending(path: "refs/heads/agentos/kept-implementation")
             try FileManager.default.createDirectory(at: refs, withIntermediateDirectories: true)
-            FileManager.default.createFile(atPath: refs.appending(path: request.spec.id + ".lock").path, contents: nil)
+            let path = refs.appending(path: request.spec.id + ".lock").path
+            FileManager.default.createFile(atPath: path, contents: nil)
+            lock = FileHandle(forReadingAtPath: path)
             return ReviewResult(passed: false, findings: [], testFindings: ["The test doesn't name the greeting."])
         }
     }

@@ -221,4 +221,30 @@ extension Reconciler {
         }
         return reports
     }
+
+    /// The broken-test reports the test author was sent since its tests were last started over (a retest, a replan),
+    /// oldest first, as "Suite.test: reason": what it changed for them must outlive later rounds of feedback.
+    func brokenTestsSinceTestsStarted(_ id: NodeID) async -> [String] {
+        let records = await ledger.records(for: id)
+        let startedOver = records.lastIndex {
+            switch $0.event.kind {
+            case .replanned, .signalAccepted(_, .retest, _): return true
+            default: return false
+            }
+        }
+        var reports: [String] = []
+        var latest: BrokenTestReport?
+        for record in records[(startedOver.map { $0 + 1 } ?? 0)...] {
+            switch record.event.kind {
+            case .brokenTestReported(let report): latest = report
+            case .brokenTestRouted(_, .sentBackToTestAuthor):
+                // A person's retry can send the same report back again.
+                if let latest, reports.last != "\(latest.testName): \(latest.reason)" {
+                    reports.append("\(latest.testName): \(latest.reason)")
+                }
+            default: continue
+            }
+        }
+        return reports
+    }
 }

@@ -119,8 +119,15 @@ extension Reconciler {
         var kinds: [EventKind] = answers.map { .questionsAnswered($0) } + [.flagCleared(.needsInput)]
         if isReview && node.spec.kind == .leaf && node.phase == .ready {
             // After broken-test reports the implementation is kept for the implementer to continue from; the test
-            // author's new worktree replaces this one without forgetting it.
-            if !(await isWaitingOnOwnTest(node)) { try? await workspace.removeWorktree(for: node.id) }
+            // author's new worktree replaces this one without forgetting it. The report goes back with the
+            // feedback, so later rounds and reviews know what the tests were changed for.
+            if await isWaitingOnOwnTest(node) {
+                if let report = node.brokenTestReports.last {
+                    kinds.append(.brokenTestRouted(testName: report.testName, outcome: .sentBackToTestAuthor))
+                }
+            } else {
+                try? await workspace.removeWorktree(for: node.id)
+            }
             kinds.append(.phaseChanged(to: .specified))
         }
         if node.flags[.escalated] != nil { kinds += [.flagCleared(.escalated), .attemptsReset] }

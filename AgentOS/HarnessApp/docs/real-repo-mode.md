@@ -348,7 +348,16 @@ tries. The "Needs input" lists every report. A conflicting test that lives outsi
 agent may change it, so a return can't settle it. On `harness:retry`, a conflicting test the test author
 may now update (the repo has since added its folder, say), and which is still as committed when the ticket
 started waiting, goes to the test author along with the answer. Otherwise, the person is taken to have fixed
-the test, and the implementer tries again.
+the test, and the implementer tries again. A test that fails only sometimes (it passes when run again with
+nothing changed) is flaky, not broken: the implementer is told not to report it. One that fails every time in
+the whole suite but not on its own isn't flaky: the implementer fixes its change if that's the cause and
+reports the conflict otherwise.
+Later test-author rounds (for review findings, say) and the acceptance-test reviews get every broken-test
+report since the tests last started over (`harness:retest` or a replan), including one a person sent back with
+`harness:retry`. The author keeps the changes made
+for them, fixtures and helpers included, and the reviewer counts a change to another work's test that settles
+a report as required by the ticket rather than asking for it to be reverted: GH-88's fixture fix was undone
+twice that way.
 Whenever tests come back (compiler errors, review findings, a broken-test report), the leaf's new branch
 starts from the landing branch with its earlier test folder restored, so the author fixes those tests in
 place rather than rewriting them blind. Other work's tests the earlier runs updated are restored and kept

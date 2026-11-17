@@ -21,10 +21,12 @@ extension Reconciler {
             instructions = try String(contentsOf: directory.appending(path: path), encoding: .utf8)
         }
         let earlier = await failedReviews(of: node.id, stage: stage).map(\.result.allFindings)
+        let reports = stage == .acceptanceTests ? await brokenTestsSinceTestsStarted(node.id) : []
         let request = ReviewRequest(
             stage: stage, spec: node.spec, acceptanceTests: tests, context: context,
             instructions: instructions, directory: directory, earlierFindings: earlier, testFolder: folder,
-            log: try? artifacts.liveFile(named: "\(node.id)-\(run)-\(stage.rawValue)-review.log"))
+            log: try? artifacts.liveFile(named: "\(node.id)-\(run)-\(stage.rawValue)-review.log"),
+            brokenTestReports: reports)
         var result = try await watchingUserGitState(node, run: run) { try await reviewer.review(request) }
         try Task.checkCancellation()
         let after = try await workspace.reviewContext(in: directory, against: context.baseBranch)

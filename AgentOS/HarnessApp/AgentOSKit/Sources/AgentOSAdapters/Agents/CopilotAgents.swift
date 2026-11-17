@@ -538,6 +538,16 @@ public struct CopilotTestAuthor: TestAuthor {
         "(git log and git show on that file), never from memory, and check with git diff on that file that only the " +
         "lines the criterion requires differ."
 
+    /// The implementer's earlier broken-test reports. A round for review findings once undid a fixture fix one of
+    /// them needed, because neither the reviewer nor the author saw why it was there.
+    static func earlierBrokenTests(_ reports: [String]) -> String {
+        guard !reports.isEmpty else { return "" }
+        return "\n\nBefore that, the implementer reported the tests below as conflicting with this item, and the " +
+            "tests were changed for them. Those changes stay, including the fixture and helper changes they needed: " +
+            "keep them while fixing the problem above, and don't undo one for a review finding unless the finding " +
+            "names it and says what to do instead.\n" + reports.map { "- \($0)" }.joined(separator: "\n")
+    }
+
     /// The findings of earlier review rounds of these tests, which later rounds must not undo.
     static func earlierRounds(_ rounds: [[String]]) -> String {
         guard !rounds.isEmpty else { return "" }
@@ -560,6 +570,7 @@ public struct CopilotTestAuthor: TestAuthor {
             "as they are: every line you rewrite risks a new mistake. A report may name several tests: fix each " +
             "one, and where the cause is shared (a fixture or helper that relies on behaviour this item changes), " +
             "check the other tests using it too. Run them again before finishing:\n\($0)"
+                + earlierBrokenTests(task.earlierBrokenTests)
                 + earlierRounds(task.earlierTestReviews)
         } ?? ""
         let draftFiles = task.unfinishedWork.prefix(40).joined(separator: ", ") + (task.unfinishedWork.count > 40 ? ", …" : "")
@@ -677,7 +688,11 @@ public struct CopilotImplementer: Implementer {
         Each report sends the tests back for a round, so before reporting, run the whole test suite once and \
         report every such test together: name one in testName and list each other one in reason, as \
         Suite.testName with why it conflicts. If one of them lives outside the folders where tests may be \
-        updated, name that one in testName. Your changes so far are kept for your next attempt. Only if the code already meets every \
+        updated, name that one in testName. A test that fails only sometimes (it passes when run again, on its \
+        own or in the whole suite, with nothing changed) is flaky, not broken: don't report it, and don't let it \
+        stop you submitting; the harness's checks deal with flaky tests. A test that fails every time in the \
+        whole suite but not on its own is not flaky: if your change causes that, fix your change; otherwise \
+        it's a conflict to report. Your changes so far are kept for your next attempt. Only if the code already meets every \
         acceptance criterion without any change (for example because other work delivered it), change nothing \
         and write {"alreadySatisfied": true}; the verifier then checks the branch as it is. Passing tests are \
         not enough: a refactor's tests pass before the work too, and criteria such as file layout or size \
