@@ -295,6 +295,11 @@ the ledger names the models skipped and the one that reviewed. `No supported mod
 `auto` gives when it can't pick a model, counts as the chosen model not being available. An agent role
 whose configured model isn't available runs with the CLI's default. The run's log starts with a note of
 the switch. Reviews run within another role's run, so a review that fails says "The reviewer failed:".
+A Copilot reviewer's output is kept in the artifacts as `<node>-<run>-<stage>-review.log`. An answer
+without a valid JSON result gets the reviewer asked once more, logged in `…-review-retry.log`, before the
+review fails; the failure then quotes the end of the last answer and names both logs. The prompt shows the
+ticket's own tests in full, but other work's tests it updated only by path, since their changes are in the
+diff: whole older suites can run to hundreds of kilobytes.
 The strictest level among the overall policy and every declared or actually changed area applies.
 A lower repo level, including an area below the overall level, is a start blocker. The effective
 Review level and Reviewer rows each retain their own harness/repo source.

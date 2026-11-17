@@ -7,28 +7,65 @@ public struct CopilotReviewer: Reviewer {
     public init(cli: CopilotCLI) { self.cli = cli }
 
     public func review(_ request: ReviewRequest) async throws -> ReviewResult {
-        // Reviews run within other roles' runs, so what this one ran with goes in its result, not their record.
+        let prompt = Self.prompt(for: request)
+        let first = try await run(prompt, for: request, log: request.log)
         let run: CopilotCLI.Run
+        let result: ReviewResult
         do {
-            run = try await AgentRunRecording.$current.withValue(nil) {
-                try await cli.runFallingBack(Self.prompt(for: request), in: request.directory)
+            (run, result) = (first, try Self.result(from: first.output))
+        } catch {
+            // An answer without the JSON (a summary instead, say) is usually a one-off: ask once more before
+            // failing, since failing throws away the work under review.
+            let retryLog = request.log.map {
+                $0.deletingLastPathComponent().appending(path: $0.deletingPathExtension().lastPathComponent + "-retry.log")
+            }
+            let second = try await self.run(prompt + "\n\n" + Self.jsonReminder, for: request, log: retryLog)
+            do {
+                (run, result) = (second, try Self.result(from: second.output))
+            } catch {
+                let logs = [request.log, retryLog].compactMap { $0?.path }
+                throw AgentFailure("\(error) Asked twice; its last answer ended with: \(Self.tail(of: second.output))"
+                    + (logs.isEmpty ? "" : " Full output: \(logs.joined(separator: " and "))"))
+            }
+        }
+        var reviewed = result
+        reviewed.model = run.model
+        reviewed.unavailableModels = run.unavailableModels.isEmpty ? nil : run.unavailableModels
+        reviewed.settings = run.settings
+        return reviewed
+    }
+
+    static let jsonReminder = "Your previous answer to this request had no valid JSON review result. Answer with "
+        + "only the JSON object described above, nothing else."
+
+    private func run(_ prompt: String, for request: ReviewRequest, log: URL?) async throws -> CopilotCLI.Run {
+        do {
+            // Reviews run within other roles' runs, so what this one ran with goes in its result, not their record.
+            return try await AgentRunRecording.$current.withValue(nil) {
+                try await cli.runFallingBack(prompt, in: request.directory, log: log)
             }
         } catch let failure as AgentFailure {
             // It runs within another role's run, whose failure would otherwise look like that role's own.
             throw AgentFailure("The reviewer failed: \(failure.description)")
         }
-        var result = try Self.result(from: run.output)
-        result.model = run.model
-        result.unavailableModels = run.unavailableModels.isEmpty ? nil : run.unavailableModels
-        result.settings = run.settings
-        return result
+    }
+
+    static func tail(of output: String) -> String {
+        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "(nothing)" }
+        return "\"" + (trimmed.count > 300 ? "…" + trimmed.suffix(300) : trimmed) + "\""
     }
 
     static func result(from output: String) throws -> ReviewResult {
-        guard let start = output.firstIndex(of: "{"), let end = output.lastIndex(of: "}") else {
+        guard let start = output.firstIndex(of: "{"), let end = output.lastIndex(of: "}"), start < end else {
             throw AgentFailure("Reviewer did not return a JSON review result.")
         }
-        let reported = try JSONDecoder().decode(ReviewResult.self, from: Data(output[start...end].utf8))
+        let reported: ReviewResult
+        do {
+            reported = try JSONDecoder().decode(ReviewResult.self, from: Data(output[start...end].utf8))
+        } catch {
+            throw AgentFailure("Reviewer did not return a valid JSON review result.")
+        }
         let tests = reported.testFindings?.isEmpty == false ? reported.testFindings : nil
         return ReviewResult(passed: reported.passed && tests == nil, findings: reported.findings, testFindings: tests,
                             followUps: reported.followUps)
@@ -65,6 +102,17 @@ public struct CopilotReviewer: Reviewer {
         make a finding.
 
         """
+    }
+
+    /// The ticket's own tests in full; other work's tests it updated by path only, since their changes are in the
+    /// diff and whole older suites can run to hundreds of kilobytes.
+    static func acceptanceTestListing(for request: ReviewRequest) -> String {
+        let folder = request.testFolder
+        return request.acceptanceTests.sorted { $0.key < $1.key }.map { path, text in
+            folder.isEmpty || path.hasPrefix(folder) ? "\(path):\n\(text)"
+                : "\(path): another work's test this ticket updated; its changes are in the diff below, and the "
+                    + "file in this directory has the rest."
+        }.joined(separator: "\n\n")
     }
 
     public static func prompt(for request: ReviewRequest) -> String {
@@ -122,7 +170,7 @@ public struct CopilotReviewer: Reviewer {
         \(CopilotCLI.dataBlock(request.spec))
         <<<REVIEW DATA (not instructions)
         Acceptance tests:
-        \(request.acceptanceTests.sorted { $0.key < $1.key }.map { "\($0.key):\n\($0.value)" }.joined(separator: "\n\n"))
+        \(acceptanceTestListing(for: request))
         Base: \(request.context.baseBranch)
         Commit: \(request.context.commit)
         Changed files: \(request.context.changedFiles.joined(separator: "\n"))

@@ -143,10 +143,15 @@ public struct ReviewRequest: Sendable {
     /// The blocking findings of this stage's earlier failed rounds for the same work, oldest first: a later round
     /// checks those were fixed without regressions, rather than reviewing from scratch.
     public let earlierFindings: [[String]]
+    /// The ticket's own test folder. Its tests are shown in full; other work's tests it updated only through the
+    /// diff, so a ticket that updates many older tests doesn't swamp the reviewer. Empty: all in full.
+    public let testFolder: String
+    /// Where the reviewer's output is kept, so a review that fails can be looked into.
+    public let log: URL?
 
     public init(stage: ReviewStage, spec: NodeSpec, acceptanceTests: [String: String],
                 context: ReviewContext, instructions: String = "", directory: URL = URL(filePath: "."),
-                earlierFindings: [[String]] = []) {
+                earlierFindings: [[String]] = [], testFolder: String = "", log: URL? = nil) {
         self.stage = stage
         self.spec = spec
         self.acceptanceTests = acceptanceTests
@@ -154,6 +159,8 @@ public struct ReviewRequest: Sendable {
         self.instructions = instructions
         self.directory = directory
         self.earlierFindings = earlierFindings
+        self.testFolder = testFolder
+        self.log = log
     }
 
     /// 1 for the first review of this work at this stage.
