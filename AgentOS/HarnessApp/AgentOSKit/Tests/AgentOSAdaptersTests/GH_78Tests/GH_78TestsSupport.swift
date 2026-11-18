@@ -19,10 +19,7 @@ extension GH_78Tests {
     static func withFixture(
         _ body: @MainActor (Fixture) async throws -> Void
     ) async throws {
-        let repository = (0..<7).reduce(URL(fileURLWithPath: #filePath)) { url, _ in
-            url.deletingLastPathComponent()
-        }
-        let root = repository.appending(path: ".agentos/scratch/run-dadbee/GH78-\(UUID().uuidString)")
+        let root = FileManager.default.temporaryDirectory.appending(path: "GH78-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let fixture: Fixture
         do {

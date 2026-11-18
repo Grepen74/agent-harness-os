@@ -14,6 +14,10 @@ struct RepositoryView: View {
     @State private var tab = Tab.findings
     @Environment(SettingsModel.self) private var settings
 
+    var showProgressIndicator: Bool {
+        model.showsActivity || model.view.isRunningBaseline
+    }
+
     init(url: URL) { _model = State(initialValue: RepositoryModel(url: url)) }
 
     var body: some View {
@@ -76,7 +80,9 @@ struct RepositoryView: View {
                     Button { Task { await model.step() } } label: { Label("Step", systemImage: "forward.frame") }
                         .help("Run exactly one reconciler round")
                         .disabled(!model.canWork || model.isRunning || model.isBusy)
-                    ProgressView().controlSize(.small).opacity(model.showsActivity || model.view.isRunningBaseline ? 1 : 0)
+                    ProgressView().controlSize(.small).opacity(showProgressIndicator ? 1 : 0)
+                        .padding(.leading, showProgressIndicator ? 4 : 0)
+                        .padding(.trailing, showProgressIndicator ? 10 : 0)
                     if !model.startBlockers.isEmpty {
                         Label("Agents blocked", systemImage: "hand.raised.fill")
                             .foregroundStyle(.orange)

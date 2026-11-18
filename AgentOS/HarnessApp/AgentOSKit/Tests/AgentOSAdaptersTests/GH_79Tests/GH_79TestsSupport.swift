@@ -4,12 +4,6 @@ import AgentOSCore
 import AgentOSTestSupport
 
 extension GH_79Tests {
-    static var repository: URL {
-        var directory = URL(fileURLWithPath: #filePath)
-        for _ in 0..<7 { directory.deleteLastPathComponent() }
-        return directory
-    }
-
     static let conflictingFiles = [
         "Sources/Engine/One.swift", "Sources/Engine/Two.swift",
         "Sources/EngineExtra/Neighbor.swift", "README.md", "Sources/Engine/One.swift",
@@ -58,7 +52,7 @@ extension GH_79Tests {
         let reconciler: Reconciler
 
         init() throws {
-            directory = GH_79Tests.repository.appending(path: ".agentos/scratch/run-d455d5/GH-79-\(UUID())")
+            directory = FileManager.default.temporaryDirectory.appending(path: "GH-79-\(UUID())")
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             ledger = try Ledger()
             workspace = MemoryWorkspace(root: directory, ledger: ledger)
