@@ -168,6 +168,7 @@ extension GH_89Tests {
         private var refs = ["main": "base"]
         private var commits = ["base": Commit(parents: [], files: [])]
         private var owners: [NodeID: String] = [:]
+        private var requirementCheckouts: [URL: String] = [:]
         private var conflicts: [String: [String: [String]]] = [:]
         private var leafConflicts: [NodeID: [String]] = [:]
         private var counter = 0
@@ -244,12 +245,25 @@ extension GH_89Tests {
             try #require(commits[commit], "Unknown fake commit \(commit)").files
         }
         func prepare() async throws {}
+        func requirementWorktree(for requirement: NodeIdentity) throws -> URL {
+            let branch = requirementBranch(for: requirement.ticketKey)
+            _ = try requiredTip(branch)
+            let directory = root.appending(path: "requirements/\(requirement.nodeID)")
+            requirementCheckouts[directory] = branch
+            owners[requirement.nodeID] = branch
+            return directory
+        }
+        func requirementIsMerged(_ requirement: NodeIdentity) throws -> Bool {
+            try isAncestor(requiredTip(requirementBranch(for: requirement.ticketKey)), of: requiredTip(defaultBranch))
+        }
         func createWorktree(for id: NodeID) async throws -> URL { worktree(for: id) }
         func removeWorktree(for id: NodeID) async throws {}
         func commitAll(in directory: URL, message: String, author: String) async throws -> String? {
             nil
         }
-        func head(of directory: URL) throws -> String { try requiredTip(branch(for: directory.lastPathComponent)) }
+        func head(of directory: URL) throws -> String {
+            try requiredTip(requirementCheckouts[directory] ?? branch(for: directory.lastPathComponent))
+        }
         func changedFiles(in directory: URL) throws -> [String] { try changedFiles(in: head(of: directory)) }
         func rebaseOntoMain(_ directory: URL) throws -> RebaseResult {
             let id = directory.lastPathComponent

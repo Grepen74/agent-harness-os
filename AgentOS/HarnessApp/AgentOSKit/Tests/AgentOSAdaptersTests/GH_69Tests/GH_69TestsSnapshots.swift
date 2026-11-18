@@ -45,7 +45,7 @@ extension GH_69Tests {
         // A frozen, independent layout is the image oracle, not a second LedgerPane or an OCR result.
         let reference = Self.host(GH69ReferenceLedgerPane(
             records: referenceRecords, total: all.count, node: node, kind: kind,
-            canShowOlder: state == "paged", eventKinds: Self.existingEventCaseNames))
+            canShowOlder: state == "paged", eventKinds: LedgerEventKind.allCases.map(\.rawValue)))
         defer { reference.window.close() }
         let referenceImage = try Self.imagePixels(reference.view)
         let referenceText = try RenderedUI.text(in: RenderedUI.image(of: reference.view)).joined(separator: "\n")
