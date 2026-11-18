@@ -652,12 +652,12 @@ struct RepositoryWorkspaceTests {
         #expect(try await workspace.restoreUnfinishedWork(for: "wn-1", in: directory) == ["app.txt"])
     }
 
-    @Test("Landing refuses to move the landing branch while a checkout has it checked out")
+    @Test("Landing waits, and refuses to move the requirement branch, while a checkout has it checked out")
     func refusesToMoveACheckedOutBranch() async throws {
         let repo = try await makeRepo()
         let storage = FileManager.default.temporaryDirectory.appending(path: "agentos-storage-\(UUID().uuidString)")
         let workspace = try RepositoryWorkspace(root: repo, storage: storage, config: Self.config,
-                                                landingBranch: "agentos/GH-1", defaultBranch: "main")
+                                                landingBranch: "agentos/main", defaultBranch: "main")
         try await workspace.prepare()
         _ = try await workspace.prepareRequirementBranch(for: NodeIdentity(ticketKey: "GH-1", nodeID: "wn-1"), leaves: ["wn-1"])
         let directory = try await workspace.createWorktree(for: "wn-1")
@@ -665,9 +665,12 @@ struct RepositoryWorkspaceTests {
         try #require(try await workspace.commitAll(in: directory, message: "work", author: "run-1") != nil)
         try await git(["checkout", "-q", "agentos/GH-1"], in: repo)
 
+        let reason = try await workspace.whyLandingMustWait(for: "wn-1")
+        #expect(reason?.contains("agentos/GH-1 is checked out") == true, "Name the leaf's own requirement branch")
         await #expect(throws: AgentFailure.self) { try await workspace.landOnMain("wn-1") }
 
         try await git(["checkout", "-q", "main"], in: repo)
+        #expect(try await workspace.whyLandingMustWait(for: "wn-1") == nil)
         let landed = try await workspace.landOnMain("wn-1")
         #expect(try await git(["rev-parse", "agentos/GH-1"], in: repo) == landed)
     }

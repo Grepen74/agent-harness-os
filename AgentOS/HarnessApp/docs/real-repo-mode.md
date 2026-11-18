@@ -539,11 +539,9 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
   When only tests outside the leaf's own suite fail (another ticket's or a suite no ticket owns), the harness
   first waits for every other running agent step and preview to finish, starting none meanwhile, so load
   from other work can't cause the failure. With the machine quiet, it runs the whole check again, unchanged,
-  and does the diagnosis below. If that passes, it lands and reports an unreliable test. If it fails again, the failing suites of both runs are run alone (`test.only`, one suite at a time), with
-  the change and on latest `agentos/main` without it. These isolated runs only diagnose; they never land.
-  first runs the whole check again, unchanged. If that passes, it lands and reports an unreliable test.
-  If it fails again, the failing suites of both runs are run alone (`test.only`, one suite at a time), with
-  the change and on the latest requirement branch without it. These isolated runs only diagnose; they never land.
+  and does the diagnosis below. If that passes, it lands and reports an unreliable test. If it fails again,
+  the failing suites of both runs are run alone (`test.only`, one suite at a time), with the change and on
+  the latest requirement branch without it. These isolated runs only diagnose; they never land.
   - Failing on main too: a main/infrastructure problem, with no failed attempt; fix it and add `harness:retry`.
   - Failing alone with the change but not on main: a requirements conflict when every failing suite belongs
     to a proven ticket, otherwise the leaf's own failure.
@@ -566,14 +564,12 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
   starts the count again. Escalations about the change itself (its own failures, requirements conflicts,
   review limits) never clear by themselves. `agentos run` keeps going while such a retry is pending.
 - **Landing** is a fast-forward of the landing branch with `git update-ref` (compare-and-swap), so no checkout
-  is involved. It can't happen while any checkout has the landing branch checked out, because moving it there
-  would make that working copy look modified. The node then waits in landing: no run, no escalation, nothing
-  counted against it, and it doesn't hold an agent slot. The ticket gets one "⏸ Waiting to land" comment
-  naming the checkout, and landing goes on by itself once that checkout is on another branch. This is checked
-  before the landing checks start and again right before the fast-forward; a checkout made in between
-  finishes the landing run and the node waits the same way.
-  is involved. It's refused while any checkout has the landing branch checked out, because moving it there
-  would make that working copy look modified.
+  is involved. It can't happen while any checkout has the leaf's requirement branch checked out, because
+  moving it there would make that working copy look modified. The node then waits in landing: no run, no
+  escalation, nothing counted against it, and it doesn't hold an agent slot. The ticket gets one "⏸ Waiting
+  to land" comment naming the checkout, and landing goes on by itself once that checkout is on another
+  branch. This is checked before the landing checks start and again right before the fast-forward; a
+  checkout made in between finishes the landing run and the node waits the same way.
 - **Requirement isolation.** Each requirement branch contains only its own landed changes and catch-up
   work from `main`. Catch-up updates that branch and rebases only its idle active leaves. Bindings are
   restored from the ledger after restarting, including leaves already in progress before upgrading.

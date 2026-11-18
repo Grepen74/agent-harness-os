@@ -486,13 +486,14 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
         let old = try await revision(landingBranch)
         let ancestor = try await ProcessRunner.run("/usr/bin/env", ["git", "merge-base", "--is-ancestor", old, reviewed], in: root)
         guard ancestor.status == 0 else { throw AgentFailure("\(branch(for: id)) is not a fast-forward of \(landingBranch)") }
-        if let reason = try await whyLandingMustWait() { throw AgentFailure(reason) }
+        if let reason = try await whyLandingMustWait(for: id) { throw AgentFailure(reason) }
         let tip = try await withoutUIEvidence(reviewed, id: id)
         try await git(["update-ref", "-m", "agentos: land \(id)", "refs/heads/\(landingBranch)", tip, old], in: root)
         return tip
     }
 
-    public func whyLandingMustWait() async throws -> String? {
+    public func whyLandingMustWait(for id: NodeID) async throws -> String? {
+        let landingBranch = try landingBranch(for: id)
         guard let checkout = try await checkout(of: landingBranch) else { return nil }
         return "\(landingBranch) is checked out in \(checkout.path). Switch that checkout to another branch so the " +
             "harness can move \(landingBranch)"

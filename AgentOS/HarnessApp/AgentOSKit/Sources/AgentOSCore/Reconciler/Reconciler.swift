@@ -143,10 +143,10 @@ public actor Reconciler {
         await intakeExternal(&report)
 
         do {
+            try await restoreRequirementBranches()
             let retries = try await retryInfrastructureProblems(in: await ledger.workingState())
             report.actions += retries.actions
             report.retryDue = retries.nextDue
-            try await restoreRequirementBranches()
             if waitForAgents {
                 await self.waitForAgents()
                 try await advanceAll(&report)

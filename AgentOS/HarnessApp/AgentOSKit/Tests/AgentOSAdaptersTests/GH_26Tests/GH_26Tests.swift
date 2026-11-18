@@ -608,7 +608,7 @@ private extension GH_26Tests {
         func removeSnapshot(_ directory: URL) async {}
         /// The answers to `whyLandingMustWait`, one per question; nil once they run out.
         func scriptWaits(_ answers: [String?]) { waits = answers }
-        func whyLandingMustWait() -> String? { waits.isEmpty ? nil : waits.removeFirst() }
+        func whyLandingMustWait(for id: NodeID) -> String? { waits.isEmpty ? nil : waits.removeFirst() }
     }
 
     actor RecordingTracker: TrackerAdapter {

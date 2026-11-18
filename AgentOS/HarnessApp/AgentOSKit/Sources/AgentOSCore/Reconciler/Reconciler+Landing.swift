@@ -5,7 +5,7 @@ extension Reconciler {
     /// node's), and only then merge. A leaf is proven only once it has landed.
     func land(_ node: NodeState) async throws -> String? {
         guard let submission = node.lastSubmission else { return "\(node.displayName): nothing to land" }
-        if let reason = try await workspace.whyLandingMustWait() { return await waitToLand(node, because: reason) }
+        if let reason = try await workspace.whyLandingMustWait(for: node.id) { return await waitToLand(node, because: reason) }
         landingWaits.remove(node.id)
         let run = Self.newRunID()
         let checker = Participant.agent(run: run, role: .verifier)
@@ -59,7 +59,7 @@ extension Reconciler {
         // The tests that failed twice in the full check but passed alone, with and without the change, and how
         // they were rerun.
         var failingOnlyUnderLoad: (tests: [String], rerun: String)?
-        // The change's failures show only in the whole check, which passes on agentos/main: it disturbs them.
+        // The change's failures show only in the whole check, which passes on the requirement branch: it disturbs them.
         var disturbs = false
         // Failures only in other suites may be unreliable tests, main's or the runner's problem, or a conflict.
         if !output.passed && !output.failingTargets.isEmpty && !output.failingTargets.contains(node.spec.testTarget) {
@@ -118,12 +118,12 @@ extension Reconciler {
                 } else if !missing.isEmpty {
                     problem = "Running only \(missing.joined(separator: ", ")) ran none of those tests; check test.only."
                 } else if !onMain.passed {
-                    problem = "These tests fail on latest agentos/main without the change too."
+                    problem = "These tests fail on latest \(landingBranch) without the change too."
                 } else if alone.passed && checks.selectsSuites {
                     // Passing alone both ways: does the whole check fail without the change too?
-                    let mainFull = await checkLatestMainFully()
-                    report += "\nThe whole check without the change on latest agentos/main: \(mainFull.summary)"
-                    log += "\nThe whole check without the change on latest agentos/main:\n\(mainFull.log)"
+                    let mainFull = await checkLatestMainFully(for: node.id)
+                    report += "\nThe whole check without the change on latest \(landingBranch): \(mainFull.summary)"
+                    log += "\nThe whole check without the change on latest \(landingBranch):\n\(mainFull.log)"
                     if mainFull.passed {
                         disturbs = true
                         report += """
@@ -133,12 +133,11 @@ extension Reconciler {
                             order, timing or load). Fix that in the change.
                             """
                     } else if mainFull.failureKind != .reportedFailure {
-                        problem = "The test runner didn't finish the whole check on latest agentos/main."
+                        problem = "The test runner didn't finish the whole check on latest \(landingBranch)."
                     } else {
                         let tests = initial.failingTests.union(again.failingTests)
                         failingOnlyUnderLoad = (tests.isEmpty ? suites : tests.sorted(), how)
                     }
-                    problem = "These tests fail on latest \(landingBranch) without the change too."
                 } else if alone.passed {
                     let tests = initial.failingTests.union(again.failingTests)
                     failingOnlyUnderLoad = (tests.isEmpty ? suites : tests.sorted(), how)
@@ -213,7 +212,7 @@ extension Reconciler {
             }
             try Task.checkCancellation()
             // It may have been checked out while the checks ran.
-            if let reason = try await workspace.whyLandingMustWait() {
+            if let reason = try await workspace.whyLandingMustWait(for: node.id) {
                 try await write(node.id, by: checker, [
                     .evidenceRecorded(evidence), .runFinished(run: run, outcome: "waiting to land"),
                 ])
@@ -358,11 +357,12 @@ extension Reconciler {
         return log.contains("Test run with 0 tests") || log.contains("Executed 0 tests")
     }
 
-    /// All checks on latest agentos/main, without the change. A main it can't check counts as a runner problem.
-    private func checkLatestMainFully() async -> CheckOutput {
+    /// All checks on the latest requirement branch, without the change. A main it can't check counts as a runner problem.
+    private func checkLatestMainFully(for id: NodeID) async -> CheckOutput {
+        let branch = await requirementBranch(for: id)
         do {
-            guard let snapshot = try await workspace.createSnapshot() else {
-                throw AgentFailure("Workspace cannot create a latest agentos/main snapshot")
+            guard let snapshot = try await workspace.createSnapshot(for: id) else {
+                throw AgentFailure("Workspace cannot create a latest \(branch) snapshot")
             }
             do {
                 try await workspace.prepareBuild(in: snapshot)
@@ -377,12 +377,11 @@ extension Reconciler {
             await workspace.removeSnapshot(snapshot)
             return output
         } catch {
-            return CheckOutput(passed: false, summary: "Could not check latest agentos/main: \(error)", log: "\(error)",
+            return CheckOutput(passed: false, summary: "Could not check latest \(branch): \(error)", log: "\(error)",
                                failureKind: .runnerCrash(signal: nil))
         }
     }
 
-    private func checkLatestMain(only suites: [String]) async -> (output: CheckOutput, ranNothing: [String]) {
     private func checkLatestMain(for id: NodeID, only suites: [String]) async -> (output: CheckOutput, ranNothing: [String]) {
         let branch = await requirementBranch(for: id)
         do {
