@@ -559,8 +559,12 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
   starts the count again. Escalations about the change itself (its own failures, requirements conflicts,
   review limits) never clear by themselves. `agentos run` keeps going while such a retry is pending.
 - **Landing** is a fast-forward of the landing branch with `git update-ref` (compare-and-swap), so no checkout
-  is involved. It's refused while any checkout has the landing branch checked out, because moving it there
-  would make that working copy look modified.
+  is involved. It can't happen while any checkout has the landing branch checked out, because moving it there
+  would make that working copy look modified. The node then waits in landing: no run, no escalation, nothing
+  counted against it, and it doesn't hold an agent slot. The ticket gets one "⏸ Waiting to land" comment
+  naming the checkout, and landing goes on by itself once that checkout is on another branch. This is checked
+  before the landing checks start and again right before the fast-forward; a checkout made in between
+  finishes the landing run and the node waits the same way.
 - **Copilot agents** run with `--allow-all-tools` plus a `--deny-tool` per effective denied tool (network
   installs as one `shell(…)` pattern) and per protected file (`write(AGENTS.md)`), and `--model` per role.
   Copilot's `write()` patterns only cover file names; folders and globs are enforced by the check above.

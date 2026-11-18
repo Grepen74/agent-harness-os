@@ -452,13 +452,16 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
         let old = try await revision(landingBranch)
         let ancestor = try await ProcessRunner.run("/usr/bin/env", ["git", "merge-base", "--is-ancestor", old, reviewed], in: root)
         guard ancestor.status == 0 else { throw AgentFailure("\(branch(for: id)) is not a fast-forward of \(landingBranch)") }
-        if let checkout = try await checkout(of: landingBranch) {
-            throw AgentFailure("\(landingBranch) is checked out in \(checkout.path). Switch that checkout to another " +
-                               "branch so the harness can move \(landingBranch).")
-        }
+        if let reason = try await whyLandingMustWait() { throw AgentFailure(reason) }
         let tip = try await withoutUIEvidence(reviewed, id: id)
         try await git(["update-ref", "-m", "agentos: land \(id)", "refs/heads/\(landingBranch)", tip, old], in: root)
         return tip
+    }
+
+    public func whyLandingMustWait() async throws -> String? {
+        guard let checkout = try await checkout(of: landingBranch) else { return nil }
+        return "\(landingBranch) is checked out in \(checkout.path). Switch that checkout to another branch so the " +
+            "harness can move \(landingBranch)"
     }
 
     /// UI evidence is committed with the leaf so it is reviewed, reset and retried like its code. It never lands:

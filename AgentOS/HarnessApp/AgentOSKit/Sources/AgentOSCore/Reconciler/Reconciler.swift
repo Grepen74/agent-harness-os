@@ -57,6 +57,8 @@ public actor Reconciler {
     /// Above zero while a landing check is rerun and diagnosed with no other work on the machine: no step or
     /// preview starts, so the load that made tests fail the first time is gone.
     var quietLandings = 0
+    /// Nodes waiting in landing until the workspace lets the landing branch move (`Workspace.whyLandingMustWait`).
+    var landingWaits: Set<NodeID> = []
     /// Awaited after a node step is reserved and before it runs or records its claim (a test seam).
     private let beforeStep: (@Sendable (NodeID) async -> Void)?
     /// The time, for waits measured in minutes (a test seam).
@@ -269,7 +271,9 @@ public actor Reconciler {
     private func scheduleAvailableSteps(in state: WorkingState, order: [NodeID]? = nil, excluding: Set<NodeID> = [],
                                         reportCompletion: Bool = true) async throws -> [(NodeID, Task<String?, Never>)] {
         guard quietLandings == 0 else { return [] }
-        let waitingToLand = !isLanding && state.landingQueue.contains { tasks[$0.id] == nil && !$0.awaitingHumanReview }
+        let waitingToLand = !isLanding && state.landingQueue.contains {
+            tasks[$0.id] == nil && !$0.awaitingHumanReview && !landingWaits.contains($0.id)
+        }
         let limit = max(1, policy.maxParallelAgents) - (waitingToLand ? 1 : 0)
         var started: [(NodeID, Task<String?, Never>)] = []
         for id in order ?? state.creationOrder {

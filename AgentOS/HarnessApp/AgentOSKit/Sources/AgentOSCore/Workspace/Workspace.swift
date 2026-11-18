@@ -89,6 +89,9 @@ public protocol Workspace: Sendable {
     func forgetTestDraft(for id: NodeID) async throws
     /// Moves `main` to the leaf's (already rebased and checked) branch. Returns the new `main`.
     func landOnMain(_ id: NodeID) async throws -> String
+    /// Why the landing branch can't move right now and what a person does about it (e.g. a checkout has it checked
+    /// out); nil when it can. Nothing lands meanwhile, and nothing fails: landing goes on once this is nil.
+    func whyLandingMustWait() async throws -> String?
 
     /// Components that exist on `main` (for the decomposer's catalog).
     func existingComponents() -> [String]
@@ -131,6 +134,7 @@ extension Workspace {
     public func userGitState() async throws -> [String] { [] }
     public func createSnapshot() async throws -> URL? { nil }
     public func removeSnapshot(_ directory: URL) async {}
+    public func whyLandingMustWait() async throws -> String? { nil }
 
     /// Moves active leaves onto the latest `main`, independently putting conflicting leaves into rework.
     public func catchUpActiveLeaves(_ ids: [NodeID]) async throws -> ActiveLeavesCatchUpResult {

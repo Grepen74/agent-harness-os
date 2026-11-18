@@ -3,8 +3,10 @@ import Foundation
 extension Reconciler {
     /// The landing queue (doc 08 §4, layer 3): rebase onto the latest main, run ALL tests (own + every proven
     /// node's), and only then merge. A leaf is proven only once it has landed.
-    func land(_ node: NodeState) async throws -> String {
+    func land(_ node: NodeState) async throws -> String? {
         guard let submission = node.lastSubmission else { return "\(node.displayName): nothing to land" }
+        if let reason = try await workspace.whyLandingMustWait() { return await waitToLand(node, because: reason) }
+        landingWaits.remove(node.id)
         let run = Self.newRunID()
         let checker = Participant.agent(run: run, role: .verifier)
         let directory = workspace.worktree(for: node.id)
@@ -208,6 +210,13 @@ extension Reconciler {
                 }
             }
             try Task.checkCancellation()
+            // It may have been checked out while the checks ran.
+            if let reason = try await workspace.whyLandingMustWait() {
+                try await write(node.id, by: checker, [
+                    .evidenceRecorded(evidence), .runFinished(run: run, outcome: "waiting to land"),
+                ])
+                return await waitToLand(node, because: reason)
+            }
             let main = try await workspace.landOnMain(node.id)
             try await write(node.id, by: checker, [
                 .evidenceRecorded(evidence), .landed(commit: main), .runFinished(run: run, outcome: "landed"),
@@ -291,6 +300,14 @@ extension Reconciler {
                 + "The implementer will rework the candidate."
         )
         return try await escalateIfNeeded(node.id) ?? "\(node.displayName) failed at landing; will retry"
+    }
+
+    /// The node stays in landing, with no run and nothing counted against it, and lands once the reason is gone; the
+    /// ticket hears about it once.
+    private func waitToLand(_ node: NodeState, because reason: String) async -> String? {
+        guard landingWaits.insert(node.id).inserted else { return nil }
+        await tracker.comment(on: node.ticket, "⏸ Waiting to land: \(reason). Landing continues by itself after that.")
+        return "\(node.displayName) waits to land: \(reason)"
     }
 
     /// Runs each suite on its own (retrying a crashed runner once) and combines the results. Without a way to

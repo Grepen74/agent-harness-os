@@ -263,6 +263,50 @@ struct GH_26Tests {
     }
 
     @Test
+    func aLandingBranchThatCantMoveHoldsLandingWithoutARunAndLandingGoesOnByItself() async throws {
+        let fixture = try await Fixture(retryPasses: true, alonePasses: true, mainPasses: true)
+        defer { fixture.cleanUp() }
+        await fixture.workspace.scriptWaits([Fixture.checkedOut, Fixture.checkedOut])
+        let waits = { await fixture.tracker.comments(on: Fixture.ticket).filter { $0.contains("Waiting to land") } }
+
+        _ = await fixture.reconciler.runRound(waitForAgents: true)
+        _ = await fixture.reconciler.runRound(waitForAgents: true)
+
+        let waiting = try #require(await fixture.node())
+        #expect(waiting.phase == .landing)
+        #expect(waiting.flags[.escalated] == nil)
+        #expect(waiting.activeRun == nil)
+        #expect(await fixture.checks.calls.isEmpty, "Nothing is checked while it can't land")
+        #expect(await waits().count == 1, "The ticket hears about it once")
+        #expect(await waits().first?.contains(Fixture.checkedOut) == true)
+
+        _ = await fixture.reconciler.runRound(waitForAgents: true)
+        #expect(await fixture.workspace.landedNodes == [Fixture.spec.id])
+        #expect(await fixture.node()?.phase == .proven)
+    }
+
+    @Test
+    func aLandingBranchCheckedOutDuringTheChecksWaitsInsteadOfFailing() async throws {
+        let fixture = try await Fixture(retryPasses: true, alonePasses: true, mainPasses: true)
+        defer { fixture.cleanUp() }
+        await fixture.workspace.scriptWaits([nil, Fixture.checkedOut])
+
+        _ = await fixture.reconciler.runRound(waitForAgents: true)
+
+        let waiting = try #require(await fixture.node())
+        #expect(!(await fixture.checks.calls.isEmpty))
+        #expect(waiting.phase == .landing)
+        #expect(waiting.flags[.escalated] == nil)
+        #expect(waiting.activeRun == nil)
+        #expect(waiting.failedAttempts == 0)
+        #expect(await fixture.workspace.landedNodes.isEmpty)
+        #expect(await fixture.tracker.comments(on: Fixture.ticket).contains { $0.contains("Waiting to land") })
+
+        _ = await fixture.reconciler.runRound(waitForAgents: true)
+        #expect(await fixture.workspace.landedNodes == [Fixture.spec.id])
+    }
+
+    @Test
     func aSelectionThatRunsNoTestIsAnInfrastructureProblemNotAPass() async throws {
         let fixture = try await Fixture(retryPasses: false, alonePasses: true, mainPasses: true, aloneRunsNothing: true)
         defer { fixture.cleanUp() }
@@ -316,6 +360,7 @@ struct GH_26Tests {
 private extension GH_26Tests {
     struct Fixture {
         static let ticket = "GH-26"
+        static let checkedOut = "agentos/main is checked out in /Users/someone/repo. Switch that checkout to another branch"
         static let previousMain = "previous-proven-agentos-main"
         static let latestMain = "latest-agentos-main"
         static let candidateCommit = "change-rebased-on-latest-agentos-main"
@@ -527,6 +572,7 @@ private extension GH_26Tests {
         nonisolated let snapshot: URL
         private(set) var preparedDirectories: [URL] = []
         private(set) var landedNodes: [NodeID] = []
+        private var waits: [String?] = []
 
         init(candidate: URL, snapshot: URL) {
             self.candidate = candidate
@@ -559,6 +605,9 @@ private extension GH_26Tests {
         func prepareBuild(in directory: URL) async throws { preparedDirectories.append(directory) }
         func createSnapshot() async throws -> URL? { snapshot }
         func removeSnapshot(_ directory: URL) async {}
+        /// The answers to `whyLandingMustWait`, one per question; nil once they run out.
+        func scriptWaits(_ answers: [String?]) { waits = answers }
+        func whyLandingMustWait() -> String? { waits.isEmpty ? nil : waits.removeFirst() }
     }
 
     actor RecordingTracker: TrackerAdapter {
