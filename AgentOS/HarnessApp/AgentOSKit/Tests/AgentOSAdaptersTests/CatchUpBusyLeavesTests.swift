@@ -17,18 +17,33 @@ struct CatchUpBusyLeavesTests {
             root: repo,
             storage: repo.appending(path: ".storage"),
             config: RepoConfig(test: .init(command: "true"), leafTests: .init(target: "AppTests", folder: "Tests/AppTests")),
-            landingBranch: "agentos/main",
+            landingBranch: "agentos/GH-405",
             defaultBranch: "main"
         )
         try await workspace.prepare()
 
         let ledger = try Ledger()
+        let requirement = NodeSpec(id: "requirement", parent: nil, kind: .composite, title: "Busy leaves",
+                                   intent: "Catch up idle work", acceptanceCriteria: ["Busy leaves stay untouched"])
+        try await ledger.append([
+            LedgerEvent(node: requirement.id, by: .human("Alice"),
+                        kind: .nodeCreated(spec: requirement, ticket: "GH-405")),
+            LedgerEvent(node: requirement.id, by: .reconciler, kind: .phaseChanged(to: .split)),
+        ])
+        if let from = try await workspace.prepareRequirementBranch(
+            for: NodeIdentity(ticketKey: "GH-405", nodeID: requirement.id), leaves: ["idle", "claimed", "reserved"]
+        ) {
+            try await ledger.append([
+                LedgerEvent(node: requirement.id, by: .reconciler,
+                            kind: .requirementBranchCreated(branch: "agentos/GH-405", from: from)),
+            ])
+        }
         // idle: nothing running. claimed: its agent recorded runStarted. reserved: scheduled, claim not yet recorded.
         for id in ["idle", "claimed", "reserved"] {
             let directory = try await workspace.createWorktree(for: id)
             try "\(id)\n".write(to: directory.appending(path: "\(id).txt"), atomically: true, encoding: .utf8)
             try #require(try await workspace.commitAll(in: directory, message: "\(id) tests", author: "test-author") != nil)
-            let spec = NodeSpec(id: id, parent: nil, kind: .leaf, title: id, intent: "I", acceptanceCriteria: ["a"])
+            let spec = NodeSpec(id: id, parent: requirement.id, kind: .leaf, title: id, intent: "I", acceptanceCriteria: ["a"])
             try await ledger.append([
                 LedgerEvent(node: id, by: .human("Alice"), kind: .nodeCreated(spec: spec, ticket: id)),
                 LedgerEvent(node: id, by: .reconciler, kind: .testsFixed(digest: "digest")),
@@ -45,7 +60,7 @@ struct CatchUpBusyLeavesTests {
         let coordinator = CatchUpCoordinator(workspace: workspace, ledger: ledger, landingQueue: LandingQueue())
         _ = await coordinator.reconcile(busy: ["reserved"])
 
-        #expect(try await Self.isAncestor(main, of: "agentos/main", in: repo))
+        #expect(try await Self.isAncestor(main, of: "agentos/GH-405", in: repo))
         #expect(try await Self.isAncestor(main, of: workspace.branch(for: "idle"), in: repo))
         #expect(try await !Self.isAncestor(main, of: workspace.branch(for: "claimed"), in: repo))
         #expect(try await !Self.isAncestor(main, of: workspace.branch(for: "reserved"), in: repo))

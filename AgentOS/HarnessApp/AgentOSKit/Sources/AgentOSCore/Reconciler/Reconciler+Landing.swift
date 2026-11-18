@@ -10,6 +10,7 @@ extension Reconciler {
         let run = Self.newRunID()
         let checker = Participant.agent(run: run, role: .verifier)
         let directory = workspace.worktree(for: node.id)
+        let landingBranch = await requirementBranch(for: node.id)
         try await write(node.id, by: .reconciler, [.runStarted(run: run, role: .verifier)], expecting: node.version)
 
         // 1. Textual conflict → rework from the latest main. Not the agent's fault, so not a failed attempt.
@@ -96,18 +97,18 @@ extension Reconciler {
                 let suites = initial.failingTargets.union(again.failingTargets).sorted()
                 let how = checks.selectsSuites ? "alone" : "again (the repo's checks can't run one suite, so all tests)"
                 let (alone, aloneRanNothing) = await runChecks(only: suites, in: directory)
-                let (onMain, mainRanNothing) = await checkLatestMain(only: suites)
+                let (onMain, mainRanNothing) = await checkLatestMain(for: node.id, only: suites)
                 report += """
 
                     \(suites.joined(separator: ", ")) rerun \(how):
                     With the change: \(alone.summary)
-                    Without the change on latest agentos/main: \(onMain.summary)
+                    Without the change on latest \(landingBranch): \(onMain.summary)
                     """
                 log += """
 
                     \(suites.joined(separator: ", ")) rerun \(how) with the change:
                     \(alone.log)
-                    Without the change on latest agentos/main:
+                    Without the change on latest \(landingBranch):
                     \(onMain.log)
                     """
                 let missing = Array(Set(aloneRanNothing + mainRanNothing)).sorted()
@@ -137,6 +138,7 @@ extension Reconciler {
                         let tests = initial.failingTests.union(again.failingTests)
                         failingOnlyUnderLoad = (tests.isEmpty ? suites : tests.sorted(), how)
                     }
+                    problem = "These tests fail on latest \(landingBranch) without the change too."
                 } else if alone.passed {
                     let tests = initial.failingTests.union(again.failingTests)
                     failingOnlyUnderLoad = (tests.isEmpty ? suites : tests.sorted(), how)
@@ -153,7 +155,7 @@ extension Reconciler {
                 let reason = """
                     Landing infrastructure problem: \(problem) No failed attempt counted.
                     \(report)
-                    Fix agentos/main or the test runner, then add harness:retry.
+                    Fix \(landingBranch) or the test runner, then add harness:retry.
                     """
                 let diagnosticEvidence = try makeEvidence(
                     node, check: "landing failure diagnosis", output: CheckOutput(
@@ -171,13 +173,13 @@ extension Reconciler {
                 return "\(node.displayName) landing infrastructure problem → needs human"
             }
         }
-        var evidence = try makeEvidence(node, check: "all tests on latest main (landing)", output: output,
+        var evidence = try makeEvidence(node, check: "all tests on latest \(landingBranch) (landing)", output: output,
                                         builtBy: submission.run, checkedBy: run, commit: candidate)
 
         // 3. Merge.
         if output.passed {
             if team.reviewer != nil, policy.review.requiresReview {
-                let context = try await workspace.reviewContext(in: directory, against: policy.review.baseBranch)
+                let context = try await workspace.reviewContext(in: directory, against: landingBranch)
                 let level = policy.review.level(for: node.spec.touches + context.changedFiles)
                 if level != .none {
                     let current = await ledger.workingState().nodes[node.id] ?? node
@@ -228,7 +230,7 @@ extension Reconciler {
                     \(diagnosis)
                     """)
             }
-            await tracker.comment(on: node.ticket, "🛬 Landed on main at \(main.prefix(8)) with all tests passing.")
+            await tracker.comment(on: node.ticket, "🛬 Landed on \(landingBranch) at \(main.prefix(8)) with all tests passing.")
             return "\(node.displayName) landed by \(run) → Proven"
         }
 
@@ -242,7 +244,7 @@ extension Reconciler {
                 passed when rerun \(failingOnlyUnderLoad.rerun), with and without the change. No failed attempt \
                 counted; the change hasn't landed.
                 \(diagnosis)
-                Next: make those tests reliable on agentos/main, or check whether this change slows or disturbs \
+                Next: make those tests reliable on \(landingBranch), or check whether this change slows or disturbs \
                 them, then add harness:retry to check it again.
                 """
             evidence.failureClassification = .unreliableTests
@@ -381,9 +383,11 @@ extension Reconciler {
     }
 
     private func checkLatestMain(only suites: [String]) async -> (output: CheckOutput, ranNothing: [String]) {
+    private func checkLatestMain(for id: NodeID, only suites: [String]) async -> (output: CheckOutput, ranNothing: [String]) {
+        let branch = await requirementBranch(for: id)
         do {
-            guard let snapshot = try await workspace.createSnapshot() else {
-                throw AgentFailure("Workspace cannot create a latest agentos/main snapshot")
+            guard let snapshot = try await workspace.createSnapshot(for: id) else {
+                throw AgentFailure("Workspace cannot create a latest \(branch) snapshot")
             }
             do {
                 try await workspace.prepareBuild(in: snapshot)
@@ -396,7 +400,7 @@ extension Reconciler {
             return output
         } catch {
             return (CheckOutput(
-                passed: false, summary: "Could not check latest agentos/main: \(error)", log: "\(error)"
+                passed: false, summary: "Could not check latest \(branch): \(error)", log: "\(error)"
             ), [])
         }
     }

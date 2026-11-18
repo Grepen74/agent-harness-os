@@ -455,12 +455,12 @@ struct GH_28Tests {
         try await fixture.advanceUntil { await fixture.workspace.landedCount == 1 }
         let request = try #require(await fixture.reviewer.requests.first { $0.stage == .change })
         #expect(request.spec == Fixture.spec)
-        #expect(request.context.baseBranch == "agentos/main")
+        #expect(request.context.baseBranch == "agentos/GH-28")
         #expect(request.context.fullDiff == Fixture.fullDiff)
         #expect(request.context.recentChanges == [Fixture.recentChange])
         #expect(request.context.changedFiles.contains(Fixture.productionFile))
         #expect(request.context.changedFiles.contains(Fixture.testFile))
-        #expect(await fixture.workspace.requestedBases.allSatisfy { $0 == "agentos/main" })
+        #expect(await fixture.workspace.requestedBases.allSatisfy { $0 == "agentos/GH-28" })
         let events = await fixture.trace.events
         let testsReviewed = try #require(events.firstIndex(of: "review:tests"))
         let implemented = try #require(events.firstIndex(of: "implement"))

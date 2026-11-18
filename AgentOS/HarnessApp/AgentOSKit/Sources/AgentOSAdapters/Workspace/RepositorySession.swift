@@ -133,12 +133,24 @@ public final class RepositorySession: Sendable {
         await catchUp.status()
     }
 
+    public func catchUpStatus(for requirement: String) async -> CatchUpStatus {
+        await catchUp.status(for: requirement)
+    }
+
     public func catchUpConflictDiff() async throws -> String {
         try await catchUp.conflictDiff()
     }
 
+    public func catchUpConflictDiff(for requirement: String) async throws -> String {
+        try await catchUp.conflictDiff(for: requirement)
+    }
+
     public func openCatchUpInTerminal() async throws -> URL {
         try await catchUp.openInTerminal()
+    }
+
+    public func openCatchUpInTerminal(for requirement: String) async throws -> URL {
+        try await catchUp.openInTerminal(for: requirement)
     }
 
     public func retryCatchUp() async {

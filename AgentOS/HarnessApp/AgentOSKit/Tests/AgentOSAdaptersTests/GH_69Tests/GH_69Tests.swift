@@ -678,6 +678,6 @@ import Testing
         "ticketClosed", "ticketReopened", "readinessScanned", "baselineChecked", "catchUpConflicted",
         "catchUpSucceeded", "caughtUp", "testDraftKept", "diagnosisRecorded",
         "agentConfigured", "overlapHoldStarted", "overlapHoldEnded",
-        "actualChangedFilesRecorded", "predictedPathsExpanded",
+        "actualChangedFilesRecorded", "predictedPathsExpanded", "requirementBranchCreated",
     ]
 }

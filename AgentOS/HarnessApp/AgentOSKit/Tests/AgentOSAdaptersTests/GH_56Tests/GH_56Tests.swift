@@ -381,9 +381,14 @@ import AgentOSUI
     private static func expectChosenPolicy(_ scanned: ScannedRepository) throws {
         #expect(scanned.scan.branch == "main")
         #expect(scanned.config != nil)
-        #expect(scanned.policy.problems.isEmpty)
+        let retirementWarnings = scanned.policy.problems.filter {
+            $0.severity == .warning && "\($0.title) \($0.detail)".contains("landing.branch")
+        }
+        #expect(retirementWarnings.count == (scanned.config?.landing == nil ? 0 : 1))
+        #expect(scanned.policy.problems == retirementWarnings)
         #expect(!scanned.scan.findings.contains {
             ($0.check.hasPrefix("config") || $0.check == "checkout.config") && $0.severity != .info
+                && !retirementWarnings.contains($0)
         })
         #expect(scanned.policy.policy.guesswork == .ask)
         #expect(scanned.policy.policy.maxAttempts == 1)

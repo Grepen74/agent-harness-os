@@ -95,7 +95,7 @@ public struct MainBaselinePresentation: Sendable, Equatable {
         if workExists {
             return .init(
                 severity: .warning,
-                message: "agentos/main is \(commitsBehind) commits behind main; catching up waits for a baseline",
+                message: "Requirement branches are \(commitsBehind) commits behind main; catching up waits for a baseline",
                 log: nil,
                 actions: []
             )
@@ -215,7 +215,7 @@ public actor MainBaselineCoordinator {
             title: "Baseline running on main at \(short(running.commit))"
                 + " \u{00B7} started because \(running.trigger.rawValue) from \(short(lastBasedMainCommit))"
                 + " \u{00B7} \(duration(elapsed))",
-            message: "Catching up agentos/main waits; agents keep working.",
+            message: "Catching up requirement branches waits; agents keep working.",
             latestLogLine: running.latestLogLine,
             fullLog: running.fullLog,
             actions: [.stop]

@@ -28,4 +28,4 @@ It runs a mock tracker, the reconciler, a hash-chained ledger and agents (script
 work on branches of a real git monorepo, land through a landing queue and are checked with `swift test`.
 Open `AgentOSHarness.xcodeproj` there to run the app, or run `swift run agentos demo` in its `AgentOSKit` folder.
 The same app also opens real repos: a readiness scan, policy layers, a baseline on `main`, and Copilot agents
-that land proven work on a local `agentos/main` branch ([design](AgentOS/HarnessApp/docs/real-repo-mode.md)).
+that land proven work on local `agentos/<ticket key>` requirement branches ([design](AgentOS/HarnessApp/docs/real-repo-mode.md)).

@@ -79,6 +79,9 @@ public struct NodeState: Sendable, Identifiable {
     public var links: [TypedLink] = []
     public var children: [NodeID] = []
     public var testsDigest: String?
+    public var requirementBranch: String?
+    public var catchUpConflict: CatchUpConflict?
+    public var lastCatchUpSuccess: CatchUpSuccess?
     /// Other work's tests this node's acceptance tests changed, locked by `updatedOtherTestsDigest`.
     public var updatedOtherTests: [String] = []
     public var updatedOtherTestsDigest: String?
@@ -202,6 +205,12 @@ public struct WorkingState: Sendable {
         return result
     }
 
+    public func requirementLeaves(for id: NodeID) -> [NodeState] {
+        creationOrder.compactMap { nodes[$0] }.filter {
+            $0.spec.kind == .leaf && lineage(of: $0.id).last?.id == id
+        }
+    }
+
     /// Answers given on the node's ticket and its parents', oldest (topmost) first: they apply below too.
     public func clarifications(for id: NodeID) -> [Clarification] {
         lineage(of: id).reversed().flatMap(\.clarifications)
@@ -236,6 +245,9 @@ public struct WorkingState: Sendable {
             node.clarifications = old.clarifications
             node.children = old.children
             node.overlapHold = old.overlapHold
+            node.requirementBranch = old.requirementBranch
+            node.catchUpConflict = old.catchUpConflict
+            node.lastCatchUpSuccess = old.lastCatchUpSuccess
             nodes[id] = node
             return
         }
@@ -318,6 +330,13 @@ public struct WorkingState: Sendable {
             node.overlapHold = OverlapHold(waitingFor: waitingFor, paths: paths, components: components)
         case .overlapHoldEnded:
             node.overlapHold = nil
+        case .requirementBranchCreated(let branch, _):
+            node.requirementBranch = branch
+        case .catchUpConflicted(let main, let files, let tickets):
+            node.catchUpConflict = CatchUpConflict(mainSHA: main, files: files, tickets: tickets)
+        case .catchUpSucceeded(let main, let tip, let method):
+            node.catchUpConflict = nil
+            node.lastCatchUpSuccess = CatchUpSuccess(mainSHA: main, newAgentOSMainTip: tip, method: method)
         case .testsFixed(let digest):
             node.testsDigest = digest
             node.testDraft = nil

@@ -90,12 +90,12 @@ import AgentOSCore
         #expect(await fixture.checks.targets.contains { $0 == leaf.spec.testTarget })
         #expect(await fixture.checks.targets.contains { $0 == nil })
         #expect(leaf.evidence.contains { $0.passed && $0.check == "own acceptance tests on branch" })
-        #expect(leaf.evidence.contains { $0.passed && $0.check == "all tests on latest main (landing)" })
+        #expect(leaf.evidence.contains { $0.passed && $0.check == "all tests on latest agentos/GH-62 (landing)" })
         #expect(leaf.evidence.allSatisfy {
             $0.builtBy == submission.run && $0.checkedBy != submission.run && $0.specHash == leaf.spec.specHash
         })
         #expect(await fixture.tracker.status("GH-62") == final.status(of: leaf))
-        #expect(await fixture.tracker.comments.contains { $0.text.contains("Landed on main") })
+        #expect(await fixture.tracker.comments.contains { $0.text.contains("Landed on agentos/GH-62") })
         #expect(await fixture.ledger.verifyChain().isIntact)
     }
 

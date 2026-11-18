@@ -62,41 +62,47 @@ struct GH_4_3Tests {
 
         let reports = await fixture.session.runUntilFinished()
 
-        #expect(try await git(["rev-parse", "agentos/main"], in: fixture.repo) == tipBeforeCatchUp)
+        #expect(try await git(["rev-parse", "agentos/\(fixture.aTicket)"], in: fixture.repo) == tipBeforeCatchUp)
         #expect(reports.allSatisfy { $0.safeStop == nil })
-        let conflict = try #require(catchUpConflicts(in: await fixture.session.ledger.allRecords()).last)
-        #expect(conflict.main == fixture.mainSHA)
-        #expect(Set(conflict.files) == ["Package.swift", "Sources/A.swift"])
-        #expect(Set(conflict.tickets) == [fixture.aTicket, fixture.packageTicket])
+        let conflicts = catchUpConflicts(in: await fixture.session.ledger.allRecords())
+        for (ticket, file) in [(fixture.aTicket, "Sources/A.swift"), (fixture.packageTicket, "Package.swift")] {
+            let conflict = try #require(conflicts.last { $0.tickets.contains(ticket) })
+            #expect(conflict.main == fixture.mainSHA)
+            #expect(conflict.files == [file])
+            #expect(conflict.tickets == [ticket])
+        }
 
         let laterTicket = await createTicket("Safe work", in: fixture.session)
         await fixture.session.runUntilFinished()
         let laterNode = try #require(await fixture.session.ledger.workingState().node(forTicket: laterTicket))
         #expect(laterNode.phase == .proven)
-        #expect(try await git(["merge-base", "--is-ancestor", tipBeforeCatchUp, "agentos/main"], in: fixture.repo).isEmpty)
+        #expect(try await git(["merge-base", "--is-ancestor", tipBeforeCatchUp, "agentos/\(fixture.aTicket)"], in: fixture.repo).isEmpty)
     }
 
     @Test
     func aConflictIsTracedToTheWorkBehindItsLandedEvidenceRemoval() async throws {
         let fixture = try await conflictedFixture(evidenceFor: "A work")
 
-        #expect(try await git(["ls-tree", "--name-only", "agentos/main", ".agentos-ui-evidence.json"], in: fixture.repo).isEmpty)
-        let conflict = try #require(catchUpConflicts(in: await fixture.session.ledger.allRecords()).last)
-        #expect(Set(conflict.tickets) == [fixture.aTicket, fixture.packageTicket])
+        #expect(try await git(["ls-tree", "--name-only", "agentos/\(fixture.aTicket)", ".agentos-ui-evidence.json"], in: fixture.repo).isEmpty)
+        let conflict = try #require(catchUpConflicts(in: await fixture.session.ledger.allRecords()).last {
+            $0.tickets.contains(fixture.aTicket)
+        })
+        #expect(conflict.tickets == [fixture.aTicket])
     }
 
     @Test
     func bannerAndAttentionNameMainFilesTicketsAndActions() async throws {
         let fixture = try await conflictedFixture()
 
-        let status = await fixture.session.catchUpStatus()
+        let status = await fixture.session.catchUpStatus(for: fixture.aTicket)
 
         let banner = try #require(status.banner)
         #expect(banner.level == .warning)
         #expect(banner.message.contains("Needs human"))
         #expect(banner.message.contains(fixture.mainSHA))
         #expect(banner.message.contains("Sources/A.swift (\(fixture.aTicket))"))
-        #expect(banner.message.contains("Package.swift (\(fixture.packageTicket))"))
+        #expect(!banner.message.contains("Package.swift"))
+        #expect(!banner.message.contains(fixture.packageTicket))
         #expect(banner.message.contains("Agents keep working on the previous main"))
 
         let item = try #require(status.attentionItems.first)
@@ -111,10 +117,10 @@ struct GH_4_3Tests {
     func scanReportsBehindConflictAsWarning() async throws {
         let fixture = try await conflictedFixture()
 
-        let finding = try #require(await fixture.session.catchUpStatus().scanFinding)
+        let finding = try #require(await fixture.session.catchUpStatus(for: fixture.aTicket).scanFinding)
 
         #expect(finding.severity == .warning)
-        #expect(finding.title == "agentos/main is 1 commit behind main: catch-up conflict in 2 files")
+        #expect(finding.title == "agentos/\(fixture.aTicket) is 1 commit behind main: catch-up conflict in 1 files")
     }
 
     @Test
@@ -146,37 +152,39 @@ struct GH_4_3Tests {
         let checkoutBranch = try await git(["branch", "--show-current"], in: fixture.repo)
         let checkoutStatus = try await git(["status", "--porcelain"], in: fixture.repo)
         let mainBefore = try await git(["rev-parse", "main"], in: fixture.repo)
-        let landingBefore = try await git(["rev-parse", "agentos/main"], in: fixture.repo)
+        let landingBefore = try await git(["rev-parse", "agentos/\(fixture.aTicket)"], in: fixture.repo)
 
-        let diff = try await fixture.session.catchUpConflictDiff()
+        let diff = try await fixture.session.catchUpConflictDiff(for: fixture.aTicket)
         #expect(diff.contains("Sources/A.swift"))
         #expect(diff.contains("agent A work"))
         #expect(diff.contains("developer A"))
-        #expect(diff.contains("Package.swift"))
-        #expect(diff.contains("agent Package work"))
-        #expect(diff.contains("developer package"))
+        #expect(!diff.contains("agent Package work"))
 
-        let worktree = try await fixture.session.openCatchUpInTerminal()
+        let worktree = try await fixture.session.openCatchUpInTerminal(for: fixture.aTicket)
         #expect(try await git(["rev-parse", "MERGE_HEAD"], in: worktree) == fixture.mainSHA)
         #expect(Set(try await git(["diff", "--name-only", "--diff-filter=U"], in: worktree).split(separator: "\n").map(String.init))
-                == ["Package.swift", "Sources/A.swift"])
+                == ["Sources/A.swift"])
         #expect(try await git(["branch", "--show-current"], in: fixture.repo) == checkoutBranch)
         #expect(try await git(["status", "--porcelain"], in: fixture.repo) == checkoutStatus)
         #expect(try await git(["rev-parse", "main"], in: fixture.repo) == mainBefore)
-        #expect(try await git(["rev-parse", "agentos/main"], in: fixture.repo) == landingBefore)
+        #expect(try await git(["rev-parse", "agentos/\(fixture.aTicket)"], in: fixture.repo) == landingBefore)
     }
 
     @Test
     func retryIsExplicitForSameMainAndAutomaticAfterMainMovesAgain() async throws {
         let fixture = try await conflictedFixture()
-        let initialCount = catchUpConflicts(in: await fixture.session.ledger.allRecords()).count
+        let initialConflicts = catchUpConflicts(in: await fixture.session.ledger.allRecords())
 
         await fixture.session.runUntilFinished()
-        #expect(catchUpConflicts(in: await fixture.session.ledger.allRecords()).count == initialCount)
+        #expect(catchUpConflicts(in: await fixture.session.ledger.allRecords()).count == initialConflicts.count)
 
         await fixture.session.retryCatchUp()
         await fixture.session.runUntilFinished()
-        #expect(catchUpConflicts(in: await fixture.session.ledger.allRecords()).count == initialCount + 1)
+        let retriedConflicts = catchUpConflicts(in: await fixture.session.ledger.allRecords())
+        for ticket in [fixture.aTicket, fixture.packageTicket] {
+            #expect(retriedConflicts.filter { $0.tickets.contains(ticket) }.count
+                    == initialConflicts.filter { $0.tickets.contains(ticket) }.count + 1)
+        }
 
         try "another main change\n".write(
             to: fixture.repo.appending(path: "main-only.txt"),
@@ -187,19 +195,21 @@ struct GH_4_3Tests {
         let laterMain = try await git(["rev-parse", "main"], in: fixture.repo)
         await fixture.session.runUntilFinished()
         let conflicts = catchUpConflicts(in: await fixture.session.ledger.allRecords())
-        #expect(conflicts.count == initialCount + 2)
-        #expect(conflicts.last?.main == laterMain)
+        for ticket in [fixture.aTicket, fixture.packageTicket] {
+            let own = conflicts.filter { $0.tickets.contains(ticket) }
+            #expect(own.count == retriedConflicts.filter { $0.tickets.contains(ticket) }.count + 1)
+            #expect(own.last?.main == laterMain)
+        }
     }
 
     @Test
     func manuallyResolvedMergeIsRecognizedAsSuccessfulCatchUp() async throws {
         let fixture = try await conflictedFixture()
         let resolution = FileManager.default.temporaryDirectory.appending(path: "agentos-manual-\(UUID().uuidString)")
-        _ = try await git(["worktree", "add", "-q", resolution.path, "agentos/main"], in: fixture.repo)
+        _ = try await git(["worktree", "add", "-q", resolution.path, "agentos/\(fixture.aTicket)"], in: fixture.repo)
         _ = try? await git(["merge", "--no-edit", "main"], in: resolution)
         try "resolved A\n".write(to: resolution.appending(path: "Sources/A.swift"), atomically: true, encoding: .utf8)
-        try "resolved package\n".write(to: resolution.appending(path: "Package.swift"), atomically: true, encoding: .utf8)
-        _ = try await git(["add", "Sources/A.swift", "Package.swift"], in: resolution)
+        _ = try await git(["add", "Sources/A.swift"], in: resolution)
         _ = try await git(
             ["-c", "user.name=Developer", "-c", "user.email=developer@example.com", "commit", "-q", "--no-edit"],
             in: resolution
@@ -209,7 +219,7 @@ struct GH_4_3Tests {
 
         await fixture.session.runUntilFinished()
 
-        let status = await fixture.session.catchUpStatus()
+        let status = await fixture.session.catchUpStatus(for: fixture.aTicket)
         #expect(status.lastSuccess?.mainSHA == fixture.mainSHA)
         #expect(status.lastSuccess?.newAgentOSMainTip == resolvedTip)
         #expect(status.lastSuccess?.method == .manual)
@@ -232,7 +242,7 @@ struct GH_4_3Tests {
         await session.runUntilFinished()
         let packageTicket = await createTicket("Package work", in: session)
         await session.runUntilFinished()
-        let agentosTip = try await git(["rev-parse", "agentos/main"], in: repo)
+        let agentosTip = try await git(["rev-parse", "agentos/\(aTicket)"], in: repo)
 
         try "developer A\n".write(to: repo.appending(path: "Sources/A.swift"), atomically: true, encoding: .utf8)
         try "developer package\n".write(to: repo.appending(path: "Package.swift"), atomically: true, encoding: .utf8)

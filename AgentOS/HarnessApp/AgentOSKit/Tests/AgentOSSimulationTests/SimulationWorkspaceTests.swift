@@ -9,6 +9,7 @@ struct SimulationWorkspaceTests {
             .appending(path: "agentos-simulation-\(UUID().uuidString)"))
         defer { try? FileManager.default.removeItem(at: workspace.root) }
         try await workspace.prepare()
+        _ = try await workspace.prepareRequirementBranch(for: .init(ticketKey: "WORK-1", nodeID: "wn-1"), leaves: ["wn-1"])
         let directory = try await workspace.createWorktree(for: "wn-1")
         func write(_ path: String, _ contents: String = "x\n") throws {
             let file = directory.appending(path: path)

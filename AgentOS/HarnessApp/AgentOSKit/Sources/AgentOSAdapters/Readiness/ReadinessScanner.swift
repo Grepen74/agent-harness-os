@@ -126,6 +126,10 @@ public struct ReadinessScanner: Sendable {
         snapshot.swiftTestingFiles = await filesImporting("Testing", on: branch, in: root)
         snapshot.xctestFiles = await filesImporting("XCTest", on: branch, in: root)
         snapshot.checkoutBranch = await git(["symbolic-ref", "--quiet", "--short", "HEAD"], in: root)
+        if await git(["show-ref", "--verify", "--quiet", "refs/heads/agentos/main"], in: root) != nil,
+           let ahead = await git(["rev-list", "--count", "\(branch)..refs/heads/agentos/main"], in: root) {
+            snapshot.legacyLandingCommitsAhead = Int(ahead) ?? 0
+        }
         if branch.hasPrefix("origin/"),
            let entry = await git(["log", "-g", "-1", "--date=unix", "--format=%gd", "refs/remotes/\(branch)"], in: root),
            let seconds = entry.split(separator: "{").last?.dropLast().description, let time = TimeInterval(seconds) {

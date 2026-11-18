@@ -41,7 +41,7 @@ enum RepoConfigDraft {
         return RepoConfig(
             build: prepare.isEmpty ? nil : RepoConfig.Build(prepare: prepare.joined(separator: " && "), command: nil),
             test: test, checks: checks.isEmpty ? nil : checks, leafTests: leafTests,
-            components: components(build, repo), landing: RepoConfig.Landing(branch: HarnessSettings().landingBranch))
+            components: components(build, repo))
     }
 
     private static func cd(_ folder: String, _ command: String) -> String {

@@ -1,6 +1,6 @@
 // API contract: Reconciler.runRound(waitForAgents: true) diagnoses landing failures in other suites by running the
 // whole check again, then only the failing suites (CheckRunner.runChecks(only:)) with the change and on
-// Workspace.createSnapshot() (latest landing main, without the change). CheckRunner supplies named failures in
+// Workspace.createSnapshot(for:) (latest requirement branch, without the change). CheckRunner supplies named failures in
 // CheckOutput.log; tracker comments expose every rerun's summary.
 
 @testable import AgentOSCore
@@ -53,7 +53,7 @@ struct GH_26Tests {
         #expect(await fixture.workspace.landedNodes.isEmpty)
         let comments = await fixture.tracker.comments(on: Fixture.ticket)
         let report = comments.joined(separator: "\n")
-        #expect(report.contains("agentos/main"))
+        #expect(report.contains("agentos/\(Fixture.ticket)"))
         #expect(!report.lowercased().contains("requirements conflict:"))
         for name in Fixture.failedTests {
             #expect(report.contains(name), "Name the failing test, not just its owning ticket")
@@ -454,7 +454,7 @@ private extension GH_26Tests {
                     passed: alonePasses, context: "\(suite) alone with the change", suites: only,
                     log: aloneRunsNothing ? "Test run with 0 tests passed." : nil
                 )
-                onMain[suite] = Self.output(passed: mainPasses, context: "\(suite) alone on agentos/main", suites: only)
+                onMain[suite] = Self.output(passed: mainPasses, context: "\(suite) alone on agentos/\(Self.ticket)", suites: only)
             }
             aloneOutputs = alone
             mainOutputs = onMain
@@ -604,6 +604,7 @@ private extension GH_26Tests {
         nonisolated func existingComponents() -> [String] { [] }
         func prepareBuild(in directory: URL) async throws { preparedDirectories.append(directory) }
         func createSnapshot() async throws -> URL? { snapshot }
+        func createSnapshot(for id: NodeID) async throws -> URL? { snapshot }
         func removeSnapshot(_ directory: URL) async {}
         /// The answers to `whyLandingMustWait`, one per question; nil once they run out.
         func scriptWaits(_ answers: [String?]) { waits = answers }

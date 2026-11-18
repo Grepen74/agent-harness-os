@@ -4,7 +4,7 @@ A Mac app for the agent harness. It has two kinds of window:
 - the **simulator** (below), and
 - **repository windows** for real repos (File → Open Repository…). These run the read-only readiness
   scan, show the effective policy, run the baseline and, once nothing blocks it, let Copilot agents work
-  on tickets from a local tracker, landing proven work on the local branch `agentos/main`
+  on tickets from a local tracker, landing proven work on local requirement branches `agentos/<ticket key>`
   ([design](docs/real-repo-mode.md)).
 
 ## The simulator
@@ -20,7 +20,7 @@ It simulates the whole loop:
        ▲                           │        │                                │
        └──── comments, statuses ───┘        ├─▶ Agents (scripted or Copilot CLI), one git branch per leaf
                                             ├─▶ Checks: real `swift test` → evidence + log artifacts
-                                            ├─▶ Landing queue: rebase → all tests → merge to main
+                                            ├─▶ Landing queue: rebase → all tests → requirement branch
  Other team's system ──delivered──▶  ───────┘   (an external dependency you resolve by hand)
 ```
 
@@ -105,7 +105,7 @@ says `"tracker": { "type": "github-issues" }`: then tickets are the repo's GitHu
 with your `gh` login (Settings → *GitHub account* picks another). Add `"project": { "owner": …, "number": … }`
 and a Projects board's Status field follows the work too. Each leaf is built by
 Copilot CLI in its own git worktree outside the repo; its acceptance tests go in the config's `leafTests`
-folder. Proven work lands on `agentos/main`; review, merge and push it yourself. **Settings** picks the
+folder. Proven work lands on `agentos/<ticket key>`; review, merge and push it yourself. **Settings** picks the
 models offered to agents and a default per role; a repo may choose among them in `agents.models`. From the
 terminal: `swift run agentos work <path> --ticket "<title>" --criterion "<criterion>" --go`.
 

@@ -129,10 +129,9 @@ import Testing
         expectPassage(documentation, all: ["context", "unmatched", "warning"],
                       alternatives: [["context", "no match", "warning"], ["context", "match", "warn"]])
         let landing = try entry("landing.branch", in: rows)
-        #expect(landing.omission.contains("agentos/main"))
-        #expect(landing.text.contains("local"))
-        #expect(landing.restriction.contains("default branch"))
-        #expect(hasAny(landing.restriction, ["not", "never", "different", "separate", "cannot"]))
+        #expect(landing.text.contains("ignored"))
+        #expect(landing.text.contains("no effect"))
+        #expect(hasAny(landing.text, ["warning", "warn"]))
         for path in ["agents.deny", "protectedPaths"] {
             let row = try entry(path, in: rows)
             #expect(hasAny(row.text, ["add", "extend", "union"]))

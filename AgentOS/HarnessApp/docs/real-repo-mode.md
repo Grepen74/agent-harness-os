@@ -28,7 +28,8 @@ requests, and several repos forming one system are planned (phases 8, 9 and 10).
    app's **local tracker** (the simulator's tracker pane, persisted).
 5. From here it's the simulator's flow, on real code: preview → breakdown → tests → build → pre-check →
    landing queue → proven.
-6. Proven work lands on the local branch **`agentos/main`**. You review, merge and push it yourself.
+6. Proven work lands on the local requirement branch **`agentos/<ticket key>`**, for example `agentos/GH-12`.
+   You review, merge and push it yourself. Nothing is pushed automatically.
 
 ## What changes compared to the simulator
 
@@ -40,7 +41,7 @@ requests, and several repos forming one system are planned (phases 8, 9 and 10).
 | Components (touch set) | `Sources/<Component>` folders | Detected: Swift package targets, Xcode targets, or top-level folders; listed in the repo config |
 | Agents | Scripted or Copilot CLI | Copilot CLI only. It already reads AGENTS.md and `.github/copilot-instructions.md` |
 | Working copies | Harness-owned folder | Git worktrees **outside** the repo folder; your own checkout is never touched |
-| Landing | Fast-forward `main` | Fast-forward `agentos/main` (configurable, see Policy) |
+| Landing | Fast-forward the requirement branch | Fast-forward the requirement branch |
 | Check duration | Seconds | Minutes. The landing queue is the bottleneck; acceptable for now |
 
 ### The Xcode project file
@@ -60,7 +61,7 @@ read from `main` only.
 
 | Setting | Built-in harness default | Repo may |
 |---|---|---|
-| Landing target | Local branch `agentos/main` | Choose another *local* branch name |
+| Landing target | Local requirement branch `agentos/<ticket key>` | No override; `landing.branch` is ignored with a warning |
 | Push / open pull requests | Never (phase 9: an opt-in setting; only the harness pushes, never agents) | Switch it off |
 | Agent tools | Copilot CLI, with `git push`/`fetch`/`pull`/`remote`/`config`/`stash`, `gh` and network installs denied | Deny more |
 | Agent models | Offered models, plus a default model per role (breakdown, acceptance tests, implementation); none = the CLI's default | Pick a model per role among the offered ones |
@@ -76,8 +77,9 @@ read from `main` only.
 | Protected paths | Tests of proven leaves, `.agentos/`, AGENTS.md, CONTRIBUTING, CODEOWNERS, copilot-instructions | Add more |
 
 The policy pane shows every effective value with its source (*harness*, *repo*). A repo value that tries to
-loosen a limit becomes a blocker finding, not a silent override, and the harness's value applies. So does
-landing directly on the default branch. Disabling a signal the harness doesn't know is a warning.
+loosen a limit becomes a blocker finding, not a silent override, and the harness's value applies.
+The retired `landing.branch` key has no effect, even when it names the default branch.
+Disabling a signal the harness doesn't know is a warning.
 
 **Avoid building overlapping work at the same time** is a Settings toggle, on by default even for older saved
 settings. A repo may turn it on with `limits.avoidOverlappingWork: true`, but cannot turn it off when the
@@ -140,7 +142,6 @@ unknown keys are reported as likely typos. For an iOS app:
   "checks": [{ "name": "lint", "command": "swiftlint --strict" }],
   "leafTests": { "target": "AppTests", "folder": "AppTests/Acceptance" },
   "components": ["App/Features/Weather", "App/Services", "Packages/Networking"],
-  "landing": { "branch": "agentos/main" },
   "signals": { "disable": ["go"] },
   "limits": { "maxAttempts": 2 },
   "review": { "level": "agent", "areas": { "App/Features/Weather": "agent+human" },
@@ -182,8 +183,8 @@ is configured, Copilot CLI chooses its own default. Display titles are not confi
 | `leafTests.folder` | String: repository-relative path to the acceptance-test folder | Required when `leafTests` is present | Each leaf writes only its own suite subfolder; approved tests are protected |
 | `leafTests.updatable` | Array of repository-relative folders holding other existing tests (say, other test targets) | Only `leafTests.folder` | Where the test author may update other work's tests a criterion deliberately changes; nobody else may change tests there. The repo's top folder, absolute paths and `..` are ignored |
 | `components` | Array of strings naming source components or repository paths for touch sets | Empty component list | None; declares existing components available to breakdown |
-| `landing` | Object containing a local landing branch | Inherit the harness landing branch | Must keep proven work separate from the default branch |
-| `landing.branch` | String: valid local branch name | Inherit harness setting; built-in `agentos/main` | Cannot be the default branch, a remote/ref name, `agentos`, or an `agentos/leaf/` branch |
+| `landing` | Retired landing configuration object | Requirement-scoped branches | Remove this obsolete object |
+| `landing.branch` | String branch name; ignored, with no effect | Always `agentos/<ticket key>` | A warning says the key is ignored and its value has no effect; remove it |
 | `signals` | Object containing disabled signal tokens | Inherit the harness's offered signals | May only disable signals, not enable ones the harness switched off |
 | `signals.disable` | Array of signal-token strings, such as `go` or `harness:go`; multiple tokens allowed | Empty list; inherit harness signals | Only removes signals from the harness's offered set; unknown tokens produce a warning |
 | `limits` | Object containing optional integer limits and overlap protection | Inherit current harness limits | Repo limits may only tighten the harness settings |
@@ -329,7 +330,7 @@ breaks the rules for new tests (a fixed sleep, say), and restores anything it wa
 rather than from memory. Only listed files that aren't protected and lie in the test area, or in a folder
 `leafTests.updatable` names, are kept; the implementer may change none of those. They're committed with
 the acceptance tests, fingerprinted and locked like them, and named in the ticket comment. Work landing on
-`agentos/main` meanwhile may change them too: when the harness moves the leaf onto it (before building,
+the requirement branch meanwhile may change them too: when the harness moves the leaf onto it (before building,
 at landing, when catching up) and they were as locked just before, uncommitted changes aside, their lock
 moves along. The reviewer rejects any such change no criterion requires. So the decomposer gives such
 updates to the child whose change breaks those tests, as a criterion naming them and their new
@@ -498,7 +499,7 @@ The harness's state for a repo is private and lives outside the repo:
                    <node>-<run>-agent.log, written as it runs
   baseline/src/    the export of main the baseline last ran on
   worktrees/       one working copy per leaf, on branch agentos/leaf/<node>
-  snapshots/       a detached checkout of agentos/main for each preview or breakdown, removed when it ends
+  snapshots/       detached main checkouts for decomposition, requirement checkouts for landing diagnosis
   exclude          files git ignores in worktrees (.build/, DerivedData/, xcuserdata/, .DS_Store…)
 ```
 
@@ -519,8 +520,11 @@ A `RepositorySession` runs the simulator's reconciler on the repo: its `Reposito
 config-driven checks, the local tracker (project key `WORK`) and the repo's ledger.
 
 - **Worktrees.** Each leaf gets a git worktree in the harness's storage, on its own branch
-  `agentos/leaf/<node>`, started from the landing branch. The landing branch is created from the default
-  branch the first time. Git runs with the harness's own exclude file, so build output is never committed
+  `agentos/leaf/<node>`, started from its requirement's landing branch. A requirement is a top-level
+  adopted ticket, including a top-level single leaf. Its branch `agentos/<ticket key>` is created from
+  the current default branch when its first leaf starts building, and recorded in the ledger.
+  Nested composites get no branch; every descendant leaf shares the top-level branch.
+  Git runs with the harness's own exclude file, so build output is never committed
   even if the repo's `.gitignore` misses it. Uncommitted leftovers (e.g. a regenerated project file) are
   discarded before a rebase or rework. Every implementer run starts by rebasing the leaf onto the latest
   landing branch: its tests may have been written long before, and work landed since (often a dependency
@@ -537,6 +541,9 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
   from other work can't cause the failure. With the machine quiet, it runs the whole check again, unchanged,
   and does the diagnosis below. If that passes, it lands and reports an unreliable test. If it fails again, the failing suites of both runs are run alone (`test.only`, one suite at a time), with
   the change and on latest `agentos/main` without it. These isolated runs only diagnose; they never land.
+  first runs the whole check again, unchanged. If that passes, it lands and reports an unreliable test.
+  If it fails again, the failing suites of both runs are run alone (`test.only`, one suite at a time), with
+  the change and on the latest requirement branch without it. These isolated runs only diagnose; they never land.
   - Failing on main too: a main/infrastructure problem, with no failed attempt; fix it and add `harness:retry`.
   - Failing alone with the change but not on main: a requirements conflict when every failing suite belongs
     to a proven ticket, otherwise the leaf's own failure.
@@ -565,6 +572,14 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
   naming the checkout, and landing goes on by itself once that checkout is on another branch. This is checked
   before the landing checks start and again right before the fast-forward; a checkout made in between
   finishes the landing run and the node waits the same way.
+  is involved. It's refused while any checkout has the landing branch checked out, because moving it there
+  would make that working copy look modified.
+- **Requirement isolation.** Each requirement branch contains only its own landed changes and catch-up
+  work from `main`. Catch-up updates that branch and rebases only its idle active leaves. Bindings are
+  restored from the ledger after restarting, including leaves already in progress before upgrading.
+  The retired `agentos/main` is never used for building, landing or catch-up. Work already landed there
+  stays only there: the readiness scan warns while it has commits absent from `main`. Merge
+  `agentos/main` into `main` yourself; there is no automatic migration.
 - **Copilot agents** run with `--allow-all-tools` plus a `--deny-tool` per effective denied tool (network
   installs as one `shell(…)` pattern) and per protected file (`write(AGENTS.md)`), and `--model` per role.
   Copilot's `write()` patterns only cover file names; folders and globs are enforced by the check above.
@@ -714,7 +729,7 @@ worktrees for it). Three rules bound that:
 
 - **Your checkout and `main` are never changed.** Your working copy may hold uncommitted work and be open
   in Xcode; writing there would clobber it. Agents work in worktrees outside the repo folder, and you merge
-  `agentos/main` into `main` yourself. Nothing is pushed.
+  the requirement branch into `main` yourself. Nothing is pushed.
 - **The harness never edits the files that steer it** (`.agentos/`, AGENTS.md, CONTRIBUTING, CODEOWNERS,
   copilot-instructions). They set its limits, so a harness that could edit them could loosen its own
   policy. They're read from `main` only, and a leaf that changes them fails its check, like changing

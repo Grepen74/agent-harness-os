@@ -78,7 +78,7 @@ struct GH_4_4Tests {
 
         #expect(result.rework["conflict"] == ["shared.txt"])
         #expect(result.rebased == ["clean"])
-        #expect(try await Self.revision("agentos/main", in: fixture.repo) == newTip)
+        #expect(try await Self.revision("agentos/GH-404", in: fixture.repo) == newTip)
         #expect(try await Self.isAncestor(newTip, of: fixture.workspace.branch(for: "clean"), in: fixture.repo))
         #expect(try String(contentsOf: clean.appending(path: "clean.txt"), encoding: .utf8) == "clean change\n")
     }
@@ -88,6 +88,9 @@ struct GH_4_4Tests {
         let workspace: RepositoryWorkspace
 
         func makeLeaf(_ id: NodeID, implementation: [String: String]) async throws -> URL {
+            _ = try await workspace.prepareRequirementBranch(
+                for: NodeIdentity(ticketKey: "GH-404", nodeID: "requirement"), leaves: [id]
+            )
             let directory = try await workspace.createWorktree(for: id)
             let acceptance = directory.appending(path: "Tests/AgentOSAdaptersTests/GH_\(id)Tests/acceptance.txt")
             try FileManager.default.createDirectory(
@@ -123,7 +126,7 @@ struct GH_4_4Tests {
                 "commit", "-q", "-m", "main moved",
             ], in: repo)
             let tip = try await GH_4_4Tests.revision("main", in: repo)
-            try await GH_4_4Tests.git(["branch", "-f", "agentos/main", tip], in: repo)
+            try await GH_4_4Tests.git(["branch", "-f", "agentos/GH-404", tip], in: repo)
             return tip
         }
     }
@@ -148,7 +151,7 @@ struct GH_4_4Tests {
             root: repo,
             storage: storage,
             config: Self.config,
-            landingBranch: "agentos/main",
+            landingBranch: "agentos/GH-404",
             defaultBranch: "main"
         )
         try await workspace.prepare()

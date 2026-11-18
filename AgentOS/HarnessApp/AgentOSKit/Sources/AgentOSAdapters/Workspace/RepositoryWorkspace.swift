@@ -8,8 +8,8 @@ import Foundation
 ///       worktrees/<node>/              a leaf's branch `agentos/leaf/<node>`, where its agents work
 ///       exclude                        build output never committed from a worktree
 ///
-/// Work is based on, and lands on, the landing branch (`agentos/main`), created from the default branch the
-/// first time. Landing moves only that branch ref (fast-forward, compare-and-swap); you merge it yourself.
+/// Work starts from and lands on its top-level requirement's branch, created from the default branch.
+/// Landing moves only that branch ref (fast-forward, compare-and-swap); you merge it yourself.
 /// A leaf's acceptance tests are a folder (and suite) of its own in the configured existing test target.
 public struct RepositoryWorkspace: Workspace, MainTipRepository {
     public static let branchPrefix = "agentos/leaf/"
@@ -23,7 +23,8 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
     public let protectedPaths: [String]
     /// Worktrees share the repo's `.git`: adding, removing and pruning them one at a time avoids git's lock
     /// errors when leaves start side by side. Agents and checks still run in parallel.
-    private let worktreeLock = AsyncSemaphore(1)
+    let worktreeLock = AsyncSemaphore(1)
+    private let requirementBranches = RequirementBranchBindings()
 
     public struct NotConfigured: Error, CustomStringConvertible {
         public let description = "\(RepoConfig.path) has no leafTests: leaves have nowhere to put their acceptance tests."
@@ -49,17 +50,30 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
     public func worktree(for id: NodeID) -> URL { worktreesDirectory.appending(path: id) }
     public func branch(for id: NodeID) -> String { Self.branchPrefix + id }
 
-    /// Creates the landing branch from the default branch if it doesn't exist yet. Only adds a branch ref.
+    /// Prepares storage without creating any branches.
     public func prepare() async throws {
         try await git(["rev-parse", "--git-dir"], in: root)
-        if try await !branchExists(landingBranch) {
-            try await git(["branch", "--no-track", landingBranch, defaultBranch], in: root)
-        }
         try FileManager.default.createDirectory(at: worktreesDirectory, withIntermediateDirectories: true)
         if !FileManager.default.fileExists(atPath: excludeFile.path) {
             try Self.buildOutput.joined(separator: "\n").write(to: excludeFile, atomically: true, encoding: .utf8)
         }
         try await worktreeLock.withPermit { try await git(["worktree", "prune"], in: root) }
+    }
+
+    public func prepareRequirementBranch(for requirement: NodeIdentity, leaves: [NodeID]) async throws -> String? {
+        let branch = "agentos/\(requirement.ticketKey)"
+        let from: String? = try await worktreeLock.withPermit {
+            guard try await !branchExists(branch) else { return nil }
+            let main = try await localMainTip()
+            try await git(["branch", "--no-track", branch, main], in: root)
+            return main
+        }
+        requirementBranches.bind(leaves, to: branch)
+        return from
+    }
+
+    func landingBranch(for id: NodeID) throws -> String {
+        try requirementBranches.branch(for: id)
     }
 
     /// Never committed from a worktree, even if the repo's .gitignore misses them.
@@ -76,6 +90,7 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
     }
 
     private func createWorktree(for id: NodeID, keepingPaths paths: [String]) async throws -> URL {
+        let landingBranch = try landingBranch(for: id)
         let directory = worktree(for: id)
         try await worktreeLock.withPermit {
             // Read before -B moves the branch back to the landing branch.
@@ -115,10 +130,18 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
 
     /// A detached worktree of the landing branch: no branch of its own, so nothing in it can land.
     public func createSnapshot() async throws -> URL? {
+        try await createSnapshot(at: defaultBranch)
+    }
+
+    public func createSnapshot(for id: NodeID) async throws -> URL? {
+        try await createSnapshot(at: landingBranch(for: id))
+    }
+
+    private func createSnapshot(at branch: String) async throws -> URL {
         let directory = snapshotsDirectory.appending(path: UUID().uuidString)
         try await worktreeLock.withPermit {
             try FileManager.default.createDirectory(at: snapshotsDirectory, withIntermediateDirectories: true)
-            try await git(["worktree", "add", "-q", "--detach", directory.path, landingBranch], in: root)
+            try await git(["worktree", "add", "-q", "--detach", directory.path, branch], in: root)
         }
         return directory
     }
@@ -158,8 +181,10 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
     }
 
     public func changedFiles(in directory: URL) async throws -> [String] {
+        let landingBranch = try landingBranch(for: directory.lastPathComponent)
+        let base = try await leafBase(in: directory, landingBranch: landingBranch)
         // Both sides of a rename, and raw (unquoted) names, so a moved or oddly named protected file can't slip by.
-        try await git(["diff", "--name-only", "--no-renames", "-z", "\(landingBranch)...HEAD"], in: directory)
+        return try await git(["diff", "--name-only", "--no-renames", "-z", "\(base)...HEAD"], in: directory)
             .split(separator: "\0").map(String.init)
     }
 
@@ -279,8 +304,12 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
     // MARK: Landing
 
     public func rebaseOntoMain(_ directory: URL) async throws -> RebaseResult {
+        let landingBranch = try landingBranch(for: directory.lastPathComponent)
+        let base = try await leafBase(in: directory, landingBranch: landingBranch)
         try await discardUncommitted(directory)
-        let result = try await ProcessRunner.run("/usr/bin/env", ["git", "rebase", "-q", landingBranch], in: directory)
+        let result = try await ProcessRunner.run(
+            "/usr/bin/env", ["git", "rebase", "-q", "--onto", landingBranch, base], in: directory
+        )
         guard result.status != 0 else { return .clean }
         let files = (try? await git(["diff", "--name-only", "--diff-filter=U"], in: directory))?
             .split(separator: "\n").map(String.init) ?? []
@@ -293,11 +322,13 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
     }
 
     public func resetForRework(_ directory: URL) async throws {
+        let landingBranch = try landingBranch(for: directory.lastPathComponent)
+        let base = try await leafBase(in: directory, landingBranch: landingBranch)
         try await discardUncommitted(directory)
-        let commits = try await git(["rev-list", "--reverse", "\(landingBranch)..HEAD"], in: directory).split(separator: "\n")
+        let commits = try await git(["rev-list", "--reverse", "\(base)..HEAD"], in: directory).split(separator: "\n")
         guard let testsCommit = commits.first else { return }
         try await git(["reset", "-q", "--hard", String(testsCommit)], in: directory)
-        try await git(["rebase", "-q", landingBranch], in: directory)
+        try await git(["rebase", "-q", "--onto", landingBranch, base], in: directory)
     }
 
     // MARK: Unfinished work
@@ -318,8 +349,10 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
     }
 
     public func keepImplementation(_ directory: URL, for id: NodeID) async throws -> [String] {
+        let landingBranch = try landingBranch(for: id)
+        let base = try await leafBase(in: directory, landingBranch: landingBranch)
         let ref = keptImplementationRef(for: id)
-        let commits = try await git(["rev-list", "--reverse", "\(landingBranch)..HEAD"], in: directory)
+        let commits = try await git(["rev-list", "--reverse", "\(base)..HEAD"], in: directory)
             .split(separator: "\n").map(String.init)
         guard let tests = commits.first else {
             _ = try? await git(["update-ref", "-d", ref], in: root)
@@ -448,6 +481,7 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
     /// Fast-forwards the landing branch to the leaf's branch by moving the ref only (compare-and-swap), so no
     /// checkout is involved. Refuses if a checkout has the landing branch checked out: it would fall out of step.
     public func landOnMain(_ id: NodeID) async throws -> String {
+        let landingBranch = try landingBranch(for: id)
         let reviewed = try await revision(branch(for: id))
         let old = try await revision(landingBranch)
         let ancestor = try await ProcessRunner.run("/usr/bin/env", ["git", "merge-base", "--is-ancestor", old, reviewed], in: root)
@@ -509,7 +543,7 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
         for line in try await git(["for-each-ref", "--format=%(objectname) %(refname)"], in: root).split(separator: "\n") {
             guard let space = line.firstIndex(of: " ") else { continue }
             let ref = String(line[line.index(after: space)...])
-            if ref.hasPrefix("refs/heads/agentos/") || ref == "refs/heads/\(landingBranch)" { continue }
+            if ref.hasPrefix("refs/heads/agentos/") { continue }
             state.append(ref.hasPrefix("refs/heads/") ? "branch \(ref)" : String(line))
         }
         let common = URL(filePath: try await git(["rev-parse", "--path-format=absolute", "--git-common-dir"], in: root)
@@ -551,7 +585,7 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
     /// Check byproducts (generated projects, logs) left in a worktree after its work was committed.
     /// Everything the leaf's working copy changed since it left the landing branch, committed or not.
     public func changes(for id: NodeID) async throws -> String {
-        try await WorkingChanges.describe(worktree(for: id), since: landingBranch,
+        try await WorkingChanges.describe(worktree(for: id), since: landingBranch(for: id),
                                           gitOptions: ["-c", "core.excludesFile=\(excludeFile.path)"])
     }
 
@@ -561,7 +595,7 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
     }
 
     @discardableResult
-    private func git(_ arguments: [String], in directory: URL, environment: [String: String] = [:]) async throws -> String {
+    func git(_ arguments: [String], in directory: URL, environment: [String: String] = [:]) async throws -> String {
         let result = try await GitLocks.retryingAfterStaleLock {
             try await ProcessRunner.run(
                 "/usr/bin/env", ["git", "-c", "core.excludesFile=\(excludeFile.path)"] + arguments, in: directory,
