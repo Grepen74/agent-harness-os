@@ -17,7 +17,7 @@ import AgentOSTestSupport
 import Foundation
 import Testing
 
-@Suite(.serialized, .timeLimit(.minutes(2)))
+@Suite(.serialized, .timeLimit(.minutes(5)))
 struct GH_78Tests {
     private static let firstPath = "Sources/Engine/Planner.swift"
     private static let secondPath = "Sources/Engine/Queue.swift"

@@ -1,5 +1,6 @@
 import AgentOSAdapters
 import AgentOSCore
+import AgentOSTestSupport
 import Testing
 
 @MainActor
@@ -40,8 +41,7 @@ struct LifecycleControllerTests {
         func release() { released = true }
     }
 
-    private func until(_ condition: () async -> Bool) async throws {
-        for _ in 0..<400 where !(await condition()) { try await Task.sleep(for: .milliseconds(10)) }
-        try #require(await condition())
+    private func until(_ condition: () async -> Bool, sourceLocation: SourceLocation = #_sourceLocation) async throws {
+        try await eventually("The round getting there", sourceLocation: sourceLocation) { await condition() }
     }
 }

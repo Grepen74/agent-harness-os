@@ -4,9 +4,10 @@
 import Foundation
 import Testing
 import AgentOSCore
+import AgentOSTestSupport
 
 @Suite struct BackgroundPreviewTests {
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(5)))
     func aPreviewIsAcknowledgedAtOnceAndItsResultFollowsWhenDone() async throws {
         let fixture = try Fixture(slots: 2)
         await fixture.tracker.request(.preview, on: "GH-1")
@@ -32,7 +33,7 @@ import AgentOSCore
         #expect(await fixture.reconciler.runRound().actions.contains("GH-1: preview → preview #1 posted"))
     }
 
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(5)))
     func aPreviewTakesAnAgentSlotAndAnotherWaitsForIt() async throws {
         let fixture = try Fixture(slots: 1)
         await fixture.tracker.request(.preview, on: "GH-1")
@@ -52,7 +53,7 @@ import AgentOSCore
         #expect(await fixture.ledger.workingState().previews["GH-2"]?.number == 1)
     }
 
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(5)))
     func aSecondPreviewOfTheSameTicketIsRefusedWhileTheFirstRuns() async throws {
         let fixture = try Fixture(slots: 2)
         await fixture.tracker.request(.preview, on: "GH-1")
@@ -69,7 +70,7 @@ import AgentOSCore
         await fixture.reconciler.waitForAgents()
     }
 
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(5)))
     func stoppingAPreviewTellsTheTicketAndFreesItsSlot() async throws {
         let fixture = try Fixture(slots: 1)
         await fixture.tracker.request(.preview, on: "GH-1")
@@ -87,7 +88,7 @@ import AgentOSCore
         #expect(!(await fixture.reconciler.runRound().hasRunningAgents))
     }
 
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(5)))
     func aPreviewsSuggestedAnswersAreCorrectedByPreviewingAgain() async throws {
         let fixture = try Fixture(slots: 1)
         let question = AgentQuestion(question: "Which greeting?", suggestion: "Hello")
@@ -124,7 +125,7 @@ import AgentOSCore
     }
 
     /// Whatever happens to a preview, the ticket is only told about signals that work before it's adopted.
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(5)))
     func aTicketThatIsntAdoptedIsOnlyToldAboutSignalsThatWorkThere() async throws {
         let fixture = try Fixture(slots: 3)
         await fixture.agents.release(reporting: AgentReport(questions: [AgentQuestion(question: "Which greeting?")]))
@@ -150,7 +151,7 @@ import AgentOSCore
         #expect(wrong.isEmpty, "\(comments)")
     }
 
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(5)))
     func aPreviewCutOffByARestartIsReclaimedAndItsTicketTold() async throws {
         let fixture = try Fixture(slots: 1)
         try await fixture.ledger.append([LedgerEvent(node: nil, by: .reconciler,
@@ -191,11 +192,12 @@ private extension BackgroundPreviewTests {
 
         /// Polls the working state until `value` finds something: background work records its events soon after.
         func eventually<T>(_ value: (WorkingState) async -> T?) async throws -> T {
-            for _ in 0..<500 {
-                if let found = await value(await ledger.workingState()) { return found }
-                try await Task.sleep(for: .milliseconds(10))
+            var found: T?
+            try await AgentOSTestSupport.eventually("The background preview") {
+                found = await value(await ledger.workingState())
+                return found != nil
             }
-            throw AgentFailure("Timed out waiting for the background preview")
+            return try #require(found)
         }
     }
 

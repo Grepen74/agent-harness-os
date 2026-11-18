@@ -414,7 +414,7 @@ struct GH_30_1Tests {
             id: "wn-\(ticket.key)", parent: ticket.parentKey.map { "wn-\($0)" }, kind: .leaf,
             title: ticket.title, intent: ticket.description, acceptanceCriteria: ticket.acceptanceCriteria
         )
-        let team = AgentTeam.copilot(CopilotCLI(executable: executable.path, timeout: .seconds(10)))
+        let team = AgentTeam.copilot(CopilotCLI(executable: executable.path, timeout: .seconds(600)))
         let task = AgentTask(
             spec: spec, run: "fixture-run", directory: root, testFolder: "Tests/FixtureTests",
             scratchDirectory: root.appending(path: "scratch"), log: log, agentContext: context

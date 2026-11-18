@@ -60,15 +60,26 @@ New tracker, workspace or agent behaviour starts as a protocol in `AgentOSCore`,
   that checks views needs `AgentOSTestSupport` in its dependencies.
 - In simulation tests, the last tracker comment is often the harness's reply to a signal. Check
   `comments.contains` rather than `lastComment`.
-- Tests must not depend on timing or on how rounds are scheduled; later tickets change both. Never use a
-  fixed `Task.sleep` to make agents overlap, or to wait for something to happen. Hold fake agents at explicit
-  barriers (continuations) that the test releases, with a timeout so a broken harness fails the test instead
-  of hanging it. Fake agents in one test change different files, so whichever lands first can't leave the
-  others with nothing to do. Say whether a round waits for its agents: `runRound(waitForAgents: true)` or
-  `runUntilIdle()`.
-- Tests prove behaviour that stays true, not the scope of one ticket. Don't pin files by checksum or assert
-  that unrelated files or docs stay unchanged: such a test blocks every later change to them. The harness
-  already enforces what a ticket may touch.
+- Tests must not depend on timing or on how rounds are scheduled; later tickets change both, and the whole
+  suite runs while other agents load the machine. A test that passes alone but fails under load blocks every
+  other ticket's landing. So:
+  - Never `Task.sleep`, `Thread.sleep`, `usleep` or `DispatchQueue.asyncAfter` to make agents overlap or to
+    wait for something to happen.
+  - Never assert how long something took (`Date()`, `ContinuousClock` or `.timeLimit` used as a check). Inject
+    a clock or a `now` when the code under test reads the time.
+  - Use `AgentOSTestSupport` (`Tests/AgentOSAdaptersTests/Shared/HangGuard.swift`): hold fake agents at a
+    `TestGate` the test opens; wait for a condition with `eventually`; wrap anything that could hang in
+    `withHangGuard`. Their long timeouts only turn a hang into a failure. A short wait can't prove that
+    something doesn't happen: check it at a point where it would already have happened.
+  - Fake agents in one test change different files, so whichever lands first can't leave the others with
+    nothing to do. Say whether a round waits for its agents: `runRound(waitForAgents: true)` or
+    `runUntilIdle()`.
+- Tests prove behaviour that stays true, not the scope of one ticket. Don't pin files by checksum, assert
+  that unrelated files or docs stay unchanged, or compare a whole list such as `EventKind` names or
+  `allCases` for equality: such a test blocks every later change to them. Check that what the ticket needs is
+  there (`contains`). The harness already enforces what a ticket may touch.
+- Tests use their own temporary directories and in-memory fakes, never shared paths, the real Application
+  Support folder, or global state another test could change at the same time: suites run in parallel.
 - If tests fail in ways that make no sense after changing enums such as `EventKind`, run `rm -rf .build`
   in `AgentOSKit` and try again.
 

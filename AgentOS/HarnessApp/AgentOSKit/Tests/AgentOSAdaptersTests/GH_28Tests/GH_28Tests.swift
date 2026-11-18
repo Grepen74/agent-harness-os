@@ -240,9 +240,12 @@ struct GH_28Tests {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let copilot = directory.appending(path: "copilot")
-        // Each attempt takes 1.5 s to say its model isn't available; the run has 2 s in all, not 2 s per model.
+        // Each attempt takes at least 1.5 s to say its model isn't available; the run has 2 s in all, not 2 s per
+        // model. A third attempt could only start after 3 s, so the run times out with models left to try.
+        let attempts = directory.appending(path: "attempts")
         try """
         #!/bin/sh
+        echo attempt >> "\(attempts.path)"
         sleep 1.5
         echo "Execution failed: Model \\"m\\" is not available."
         exit 1
@@ -250,9 +253,10 @@ struct GH_28Tests {
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: copilot.path)
 
         let cli = CopilotCLI(executable: copilot.path, model: "m", fallbackModels: ["n", "o", nil], timeout: .seconds(2))
-        let started = ContinuousClock.now
-        await #expect(throws: AgentFailure.self) { try await cli.runFallingBack("work", in: directory) }
-        #expect(ContinuousClock.now - started < .seconds(4))
+        let error = await #expect(throws: AgentFailure.self) { try await cli.runFallingBack("work", in: directory) }
+        #expect(error?.outOfTime == true, "The run must time out rather than try every model")
+        let started = (try? String(contentsOf: attempts, encoding: .utf8))?.split(separator: "\n").count ?? 0
+        #expect(started <= 2, "Started \(started) attempts; each model must not get its own 2 s")
     }
 
     @Test

@@ -8,7 +8,7 @@ import AgentOSCore
 import AgentOSAdapters
 import AgentOSSimulation
 
-@Suite(.timeLimit(.minutes(1)))
+@Suite(.timeLimit(.minutes(5)))
 struct GH_65Tests {
     @Test
     static func retryThenWarnPersistsBothChecksAndApprovesTheStoredSecondProposal() async throws {

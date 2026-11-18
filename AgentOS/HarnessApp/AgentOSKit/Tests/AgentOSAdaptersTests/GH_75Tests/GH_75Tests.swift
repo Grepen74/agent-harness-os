@@ -10,7 +10,7 @@ import Vision
 @testable import AgentOSCore
 @testable import AgentOSUI
 
-@Suite(.timeLimit(.minutes(1))) struct GH_75Tests {
+@Suite(.timeLimit(.minutes(5))) struct GH_75Tests {
     @Test(arguments: [false, true])
     func decomposerAcceptsPredictedFilesAndDirectoriesAlongsideChildrenWithoutPaths(bareArray: Bool) throws {
         let children = """

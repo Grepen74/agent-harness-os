@@ -7,7 +7,7 @@ import Testing
 import AgentOSCore
 
 @Suite struct GH_66Tests {
-    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    @Test(.timeLimit(.minutes(5)), arguments: [false, true])
     func bothRoundModesPreserveHumanGatesChecksLandingAndStatus(waiting: Bool) async throws {
         let fixture = try Fixture()
         defer { fixture.removeFiles() }
@@ -54,7 +54,7 @@ import AgentOSCore
         #expect(await fixture.ledger.verifyChain().isIntact)
     }
 
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(5)))
     func previewRemainsUnadoptedAndItsStoredProposalIsReused() async throws {
         let fixture = try Fixture()
         defer { fixture.removeFiles() }
@@ -81,7 +81,7 @@ import AgentOSCore
         #expect(!adopted.hasGate(.build, at: node.id))
     }
 
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(5)))
     func restartRecoveryReclaimsAnOrphanAndPreservesAuthoredTests() async throws {
         let fixture = try Fixture()
         defer { fixture.removeFiles() }
@@ -111,7 +111,7 @@ import AgentOSCore
         #expect(await fixture.ledger.verifyChain().isIntact)
     }
 
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(5)))
     func shutdownPreventsNewWorkInEitherRoundMode() async throws {
         let fixture = try Fixture()
         defer { fixture.removeFiles() }

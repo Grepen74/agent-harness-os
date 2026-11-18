@@ -1,6 +1,7 @@
 // GH-63: Detect the models your Copilot account offers, and the reasoning efforts each supports.
 
 import AgentOSCore
+import AgentOSTestSupport
 import Foundation
 import Testing
 @testable import AgentOSAdapters
@@ -68,12 +69,12 @@ struct GH_63Tests {
         #expect(exited.contains("stopped before answering"))
         #expect(exited.contains("not logged in"))
 
-        let hangs = try FakeACP(script: "#!/bin/sh\necho 'still thinking' >&2\nsleep 30\n")
+        // The fake outlives the hang guard, so detection only ends in time if its timeout stops the CLI.
+        let hangs = try FakeACP(script: "#!/bin/sh\necho 'still thinking' >&2\nexec sleep 600\n")
         defer { hangs.cleanup() }
-        let started = ContinuousClock.now
         // Long enough for the fake to start and speak on a machine busy running the whole suite.
-        let hung = await failure(of: CopilotModelDetector(executable: hangs.executable.path, timeout: .seconds(10)))
-        #expect(ContinuousClock.now - started < .seconds(25))
+        let detector = CopilotModelDetector(executable: hangs.executable.path, timeout: .seconds(10))
+        let hung = try await withHangGuard("Detection with a hanging CLI") { await failure(of: detector) }
         #expect(hung.contains("within"))
         #expect(hung.contains("still thinking"))
     }
@@ -90,7 +91,7 @@ struct GH_63Tests {
         try fake.answer("new", ["sessionId": "s1", "configOptions": [FakeACP.modelOption(current: "auto")]])
 
         // The fake waits for each reply, so detection only finishes if both requests were answered.
-        let catalog = try await CopilotModelDetector(executable: fake.executable.path, timeout: .seconds(20)).detect()
+        let catalog = try await CopilotModelDetector(executable: fake.executable.path, timeout: .seconds(600)).detect()
 
         #expect(catalog.defaultModel == "auto")
         let replies = try fake.replies()
@@ -103,18 +104,17 @@ struct GH_63Tests {
 
     @Test
     func cancellingDetectionStopsTheCLIPromptlyAndSaysNothing() async throws {
-        let hangs = try FakeACP(script: "#!/bin/sh\necho $$ > \"$(dirname \"$0\")/pid\"\nsleep 30\n")
+        // The fake and detection's own timeout both outlive the hang guard, so only cancelling can end it in time.
+        let hangs = try FakeACP(script: "#!/bin/sh\necho $$ > \"$(dirname \"$0\")/pid\"\nexec sleep 600\n")
         defer { hangs.cleanup() }
-        let detection = Task { try await CopilotModelDetector(executable: hangs.executable.path).detect() }
+        let detector = CopilotModelDetector(executable: hangs.executable.path, timeout: .seconds(600))
+        let detection = Task { try await detector.detect() }
         let pidFile = hangs.directory.appending(path: "pid")
-        while !FileManager.default.fileExists(atPath: pidFile.path) { try await Task.sleep(for: .milliseconds(20)) }
-        try await Task.sleep(for: .milliseconds(100))
-        let started = ContinuousClock.now
+        try await eventually("The CLI starting") { FileManager.default.fileExists(atPath: pidFile.path) }
 
         detection.cancel()
-        let result = await detection.result
+        let result = try await withHangGuard("Cancelled detection") { await detection.result }
 
-        #expect(ContinuousClock.now - started < .seconds(5))
         #expect(throws: CancellationError.self) { try result.get() }
         let pid = try #require(pid_t(String(contentsOf: pidFile, encoding: .utf8)
             .trimmingCharacters(in: .whitespacesAndNewlines)))

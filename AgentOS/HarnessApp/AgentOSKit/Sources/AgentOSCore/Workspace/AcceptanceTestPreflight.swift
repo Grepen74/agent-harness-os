@@ -11,6 +11,11 @@ public struct CompilerDiagnostic: Codable, Sendable, Hashable {
     public let message: String
     public let classification: CompilerDiagnosticClassification
 
+    /// Starts the message of a finding that breaks the test rules (a fixed sleep, say) rather than the compiler's.
+    public static let testRulePrefix = "breaks the test rules: "
+
+    public var breaksTestRules: Bool { message.hasPrefix(Self.testRulePrefix) }
+
     public init(file: String, line: Int, message: String, classification: CompilerDiagnosticClassification) {
         self.file = file
         self.line = line

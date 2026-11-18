@@ -82,7 +82,7 @@ private extension CopilotReviewerTests {
             """.write(to: copilot, atomically: true, encoding: .utf8)
             try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: copilot.path)
             log = directory.appending(path: "review.log")
-            reviewer = CopilotReviewer(cli: CopilotCLI(executable: copilot.path, timeout: .seconds(10)))
+            reviewer = CopilotReviewer(cli: CopilotCLI(executable: copilot.path, timeout: .seconds(600)))
             request = ReviewRequest(
                 stage: .acceptanceTests, spec: CopilotReviewerTests.spec, acceptanceTests: [:],
                 context: ReviewContext(baseBranch: "main", commit: "c", fullDiff: "", changedFiles: [],

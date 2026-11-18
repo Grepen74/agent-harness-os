@@ -146,8 +146,8 @@ public final class RepositorySession: Sendable {
     }
 
     /// Rounds that don't wait for the agents they start, until nothing more happens without a human (or `maxRounds`
-    /// is reached). A round with no new actions while agents are running isn't idle: the next round follows after
-    /// `pause`.
+    /// is reached). A round with no new actions while agents are running, or while an escalation waits to try again
+    /// by itself, isn't idle: the next round follows after `pause`.
     @discardableResult
     public func runUntilIdle(maxRounds: Int = 50, pause: Duration = .milliseconds(100),
                              onRound: (@Sendable (RoundReport) -> Void)? = nil) async -> [RoundReport] {
@@ -156,7 +156,8 @@ public final class RepositorySession: Sendable {
             let report = await step()
             reports.append(report)
             onRound?(report)
-            if report.isIdle || report.safeStop != nil { break }
+            // An escalation that tries again by itself later keeps the loop going until it does.
+            if report.isIdle && report.retryDue == nil || report.safeStop != nil { break }
             if report.actions.isEmpty, round < maxRounds - 1 { try? await Task.sleep(for: pause) }
         }
         return reports

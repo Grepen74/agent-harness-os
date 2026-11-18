@@ -22,6 +22,48 @@ struct AcceptanceTestFeedbackTests {
         #expect(SwiftAcceptanceTestPreflight.packageRoot(for: "Other/Tests", in: root) == nil)
     }
 
+    @Test func testsThatDependOnTimingOrComparePinnedCaseListsComeBackBeforeCompiling() async throws {
+        let root = try tempRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let folder = root.appending(path: "Tests/GH_1Tests")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let lines = [
+            "try await Task.sleep(for: .milliseconds(50))",                   // 1
+            "DispatchQueue.main.asyncAfter(deadline: .now() + 1) { done() }", // 2
+            "@Test(.timeLimit(.minutes(1)))",                                 // 3
+            "#expect(Date().timeIntervalSince(start) < 2)",                   // 4
+            "#expect(EventKind.allCases == expected)",                        // 5
+            "usleep(1000)",                                                   // 6
+            "try await clock.sleep(until: deadline)",                         // 7
+            "let log = root.appending(path: \".agentos/scratch/run-12/out.txt\")", // 8
+            "// Task.sleep would make this flaky",
+            "func sleep(for duration: Duration) async throws { slept.append(duration) }",
+            "@Test(arguments: Guesswork.allCases)",
+            "#expect(EventKind.allCases.contains(.landed))",
+            "try await gate.wait(for: \"the agent\")",
+            "#expect(Date(timeIntervalSince1970: 42) == decoded.createdAt)",
+            "#expect(output.contains(\"try await Task.sleep(for: .seconds(1))\"))",
+            "/* Task.sleep and asyncAfter",
+            "   both make tests flaky: DispatchQueue.main.asyncAfter(deadline: .now()) */",
+            "let prompt = \"\"\"",
+            "    Never use Thread.sleep(forTimeInterval: 1) in tests.",
+            "    \"\"\"",
+        ]
+        try lines.joined(separator: "\n").write(to: folder.appending(path: "GH_1Tests.swift"), atomically: true, encoding: .utf8)
+
+        let findings = SwiftAcceptanceTestPreflight.testRuleFindings(in: root, testFolder: "Tests/GH_1Tests")
+
+        #expect(findings.map(\.line) == Array(1...8))
+        #expect(findings.allSatisfy { $0.file == "Tests/GH_1Tests/GH_1Tests.swift" })
+        #expect(findings.allSatisfy { $0.breaksTestRules && $0.classification == .testAuthorMistake })
+        guard case .diagnostics(let returned, _) = await SwiftAcceptanceTestPreflight()
+            .compileTests(in: root, testFolder: "Tests/GH_1Tests", expectedAPI: []) else {
+            Issue.record("Tests that break the rules must come back even without a package to compile")
+            return
+        }
+        #expect(returned == findings)
+    }
+
     @Test func clashingNamesAreTheTestsOwnMistake() throws {
         let root = try tempRoot()
         let file = root.appending(path: "Tests/GH_1Tests/GH_1Tests.swift").path

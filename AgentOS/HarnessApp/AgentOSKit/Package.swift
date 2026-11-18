@@ -63,7 +63,7 @@ let package = Package(
             path: "Tests/AgentOSAdaptersTests/GH_30_4Tests",
             swiftSettings: [.unsafeFlags(["-Xfrontend", "-disable-access-control"])]
         ),
-        .testTarget(name: "AgentOSSimulationTests", dependencies: ["AgentOSSimulation"]),
+        .testTarget(name: "AgentOSSimulationTests", dependencies: ["AgentOSSimulation", "AgentOSTestSupport"]),
         .testTarget(name: "AgentOSUITests", dependencies: ["AgentOSUI", "AgentOSTestSupport"]),
     ]
 )

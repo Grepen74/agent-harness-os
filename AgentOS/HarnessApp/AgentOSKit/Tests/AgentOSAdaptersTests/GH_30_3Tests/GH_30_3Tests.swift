@@ -301,7 +301,7 @@ struct GH_30_3Tests {
             printf '%s\\n' '{"questions":["Prompt capture only"],"children":[]}'
             """.write(to: executable, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
-        let team = AgentTeam.copilot(CopilotCLI(executable: executable.path, timeout: .seconds(10)))
+        let team = AgentTeam.copilot(CopilotCLI(executable: executable.path, timeout: .seconds(600)))
         _ = try await team.decomposer.proposeChildren(BreakdownRequest(
             spec: spec, guesswork: mode, codebase: root, agentContext: context
         ))

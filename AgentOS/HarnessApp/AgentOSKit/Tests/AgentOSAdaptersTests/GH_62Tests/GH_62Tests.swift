@@ -6,7 +6,7 @@ import Testing
 import AgentOSCore
 
 @Suite struct GH_62Tests {
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(5)))
     func noSignalCreatesNoWorkAndAnAgentCannotOpenHumanGates() async throws {
         let fixture = try Fixture()
         defer { fixture.removeFiles() }
@@ -26,7 +26,7 @@ import AgentOSCore
         #expect(await fixture.builder.calls == 0)
     }
 
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(5)))
     func previewCreatesNoNodesAndBreakdownReusesItsProposalWithoutAnotherDecomposerRun() async throws {
         let fixture = try Fixture(children: [
             ChildProposal(title: "Store a greeting", acceptanceCriteria: ["Greeting is stored"], touches: ["Storage"]),
@@ -63,7 +63,7 @@ import AgentOSCore
         #expect(await fixture.builder.calls == 0)
     }
 
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(5)))
     func authoredTestsWaitForHumanBuildThenIndependentChecksAndLandingProveTheLeaf() async throws {
         let fixture = try Fixture()
         defer { fixture.removeFiles() }
@@ -99,7 +99,7 @@ import AgentOSCore
         #expect(await fixture.ledger.verifyChain().isIntact)
     }
 
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(5)))
     func aReportedOwnBrokenTestReturnsToItsAuthorAndCanThenBeBuiltAndLanded() async throws {
         let fixture = try Fixture(brokenTest: BrokenTestReport(
             testName: "GH_62Tests.greeting", reason: "The expected greeting is contradictory."
@@ -123,7 +123,7 @@ import AgentOSCore
         #expect(await fixture.tracker.comments.contains { $0.text.contains("sent back to the test author") })
     }
 
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(5)))
     func anotherSuitesBrokenTestGoesToTheTestAuthorWithItsName() async throws {
         let fixture = try Fixture(brokenTest: BrokenTestReport(
             testName: "OtherTests.greeting", reason: "An existing requirement disagrees."
@@ -144,7 +144,7 @@ import AgentOSCore
         })
     }
 
-    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    @Test(.timeLimit(.minutes(5)), arguments: [false, true])
     func failedChecksOrChangedAcceptanceTestsCannotReachMain(changesTests: Bool) async throws {
         let fixture = try Fixture(changesTests: changesTests, checksPass: changesTests,
                                   policy: Policy(maxAttempts: 1))
@@ -171,7 +171,7 @@ import AgentOSCore
         #expect(await fixture.tracker.status("GH-62") == state.status(of: leaf))
     }
 
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(5)))
     func aLandingConflictReworksImplementationWithoutRewritingTestsOrCountingAFailedAttempt() async throws {
         let fixture = try Fixture(conflictOnce: true)
         defer { fixture.removeFiles() }
@@ -189,7 +189,7 @@ import AgentOSCore
         })
     }
 
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(5)))
     func restartRecoveryExpiresAnOrphanedClaimAndAllowsItsWorkToFinish() async throws {
         let fixture = try Fixture()
         defer { fixture.removeFiles() }

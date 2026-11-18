@@ -1,4 +1,5 @@
 import AgentOSCore
+import AgentOSTestSupport
 import Dispatch
 import Foundation
 import Synchronization
@@ -50,7 +51,7 @@ extension GH_77Tests {
         }
         func value(operation: String = "explicit scheduling signal") async throws -> Value {
             let timeout = DispatchWorkItem { self.resolve(.failure(Timeout(operation: operation))) }
-            DispatchQueue.global().asyncAfter(deadline: .now() + 10, execute: timeout)
+            DispatchQueue.global().asyncAfter(deadline: .now() + HangGuard.seconds, execute: timeout)
             defer { timeout.cancel() }
             return try await withCheckedThrowingContinuation { continuation in
                 let result = state.withLock { state -> Result<Value, any Error>? in

@@ -306,7 +306,11 @@ The strictest level among the overall policy and every declared or actually chan
 A lower repo level, including an area below the overall level, is a start blocker. The effective
 Review level and Reviewer rows each retain their own harness/repo source.
 
-Before the acceptance-test review, a Swift package's tests are compiled. Errors only the tests can cause (syntax, clashing
+Before the acceptance-test review, the Swift files in the leaf's test folder are checked against the test
+rules: no fixed sleeps, delayed dispatches, time limits or assertions on how long something took, and no
+equality comparison of a whole `allCases` list. Such tests pass alone but fail on a busy machine, or fail
+every later ticket, so they go back to the test author ("break the test rules") without a review round,
+like compiler errors. Then a Swift package's tests are compiled. Errors only the tests can cause (syntax, clashing
 names, a test nested in another test, a file named like another in the same test target) send them back to
 the test author without using a review round; errors from API that doesn't exist yet are expected. That
 includes a member the test author reported on a protocol but calls on a type that conforms to it, and calls
@@ -529,20 +533,31 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
 - **Checks** before landing: the leaf's tests (and older tests its test author updated) are unchanged
   since they were approved, no other leaf's tests changed, and no protected path changed. Then the leaf's tests (`test.only`), then all checks at landing.
   When only tests outside the leaf's own suite fail (another ticket's or a suite no ticket owns), the harness
-  first runs the whole check again, unchanged. If that passes, it lands and reports an unreliable test.
-  If it fails again, the failing suites of both runs are run alone (`test.only`, one suite at a time), with
+  first waits for every other running agent step and preview to finish, starting none meanwhile, so load
+  from other work can't cause the failure. With the machine quiet, it runs the whole check again, unchanged,
+  and does the diagnosis below. If that passes, it lands and reports an unreliable test. If it fails again, the failing suites of both runs are run alone (`test.only`, one suite at a time), with
   the change and on latest `agentos/main` without it. These isolated runs only diagnose; they never land.
   - Failing on main too: a main/infrastructure problem, with no failed attempt; fix it and add `harness:retry`.
   - Failing alone with the change but not on main: a requirements conflict when every failing suite belongs
     to a proven ticket, otherwise the leaf's own failure.
-  - Passing alone both ways: unreliable tests or interference under load (timing, say), not a conflict: the
-    node stays in landing, escalated, with no failed attempt and no comment on the other tickets; make those
-    tests reliable and add `harness:retry`.
+  - Passing alone both ways: the whole check runs once more on latest `agentos/main` without the change.
+    If it passes, the change disturbs those tests (shared state, order, timing or load): the leaf's own
+    mistake, reworked like any other, never a requirements conflict. If it fails too, or the checks can't
+    run one suite: unreliable tests or interference under load, not a conflict: the node stays in landing,
+    escalated, with no failed attempt and no comment on the other tickets; make those tests reliable and add
+    `harness:retry`. If main's whole check doesn't finish, it's an infrastructure problem.
   - A selection whose output says it ran no tests ("Test run with 0 tests", "Executed 0 tests") is an
     infrastructure problem (check `test.only`), not a pass. Without `test.only` the isolated run is the whole
     test command.
 
   Reports name the failing tests and include every rerun outcome.
+- **Trying again by itself.** An escalation caused by the machine rather than the change (a landing
+  infrastructure problem, unreliable tests, a runner crash repeated after its retry) clears itself 10, 30
+  and then 90 minutes after it was raised, with a "🔁 Trying again by itself (n of 3)" comment. The work
+  still needs every check to pass; failing again escalates again and starts the next, longer wait. After
+  the third, the escalation stays for a person. Anything a person does on the ticket (a label, an answer)
+  starts the count again. Escalations about the change itself (its own failures, requirements conflicts,
+  review limits) never clear by themselves. `agentos run` keeps going while such a retry is pending.
 - **Landing** is a fast-forward of the landing branch with `git update-ref` (compare-and-swap), so no checkout
   is involved. It's refused while any checkout has the landing branch checked out, because moving it there
   would make that working copy look modified.

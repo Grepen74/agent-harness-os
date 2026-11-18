@@ -9,6 +9,7 @@ import Foundation
 import Testing
 import AgentOSCore
 import AgentOSAdapters
+import AgentOSTestSupport
 
 @Suite @MainActor
 struct GH_52Tests {
@@ -365,7 +366,7 @@ struct GH_52Tests {
     }
 
     nonisolated private static func eventually(_ condition: @Sendable () -> Bool) async throws {
-        let deadline = ContinuousClock.now + .seconds(15)
+        let deadline = ContinuousClock.now + HangGuard.timeout
         while !condition() {
             guard ContinuousClock.now < deadline else { throw AgentFailure("GH-52 child process did not become ready") }
             try await Task.sleep(for: .milliseconds(10))
@@ -533,7 +534,7 @@ struct GH_52Tests {
             return await withCheckedContinuation { continuation in
                 waiters[id] = continuation
                 timers[id] = Task {
-                    do { try await Task.sleep(for: .seconds(30)) }
+                    do { try await Task.sleep(for: HangGuard.timeout) }
                     catch { return }
                     expire(id)
                 }
@@ -597,7 +598,7 @@ struct GH_52Tests {
             calls += 1
             let tree = tree
             let process = Task {
-                try await ProcessRunner.run("/bin/sh", ["parent.sh"], in: tree.directory, timeout: .seconds(20))
+                try await ProcessRunner.run("/bin/sh", ["parent.sh"], in: tree.directory, timeout: .seconds(600))
             }
             let cancelled = cancelled
             let complete = complete
@@ -642,7 +643,7 @@ struct GH_52Tests {
             try """
                 trap '' TERM
                 echo $$ > child.pid
-                /bin/sleep 30 &
+                /bin/sleep 600 &
                 echo $! > grandchild.pid
                 wait
                 """.write(to: directory.appending(path: "child.sh"), atomically: true, encoding: .utf8)

@@ -40,6 +40,10 @@ public struct Policy: Sendable, Equatable {
     /// Landing is always one at a time.
     public var maxParallelAgents = 1
     public var avoidOverlappingWork = true
+    /// How long the harness waits before it tries again, by itself, work stopped by an infrastructure problem (a
+    /// test runner that keeps crashing, tests failing only under load, a broken landing branch): one wait per try
+    /// since a person last acted. After the last, the work waits for a person. Empty: only people retry.
+    public var infrastructureRetryDelays: [TimeInterval] = [10 * 60, 30 * 60, 90 * 60]
     /// The signals people may use (doc 05 §3). Production: the harness layer sets what each profile may offer
     /// and the repo config may only switch signals off (doc 04 §8); strict profiles leave out `go`.
     public var allowedSignals: Set<HarnessCommand>

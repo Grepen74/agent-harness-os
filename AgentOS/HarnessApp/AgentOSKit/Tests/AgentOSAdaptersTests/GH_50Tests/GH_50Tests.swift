@@ -5,6 +5,7 @@
 // exercise the otherwise unobservable reservation-before-claim interval without scheduler races.
 
 import AgentOSCore
+import AgentOSTestSupport
 import Foundation
 import Testing
 
@@ -416,7 +417,7 @@ struct GH_50Tests {
         _ predicate: @Sendable () async -> Bool
     ) async throws -> Bool {
         let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(5))
+        let deadline = clock.now.advanced(by: HangGuard.timeout)
         repeat {
             if await predicate() { return true }
             try await Task.sleep(for: .milliseconds(5))
@@ -506,20 +507,17 @@ struct GH_50Tests {
         }
 
         func roundReturningWhileHeld() async throws -> RoundReport {
-            let result = RoundResult()
-            let task = Task {
-                let report = await self.reconciler.runRound()
-                await result.set(report)
-                return report
-            }
-            let returned = try await GH_50Tests.eventually { await result.report != nil }
-            if !returned {
-                // Release barriers before awaiting the failed round so the old synchronous scheduler
-                // fails an assertion instead of hanging the test process and hiding later failures.
+            let reconciler = self.reconciler
+            let report: RoundReport
+            do {
+                report = try await withHangGuard("runRound() with a node step held") { await reconciler.runRound() }
+            } catch {
+                // Release barriers so a round that waits for a held node step fails the test instead of
+                // hanging the test process and hiding later failures.
                 await releaseAll()
+                Issue.record("runRound() waited for a held node step")
+                throw error
             }
-            let report = await task.value
-            try #require(returned, "runRound() waited for a held node step")
             #expect(report.safeStop == nil)
             return report
         }
@@ -585,11 +583,6 @@ struct GH_50Tests {
             waiters.removeAll()
             for waiter in pending { waiter.resume() }
         }
-    }
-
-    private actor RoundResult {
-        private(set) var report: RoundReport?
-        func set(_ report: RoundReport) { self.report = report }
     }
 
     private actor HeldAuthor: TestAuthor {

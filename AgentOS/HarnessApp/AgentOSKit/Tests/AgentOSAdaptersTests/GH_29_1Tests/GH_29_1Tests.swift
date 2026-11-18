@@ -190,6 +190,28 @@ struct GH_29_1Tests {
     }
 
     @Test
+    func testsThatBreakTheTestRulesComeBackSayingSoRatherThanThatTheyDontCompile() async throws {
+        let finding = CompilerDiagnostic(
+            file: "Tests/AgentOSAdaptersTests/GH_29_1Tests/GH_29_1Tests.swift",
+            line: 12,
+            message: CompilerDiagnostic.testRulePrefix + "a fixed sleep",
+            classification: .testAuthorMistake
+        )
+        let fixture = try await Fixture(preflight: .init(outcomes: [.diagnostics([finding], fullLog: "rules")]), maxAttempts: 1)
+
+        _ = await fixture.reconciler.runRound(waitForAgents: true)
+
+        let node = try await fixture.node()
+        let reason = try #require(node.flags[.needsInput])
+        #expect(reason.contains("Acceptance tests break the test rules"))
+        #expect(!reason.contains("compile"))
+        #expect(node.evidence.last?.details?.contains("must pass on a busy machine") == true)
+        let comment = try #require(await fixture.tracker.comments.last)
+        #expect(comment.contains("GH_29_1Tests.swift:12: breaks the test rules: a fixed sleep"))
+        #expect(await fixture.implementer.tasks.isEmpty)
+    }
+
+    @Test
     func aRetestGivesTheTestAuthorFreshAttemptsAfterTheLimitWasReached() async throws {
         let mistake = CompilerDiagnostic(
             file: "Tests/AgentOSAdaptersTests/GH_29_1Tests/GH_29_1Tests.swift",

@@ -1,6 +1,7 @@
 import AgentOSAdapters
 @testable import AgentOSCore
 import AgentOSSimulation
+import AgentOSTestSupport
 import Dispatch
 import Foundation
 import Synchronization
@@ -30,8 +31,8 @@ extension GH_49Tests {
 
         func value() async throws -> Value {
             let timeout = DispatchWorkItem { self.resolve(.failure(Timeout())) }
-            // Generous: a real hang still fails, but repository steps can be slow while the full suite runs in parallel.
-            DispatchQueue.global().asyncAfter(deadline: .now() + 30, execute: timeout)
+            // Only catches a hang: repository steps can be slow while the full suite runs in parallel.
+            DispatchQueue.global().asyncAfter(deadline: .now() + HangGuard.seconds, execute: timeout)
             defer { timeout.cancel() }
             return try await withCheckedThrowingContinuation { continuation in
                 let result = state.withLock { state -> Result<Value, any Error>? in

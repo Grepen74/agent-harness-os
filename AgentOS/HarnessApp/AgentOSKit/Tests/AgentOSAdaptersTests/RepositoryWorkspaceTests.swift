@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import AgentOSAdapters
 import AgentOSCore
+import AgentOSTestSupport
 
 /// Real-repo mode end to end on a temp git repo: fake agents, and "tests" that are shell scripts so a run takes
 /// seconds. Each leaf's suite is `Tests/AppTests/<Suite>/check.sh`.
@@ -476,7 +477,7 @@ struct RepositoryWorkspaceTests {
             busy += 1
             peak = max(peak, busy)
             if releaseIfMet() { return }
-            let timeout = Task { try await Task.sleep(for: .seconds(20)); self.releaseAll() }
+            let timeout = Task { try await Task.sleep(for: HangGuard.timeout); self.releaseAll() }
             await withCheckedContinuation { waiters.append($0) }
             timeout.cancel()
         }
@@ -539,7 +540,7 @@ struct RepositoryWorkspaceTests {
 
         func wait(for moment: String) async {
             guard !reached.contains(moment) else { return }
-            let timeout = Task { try await Task.sleep(for: .seconds(20)); self.reach(moment) }
+            let timeout = Task { try await Task.sleep(for: HangGuard.timeout); self.reach(moment) }
             await withCheckedContinuation { waiters[moment, default: []].append($0) }
             timeout.cancel()
         }
@@ -592,7 +593,7 @@ struct RepositoryWorkspaceTests {
             name: "Halfway", decomposer: Leaf(), testAuthor: ShellTestAuthor(), implementer: HalfwayImplementer(pause: pause)))
         let key = await ticket(session)
         let work = Task { await session.runUntilFinished() }
-        while await !pause.reached { try await Task.sleep(for: .milliseconds(20)) }
+        try await eventually("The implementer reaching its pause") { await pause.reached }
 
         let node = try #require(await session.ledger.workingState().running.first)
         let run = try #require(node.activeRun)
@@ -770,11 +771,9 @@ struct RepositoryWorkspaceTests {
         let session = try await session(repo, team: AgentTeam(name: "Fake", decomposer: Leaf(), testAuthor: ShellTestAuthor(),
                                                               implementer: implementer))
         let key = await ticket(session)
-        var rounds = 0
-        while await !implementer.wrote, rounds < 200 {
+        try await eventually("The implementer writing its work") {
             _ = await session.step(waitForAgents: false)
-            try await Task.sleep(for: .milliseconds(50))
-            rounds += 1
+            return await implementer.wrote
         }
         let run = try #require(await session.ledger.workingState().node(forTicket: key)?.activeRun?.run)
 
@@ -786,18 +785,22 @@ struct RepositoryWorkspaceTests {
 
     actor WritesThenWaits: AgentOSCore.Implementer {
         private(set) var wrote = false
+        private let stopped = TestGate()
         func implement(_ task: AgentTask) async throws {
             try "hel\n".write(to: task.directory.appending(path: "app.txt"), atomically: true, encoding: .utf8)
             wrote = true
-            try await Task.sleep(for: .seconds(60))
+            // Nothing opens it: only stopping the run ends the wait.
+            try await stopped.wait(for: "The implementer being stopped")
         }
     }
 
     @Test("A failed run whose work can't be kept goes to a person instead of being retried over it")
     func unfinishedWorkThatCantBeKeptEscalates() async throws {
         let repo = try await makeRepo()
+        let held = HeldGitLock()
+        defer { held.release() }
         let session = try await session(repo, team: AgentTeam(name: "Fake", decomposer: Leaf(), testAuthor: ShellTestAuthor(),
-                                                              implementer: LocksTheIndex()))
+                                                              implementer: LocksTheIndex(held: held)))
         let key = await ticket(session)
 
         _ = await session.runUntilFinished()
@@ -810,12 +813,36 @@ struct RepositoryWorkspaceTests {
     }
 
     struct LocksTheIndex: AgentOSCore.Implementer {
+        let held: HeldGitLock
         func implement(_ task: AgentTask) async throws {
             try "hel\n".write(to: task.directory.appending(path: "app.txt"), atomically: true, encoding: .utf8)
             let gitDirectory = try await ProcessRunner.run("/usr/bin/env", ["git", "rev-parse", "--absolute-git-dir"], in: task.directory)
                 .output.trimmingCharacters(in: .whitespacesAndNewlines)
-            FileManager.default.createFile(atPath: gitDirectory + "/index.lock", contents: nil)
+            try await held.hold(URL(filePath: gitDirectory + "/index.lock"))
             throw AgentFailure("copilot timed out after 1200.0 seconds")
+        }
+    }
+
+    /// Keeps a git lock file open in another process, as a running git does, so the harness never takes it for one a
+    /// killed git left behind, however long the test takes.
+    final class HeldGitLock: @unchecked Sendable {
+        private let lock = NSLock()
+        private var holder: Process?
+
+        func hold(_ file: URL) async throws {
+            FileManager.default.createFile(atPath: file.path, contents: nil)
+            let process = Process()
+            process.executableURL = URL(filePath: "/bin/sh")
+            process.arguments = ["-c", "exec 3>>\"$1\"; exec sleep 600", "sh", file.path]
+            try process.run()
+            lock.withLock { holder = process }
+            try await eventually("The git lock being held open") { GitLocks.isOpen(file) }
+        }
+
+        func release() {
+            guard let process = lock.withLock({ () -> Process? in defer { holder = nil }; return holder }) else { return }
+            process.terminate()
+            process.waitUntilExit()
         }
     }
 
@@ -980,7 +1007,7 @@ struct RepositoryWorkspaceTests {
         let log = directory.appending(path: "agent.log")
         try "an earlier run: Denied, no one to approve shell path (/old)\n".write(to: log, atomically: true, encoding: .utf8)
 
-        let cli = CopilotCLI(executable: copilot.path, timeout: .seconds(10))
+        let cli = CopilotCLI(executable: copilot.path, timeout: .seconds(600))
         _ = try await cli.run("implement", in: directory, log: log, silent: false)
         let last = try #require(try String(contentsOf: log, encoding: .utf8).split(separator: "\n").last)
         #expect(last.contains("Harness: 3 requests were denied"))
@@ -1057,7 +1084,9 @@ struct RepositoryWorkspaceTests {
     @Test("Tests a failed run left uncommitted without a kept draft are continued after harness:retry")
     func leftoverTestsAreAdoptedAsADraft() async throws {
         let repo = try await makeRepo()
-        let author = LocksTheIndexOnce()
+        let held = HeldGitLock()
+        defer { held.release() }
+        let author = LocksTheIndexOnce(held: held)
         let session = try await session(repo, team: AgentTeam(name: "Fake", decomposer: Leaf(), testAuthor: author,
                                                               implementer: Implementer()))
         let key = await ticket(session)
@@ -1067,6 +1096,7 @@ struct RepositoryWorkspaceTests {
         #expect(stopped.testDraft == nil)
 
         let gitDirectory = try await git(["rev-parse", "--absolute-git-dir"], in: session.workspace.worktree(for: stopped.id))
+        held.release()
         try FileManager.default.removeItem(atPath: gitDirectory + "/index.lock")
         await session.tracker.addLabel("harness:retry", to: key, by: .human("Alice"))
         let reports = await session.runUntilFinished()
@@ -1076,8 +1106,10 @@ struct RepositoryWorkspaceTests {
     }
 
     actor LocksTheIndexOnce: TestAuthor {
+        let held: HeldGitLock
         private var locked = false
         private(set) var carriedOver: [String]?
+        init(held: HeldGitLock) { self.held = held }
         func writeAcceptanceTests(_ task: AgentTask) async throws -> AgentReport {
             guard !locked else {
                 carriedOver = task.unfinishedWork.sorted()
@@ -1089,7 +1121,7 @@ struct RepositoryWorkspaceTests {
             try "grep -q hello app.txt\n".write(to: test, atomically: true, encoding: .utf8)
             let gitDirectory = try await ProcessRunner.run("/usr/bin/env", ["git", "rev-parse", "--absolute-git-dir"], in: task.directory)
                 .output.trimmingCharacters(in: .whitespacesAndNewlines)
-            FileManager.default.createFile(atPath: gitDirectory + "/index.lock", contents: nil)
+            try await held.hold(URL(filePath: gitDirectory + "/index.lock"))
             throw AgentFailure("copilot timed out after 1200.0 seconds")
         }
     }
@@ -1454,11 +1486,9 @@ struct RepositoryWorkspaceTests {
         let session = try await session(repo, team: AgentTeam(name: "Fake", decomposer: Leaf(), testAuthor: author,
                                                               implementer: Implementer()))
         let key = await ticket(session)
-        var rounds = 0
-        while await !author.wrote, rounds < 200 {
+        try await eventually("The test author writing its draft") {
             _ = await session.step(waitForAgents: false)
-            try await Task.sleep(for: .milliseconds(50))
-            rounds += 1
+            return await author.wrote
         }
         let run = try #require(await session.ledger.workingState().node(forTicket: key)?.activeRun?.run)
 
@@ -1475,6 +1505,7 @@ struct RepositoryWorkspaceTests {
 
     actor WritesTestsThenWaits: TestAuthor {
         private(set) var wrote = false
+        private let stopped = TestGate()
         private(set) var carriedOver: [String]?
         func writeAcceptanceTests(_ task: AgentTask) async throws -> AgentReport {
             guard !wrote else {
@@ -1485,7 +1516,8 @@ struct RepositoryWorkspaceTests {
             try FileManager.default.createDirectory(at: test.deletingLastPathComponent(), withIntermediateDirectories: true)
             try "grep -q hello app.txt\n".write(to: test, atomically: true, encoding: .utf8)
             wrote = true
-            try await Task.sleep(for: .seconds(60))
+            // Nothing opens it: only stopping the run ends the wait.
+            try await stopped.wait(for: "The test author being stopped")
             return AgentReport()
         }
     }
@@ -1493,7 +1525,9 @@ struct RepositoryWorkspaceTests {
     @Test("Tests left by an earlier run that still can't be kept go to a person; the worktree holding them stays")
     func leftoverTestsThatCantBeKeptEscalate() async throws {
         let repo = try await makeRepo()
-        let author = LocksTheIndexOnce()
+        let held = HeldGitLock()
+        defer { held.release() }
+        let author = LocksTheIndexOnce(held: held)
         let session = try await session(repo, team: AgentTeam(name: "Fake", decomposer: Leaf(), testAuthor: author,
                                                               implementer: Implementer()))
         let key = await ticket(session)
@@ -1558,11 +1592,9 @@ struct RepositoryWorkspaceTests {
         team.diagnoser = diagnoser
         let session = try await session(repo, team: team)
         let key = await ticket(session)
-        var rounds = 0
-        while await diagnoser.started == 0, rounds < 400 {
+        try await eventually("The diagnoser starting") {
             _ = await session.step(waitForAgents: false)
-            try await Task.sleep(for: .milliseconds(50))
-            rounds += 1
+            return await diagnoser.started > 0
         }
         let run = try #require(await session.ledger.workingState().node(forTicket: key)?.activeRun?.run)
 
@@ -1585,11 +1617,9 @@ struct RepositoryWorkspaceTests {
         team.diagnoser = diagnoser
         let session = try await session(repo, team: team)
         let key = await ticket(session)
-        var rounds = 0
-        while await diagnoser.started == 0, rounds < 400 {
+        try await eventually("The diagnoser starting") {
             _ = await session.step(waitForAgents: false)
-            try await Task.sleep(for: .milliseconds(50))
-            rounds += 1
+            return await diagnoser.started > 0
         }
         let id = try #require(await session.ledger.workingState().node(forTicket: key)?.id)
 
@@ -1607,9 +1637,11 @@ struct RepositoryWorkspaceTests {
     /// Waits on its first diagnosis, so a test can stop it; answers later ones at once.
     actor WaitingDiagnoser: Diagnoser {
         private(set) var started = 0
+        private let stopped = TestGate()
         func diagnose(_ request: DiagnosisRequest) async throws -> Diagnosis {
             started += 1
-            if started == 1 { try await Task.sleep(for: .seconds(60)) }
+            // Nothing opens it: only stopping the diagnosis ends the wait.
+            if started == 1 { try await stopped.wait(for: "The diagnosis being stopped") }
             return Diagnosis(cause: "late", nextStep: "late")
         }
     }

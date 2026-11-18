@@ -353,12 +353,16 @@ extension Reconciler {
         )
         let commit = (try? await workspace.head(of: directory)) ?? "acceptance-tests"
         let summary = "\(first.file):\(first.line): \(first.message)"
+        // Tests that compile but would fail on a busy machine come back the same way as tests that don't compile.
+        let breaksRules = mistakes.allSatisfy(\.breaksTestRules)
+        let problem = breaksRules ? "break the test rules" : "don't compile"
         let own = workspace.testFolder(for: node.spec) + "/"
         let clashes = mistakes.contains { !$0.file.hasPrefix(own) }
             ? "\n\nErrors in other test files mean your tests declare names those files also declare. All test files "
                 + "compile together: make your helper types `private`, or nest them inside your suite."
             : ""
-        let details = "The acceptance tests didn't compile:\n"
+        let details = (breaksRules ? "The acceptance tests break the test rules (they must pass on a busy machine):\n"
+                                   : "The acceptance tests didn't compile:\n")
             + Self.uniqueLines(mistakes.map { "\($0.file):\($0.line): \($0.message)" }).prefix(20).joined(separator: "\n")
             + clashes
         let evidence = Evidence(
@@ -388,9 +392,9 @@ extension Reconciler {
             return false
         }.count
         let reachedLimit = authorAttempts >= policy.maxAttempts
-        let reason = "Acceptance tests don't compile. First error: \(summary)"
+        let reason = "Acceptance tests \(problem). First error: \(summary)"
         var kinds: [EventKind] = [
-            .runFinished(run: run, outcome: "acceptance tests did not compile"),
+            .runFinished(run: run, outcome: breaksRules ? "acceptance tests broke the test rules" : "acceptance tests did not compile"),
             .expectedAPIReported(report.expectedAPI),
             .assumptionsReported(role: .testAuthor, assumptions: assumptions),
             .acceptanceTestPreflightFailed(evidence),
@@ -403,18 +407,18 @@ extension Reconciler {
         let files = Set(mistakes.map(\.file)).sorted()
         let listed = Self.uniqueLines(mistakes.map { "\($0.file):\($0.line): \($0.message)" }).prefix(20).joined(separator: "\n")
         let heading = reachedLimit
-            ? "\(Self.needsInputMarker): Acceptance tests don't compile."
-            : "↩️ Acceptance tests don't compile; returned to the test author."
+            ? "\(Self.needsInputMarker): Acceptance tests \(problem)."
+            : "↩️ Acceptance tests \(problem); returned to the test author."
         await tracker.comment(on: node.ticket, """
             \(heading)
             Affected test files: \(files.joined(separator: ", "))
             \(listed)
-            Full compiler log: \(artifact.path)
+            Full \(breaksRules ? "preflight" : "compiler") log: \(artifact.path)
             \(reachedLimit ? "Fix the tests or comment with guidance, then add harness:retry." : "The test author will rerun with these diagnostics.")
             """)
         return reachedLimit
-            ? "\(node.displayName) acceptance tests don't compile → Needs input"
-            : "\(node.displayName) acceptance tests don't compile → returned to test author"
+            ? "\(node.displayName) acceptance tests \(problem) → Needs input"
+            : "\(node.displayName) acceptance tests \(problem) → returned to test author"
     }
 
     /// Each test file with the tests in it, so a person can review them before build.

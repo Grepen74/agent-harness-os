@@ -156,7 +156,7 @@ extension Reconciler {
                     "Its result will be posted here when it's done.")
             }
             let answers = try (node?.clarifications ?? []) + Self.newPreviewAnswers(on: ticket, for: node)
-            guard slotsInUse < max(1, policy.maxParallelAgents) else { throw WaitingForSlot() }
+            guard quietLandings == 0, slotsInUse < max(1, policy.maxParallelAgents) else { throw WaitingForSlot() }
             let run = Self.newRunID()
             let planned = team.runSettings?(.decomposer)
             previewRuns[ticket.key] = (run, Task { await self.runPreview(of: ticket, answers: answers, run: run, planned: planned) })

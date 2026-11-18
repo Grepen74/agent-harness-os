@@ -11,6 +11,10 @@ public struct SwiftAcceptanceTestPreflight: AcceptanceTestPreflight {
         testFolder: String,
         expectedAPI: [String]
     ) async -> AcceptanceTestPreflightResult {
+        let broken = Self.testRuleFindings(in: directory, testFolder: testFolder)
+        if !broken.isEmpty {
+            return .diagnostics(broken, fullLog: broken.map { "\($0.file):\($0.line): \($0.message)" }.joined(separator: "\n"))
+        }
         guard let package = Self.packageRoot(for: testFolder, in: directory) else { return .skipped }
         let result: ProcessRunner.Result
         do {
@@ -32,6 +36,114 @@ public struct SwiftAcceptanceTestPreflight: AcceptanceTestPreflight {
         return classified.testAuthorMistakes.isEmpty
             ? .compiled
             : .diagnostics(classified.diagnostics, fullLog: result.output)
+    }
+
+    /// What makes a test pass or fail with the machine's load rather than the code: a fixed wait, a delayed
+    /// dispatch, a time limit or a measured duration. And comparing a whole list of cases, which fails every later
+    /// ticket that adds one. Rules look at code only, not comments or strings, unless `inStrings` says so.
+    static let testRules: [(pattern: String, problem: String, inStrings: Bool)] = [
+        (#"\b(?:Task|Thread)\.sleep\b|(?<!func )(?<![\w.])u?sleep\s*\(|\.sleep\s*\(\s*(?:for|until)\s*:"#,
+         "a fixed sleep. Hold fake agents at a barrier the test opens, or wait for a condition", false),
+        (#"\.asyncAfter\s*\("#, "a delayed dispatch. Hold fake agents at a barrier the test opens instead", false),
+        (#"\.timeLimit\s*\("#, "a time limit, which fails healthy runs on a busy machine", false),
+        (#"#(?:expect|require)\b.*(?:\.timeIntervalSince\s*\(|\.timeIntervalSinceNow\b|\.measure\s*[({]|\.duration\s*\(\s*to\s*:)"#,
+         "an assertion on how long something took. Inject a clock if the code reads the time", false),
+        (#"\ballCases\s*==|==\s*[\w.()\[\]]*\.allCases\b"#,
+         "a comparison of all cases, which fails every later change that adds one. Check with contains", false),
+        (#"\.agentos/scratch/run-"#, "a path in one agent run's scratch folder, which is gone after that run", true),
+    ]
+
+    /// The test rules the Swift files in the test folder break, comments aside.
+    public static func testRuleFindings(in root: URL, testFolder: String) -> [CompilerDiagnostic] {
+        let folder = root.appending(path: testFolder)
+        guard let enumerator = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: nil,
+                                                              options: [.skipsHiddenFiles]) else { return [] }
+        let rules = testRules.compactMap { rule in
+            (try? NSRegularExpression(pattern: rule.pattern)).map { ($0, rule.problem, rule.inStrings) }
+        }
+        var findings: [CompilerDiagnostic] = []
+        let files = enumerator.compactMap { $0 as? URL }.filter { $0.pathExtension == "swift" }
+            .sorted { $0.path < $1.path }
+        for file in files {
+            guard let text = try? String(contentsOf: file, encoding: .utf8) else { continue }
+            let base = folder.resolvingSymlinksInPath().path
+            let path = testFolder + "/" + file.resolvingSymlinksInPath().path.dropFirst(base.count + 1)
+            let withStrings = blankingComments(in: text, andStrings: false)
+                .split(separator: "\n", omittingEmptySubsequences: false)
+            let code = blankingComments(in: text, andStrings: true).split(separator: "\n", omittingEmptySubsequences: false)
+            for number in code.indices {
+                for (regex, problem, inStrings) in rules {
+                    let line = String(inStrings ? withStrings[number] : code[number])
+                    guard regex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)) != nil else { continue }
+                    findings.append(CompilerDiagnostic(
+                        file: path, line: number + 1, message: CompilerDiagnostic.testRulePrefix + problem,
+                        classification: .testAuthorMistake
+                    ))
+                }
+            }
+        }
+        return findings
+    }
+
+    /// `text` with comments (and the contents of string literals if `andStrings`) replaced by spaces, keeping
+    /// line breaks so line numbers stay the same. Interpolations count as part of their string.
+    static func blankingComments(in text: String, andStrings: Bool) -> String {
+        enum Mode { case code, lineComment, blockComment(depth: Int), string(multiline: Bool) }
+        let characters = Array(text)
+        var result = ""
+        result.reserveCapacity(characters.count)
+        var mode = Mode.code
+        var index = 0
+        func blank(_ character: Character) -> Character { character.isNewline ? character : " " }
+        func starts(with token: String) -> Bool {
+            let token = Array(token)
+            return index + token.count <= characters.count && Array(characters[index..<index + token.count]) == token
+        }
+        while index < characters.count {
+            let character = characters[index]
+            switch mode {
+            case .code:
+                if starts(with: "//") {
+                    mode = .lineComment
+                    result += "  "; index += 2; continue
+                } else if starts(with: "/*") {
+                    mode = .blockComment(depth: 1)
+                    result += "  "; index += 2; continue
+                } else if starts(with: "\"\"\"") {
+                    mode = .string(multiline: true)
+                    result += "\"\"\""; index += 3; continue
+                } else if character == "\"" {
+                    mode = .string(multiline: false)
+                }
+                result.append(character)
+            case .lineComment:
+                if character.isNewline { mode = .code }
+                result.append(blank(character))
+            case .blockComment(let depth):
+                if starts(with: "*/") {
+                    mode = depth == 1 ? .code : .blockComment(depth: depth - 1)
+                    result += "  "; index += 2; continue
+                } else if starts(with: "/*") {
+                    mode = .blockComment(depth: depth + 1)
+                    result += "  "; index += 2; continue
+                }
+                result.append(blank(character))
+            case .string(let multiline):
+                if character == "\\", index + 1 < characters.count {
+                    result += andStrings ? "  " : String(characters[index...index + 1])
+                    index += 2; continue
+                } else if multiline ? starts(with: "\"\"\"") : character == "\"" {
+                    mode = .code
+                    result += multiline ? "\"\"\"" : "\""
+                    index += multiline ? 3 : 1; continue
+                } else if !multiline, character.isNewline {
+                    mode = .code
+                }
+                result.append(andStrings ? blank(character) : character)
+            }
+            index += 1
+        }
+        return result
     }
 
     public struct Classification: Sendable {

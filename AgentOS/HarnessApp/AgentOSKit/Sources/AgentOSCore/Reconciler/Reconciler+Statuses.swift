@@ -36,7 +36,8 @@ extension Reconciler {
 
     func write(_ node: NodeID?, by who: Participant, _ kinds: [EventKind], expecting version: Int? = nil) async throws {
         try Task.checkCancellation()
-        let events = kinds.map { LedgerEvent(node: node, by: who, kind: $0) }
+        let at = now()
+        let events = kinds.map { LedgerEvent(node: node, by: who, kind: $0, at: at) }
         let expecting = node.flatMap { id in version.map { [id: $0] } } ?? [:]
         let starting = kinds.compactMap { kind -> RunID? in
             if case .runStarted(let run, _) = kind { return run }

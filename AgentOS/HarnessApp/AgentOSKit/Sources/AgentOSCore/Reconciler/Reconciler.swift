@@ -5,6 +5,9 @@ public struct RoundReport: Sendable {
     /// Set when the reconciler refused to act (e.g. the ledger failed its integrity check).
     public var safeStop: String?
     public var hasRunningAgents = false
+    /// When the earliest escalation an infrastructure problem caused tries again by itself; until then, a loop that
+    /// stops on `isIdle` would never get to it.
+    public var retryDue: Date?
     public var isIdle: Bool { actions.isEmpty && !hasRunningAgents }
 
     public init(actions: [String] = [], safeStop: String? = nil, hasRunningAgents: Bool = false) {
@@ -51,15 +54,22 @@ public actor Reconciler {
     private var lifecycleFailure: String?
     /// Set while a round works through the landing queue; another round meanwhile skips landing.
     private var isLanding = false
+    /// Above zero while a landing check is rerun and diagnosed with no other work on the machine: no step or
+    /// preview starts, so the load that made tests fail the first time is gone.
+    var quietLandings = 0
     /// Awaited after a node step is reserved and before it runs or records its claim (a test seam).
     private let beforeStep: (@Sendable (NodeID) async -> Void)?
+    /// The time, for waits measured in minutes (a test seam).
+    let now: @Sendable () -> Date
 
     public init(ledger: Ledger, tracker: any TrackerAdapter, external: any ExternalDependencySource,
                 workspace: any Workspace, artifacts: any ArtifactStore, checks: any CheckRunner, team: AgentTeam,
                 policy: Policy = Policy(),
                 acceptanceTestPreflight: any AcceptanceTestPreflight = SkippedAcceptanceTestPreflight(),
-                beforeStep: (@Sendable (NodeID) async -> Void)? = nil) {
+                beforeStep: (@Sendable (NodeID) async -> Void)? = nil,
+                now: @escaping @Sendable () -> Date = { Date() }) {
         self.beforeStep = beforeStep
+        self.now = now
         self.ledger = ledger
         self.artifacts = artifacts
         self.tracker = tracker
@@ -131,6 +141,9 @@ public actor Reconciler {
         await intakeExternal(&report)
 
         do {
+            let retries = try await retryInfrastructureProblems(in: await ledger.workingState())
+            report.actions += retries.actions
+            report.retryDue = retries.nextDue
             if waitForAgents {
                 await self.waitForAgents()
                 try await advanceAll(&report)
@@ -175,6 +188,22 @@ public actor Reconciler {
             let pending = Array(tasks.values)
             for task in pending { _ = await task.value }
             for preview in Array(previewRuns.values) { await preview.task.value }
+        }
+    }
+
+    /// Waits until every step but `id`'s, and every preview, has finished. Used with `quietLandings`, so none
+    /// starts meanwhile.
+    func waitForOtherWork(than id: NodeID) async {
+        var awaitedPreviews: Set<RunID> = []
+        while true {
+            if let task = tasks.first(where: { $0.key != id })?.value {
+                _ = await task.value
+            } else if let preview = previewRuns.values.first(where: { !awaitedPreviews.contains($0.run) }) {
+                awaitedPreviews.insert(preview.run)
+                await preview.task.value
+            } else {
+                return
+            }
         }
     }
 
@@ -239,6 +268,7 @@ public actor Reconciler {
     @discardableResult
     private func scheduleAvailableSteps(in state: WorkingState, order: [NodeID]? = nil, excluding: Set<NodeID> = [],
                                         reportCompletion: Bool = true) async throws -> [(NodeID, Task<String?, Never>)] {
+        guard quietLandings == 0 else { return [] }
         let waitingToLand = !isLanding && state.landingQueue.contains { tasks[$0.id] == nil && !$0.awaitingHumanReview }
         let limit = max(1, policy.maxParallelAgents) - (waitingToLand ? 1 : 0)
         var started: [(NodeID, Task<String?, Never>)] = []
@@ -247,7 +277,8 @@ public actor Reconciler {
             guard !excluding.contains(id), tasks[id] == nil, let node = state.nodes[id],
                   canAdvance(node, in: state) else { continue }
             let hold = overlapHold(for: node, in: state)
-            guard try await updateOverlapHold(node, to: hold, in: state), hold == nil,
+            // Updating the hold awaits, so a landing may have asked for quiet meanwhile.
+            guard try await updateOverlapHold(node, to: hold, in: state), hold == nil, quietLandings == 0,
                   tasks[id] == nil, slotsInUse < limit, shutdownReason == nil, !Task.isCancelled else { continue }
             started.append((id, startStep(id, reportCompletion: reportCompletion)))
         }

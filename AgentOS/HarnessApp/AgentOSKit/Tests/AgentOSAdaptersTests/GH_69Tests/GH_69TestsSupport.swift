@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import AgentOSCore
+import AgentOSTestSupport
 
 extension GH_69Tests {
     actor GH69HeldPageSource: HarnessLedgerRefreshSource {
@@ -33,7 +34,7 @@ extension GH_69Tests {
             requestedSignal.yield(())
             requestedSignal.finish()
             let signal = releasedSignal
-            DispatchQueue.global().asyncAfter(deadline: .now() + 10) { signal.finish() }
+            DispatchQueue.global().asyncAfter(deadline: .now() + HangGuard.seconds) { signal.finish() }
             for await _ in released { return snapshot }
             Issue.record("Timed out waiting for the test to release the old ledger snapshot")
             return snapshot
@@ -41,7 +42,7 @@ extension GH_69Tests {
 
         nonisolated func waitUntilRequested() async throws {
             let signal = requestedSignal
-            DispatchQueue.global().asyncAfter(deadline: .now() + 10) { signal.finish() }
+            DispatchQueue.global().asyncAfter(deadline: .now() + HangGuard.seconds) { signal.finish() }
             for await _ in requested { return }
             throw Failure.requestTimedOut
         }

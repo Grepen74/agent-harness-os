@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import AgentOSAdapters
+import AgentOSTestSupport
 
 @Suite("Simulator pool")
 struct SimulatorPoolTests {
@@ -20,17 +21,21 @@ struct SimulatorPoolTests {
     actor Running {
         private(set) var now: [String] = []
         private(set) var overlaps: [[String]] = []
+        var peak: Int { overlaps.map(\.count).max() ?? 0 }
         func start(_ command: String) { now.append(command); overlaps.append(now) }
         func stop(_ command: String) { now.remove(at: now.firstIndex(of: command)!) }
     }
 
-    func runFour(_ pool: SimulatorPool) async throws -> Running {
+    /// Each check holds its simulator until `peak` checks have run side by side, so the overlap doesn't depend on
+    /// how the checks happen to be scheduled.
+    func runFour(_ pool: SimulatorPool, peak: Int) async throws -> Running {
         let running = Running()
         try await withThrowingTaskGroup(of: Void.self) { group in
             for _ in 0..<4 {
                 group.addTask {
                     try await pool.withSimulator(for: Self.command) { command in
                         await running.start(command)
+                        try await eventually("\(peak) checks running side by side") { await running.peak >= peak }
                         try await Task.sleep(for: .milliseconds(50))
                         await running.stop(command)
                     }
@@ -44,7 +49,7 @@ struct SimulatorPoolTests {
     @Test("Checks side by side each get a simulator of their own, made once")
     func eachCheckGetsItsOwnSimulator() async throws {
         let provider = FakeProvider(["A", "B", "C"])
-        let running = try await runFour(SimulatorPool(size: 2, provider: provider))
+        let running = try await runFour(SimulatorPool(size: 2, provider: provider), peak: 2)
 
         let overlaps = await running.overlaps
         #expect(overlaps.map(\.count).max() == 2)
@@ -78,7 +83,7 @@ struct SimulatorPoolTests {
 
     @Test("Without simulators of its own, the harness uses the configured one, one check at a time")
     func fallsBackToTheConfiguredSimulatorOneAtATime() async throws {
-        let running = try await runFour(SimulatorPool(size: 2, provider: FakeProvider([])))
+        let running = try await runFour(SimulatorPool(size: 2, provider: FakeProvider([])), peak: 1)
 
         let overlaps = await running.overlaps
         #expect(overlaps.map(\.count).max() == 1)

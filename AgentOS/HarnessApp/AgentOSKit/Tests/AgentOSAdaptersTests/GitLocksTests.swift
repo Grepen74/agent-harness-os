@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import AgentOSAdapters
+import AgentOSTestSupport
 
 @Suite struct GitLocksTests {
     private func repository() async throws -> URL {
@@ -39,11 +40,10 @@ import Testing
         try leaveLock(at: lock)
         let holder = Process()
         holder.executableURL = URL(filePath: "/bin/sh")
-        holder.arguments = ["-c", "exec 3>>'\(lock.path)'; sleep 30"]
+        holder.arguments = ["-c", "exec 3>>'\(lock.path)'; exec sleep 600"]
         try holder.run()
         defer { holder.terminate() }
-        let deadline = Date.now.addingTimeInterval(5)
-        while !GitLocks.isOpen(lock), Date.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        try await eventually("The holder opening the lock") { GitLocks.isOpen(lock) }
 
         let result = try await GitLocks.retryingAfterStaleLock {
             try await ProcessRunner.run("/usr/bin/env", ["git", "reset", "-q", "--hard"], in: directory)

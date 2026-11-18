@@ -3,7 +3,7 @@ import Testing
 @testable import AgentOSUI
 
 @MainActor
-@Suite(.timeLimit(.minutes(1)))
+@Suite(.timeLimit(.minutes(5)))
 struct HistoryRefreshTests {
     @Test func anAppendCannotSplitLegacyAndIndexedSnapshots() async throws {
         let ledger = try Ledger()

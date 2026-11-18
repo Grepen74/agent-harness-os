@@ -1,5 +1,6 @@
 import AgentOSAdapters
 import AgentOSCore
+import AgentOSTestSupport
 import Foundation
 import Testing
 
@@ -125,14 +126,14 @@ extension GH_78Tests {
 
         func settle(waitForAgents: Bool = true, using runner: Reconciler? = nil) async throws {
             let runner = runner ?? reconciler
-            let deadline = ContinuousClock.now.advanced(by: .seconds(20))
+            let deadline = ContinuousClock.now.advanced(by: HangGuard.timeout)
             repeat {
                 let report = await runner.runRound(waitForAgents: waitForAgents)
                 try #require(report.safeStop == nil, "Fixture must not safe-stop: \(report.safeStop ?? "")")
                 if !waitForAgents { await runner.waitForAgents() }
                 if report.isIdle { return }
             } while ContinuousClock.now < deadline
-            throw AgentFailure("GH-78 reconciliation did not settle within 20 seconds")
+            throw AgentFailure("GH-78 reconciliation did not settle within \(HangGuard.timeout)")
         }
 
         func startedHolds(in source: Ledger? = nil) async -> [Hold] {
@@ -264,7 +265,7 @@ extension GH_78Tests {
             for stream: AsyncStream<Void>, signal: AsyncStream<Void>.Continuation, reason: String
         ) async throws {
             let timeout = DispatchWorkItem { signal.finish() }
-            DispatchQueue.global().asyncAfter(deadline: .now() + 20, execute: timeout)
+            DispatchQueue.global().asyncAfter(deadline: .now() + HangGuard.seconds, execute: timeout)
             defer { timeout.cancel() }
             for await _ in stream { return }
             try Task.checkCancellation()

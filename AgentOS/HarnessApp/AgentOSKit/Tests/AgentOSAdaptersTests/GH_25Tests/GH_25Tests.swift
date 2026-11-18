@@ -7,10 +7,13 @@ import Darwin
 import Foundation
 import Testing
 import AgentOSCore
+import AgentOSTestSupport
 @testable import AgentOSAdapters
 @testable import AgentOSUI
 
-@Suite
+// Fixture processes outlive the hang guard, so only stopping, cancelling or timing out can end them in time. The
+// time limit only catches a hang.
+@Suite(.timeLimit(.minutes(10)))
 struct GH_25Tests {
     @Test(arguments: [
         FailurePoint.rebase, .prepareLanding, .candidateHead, .merge, .preparePreCheck, .prepareAgent
@@ -73,9 +76,7 @@ struct GH_25Tests {
         #expect(model.canStopRun(node: node.id, run: run.run))
         #expect(!model.canStopRun(node: node.id, run: "not-the-active-run"))
 
-        let started = ContinuousClock.now
-        await model.stopRun(node: node.id, run: run.run)
-        #expect(ContinuousClock.now - started < .seconds(15)) // Doesn't hang; the full suite can be slow.
+        try await withHangGuard("Stopping the run") { await model.stopRun(node: node.id, run: run.run) }
         #expect(actions.requests == [StopRequest(node: node.id, run: run.run, person: "Morgan")])
         #expect(actions.error == nil)
         #expect(fixture.tree.livingPIDs.isEmpty, "Stop must await cleanup, not just request it")
@@ -169,18 +170,17 @@ struct GH_25Tests {
         let task = Task {
             try await ProcessRunner.run(
                 "/bin/sh", ["parent.sh"], in: tree.directory,
-                timeout: cancel ? .seconds(20) : .seconds(2)
+                // Cancelling must end it long before the hang guard; timing out leaves time to start the tree.
+                timeout: cancel ? .seconds(600) : .seconds(10)
             )
         }
         defer { task.cancel() }
         try await Self.eventually { tree.isReady }
         #expect(tree.livingPIDs.count == 3)
-        let started = ContinuousClock.now
 
         if cancel { task.cancel() }
-        let result = await task.result
+        let result = try await withHangGuard("The cancelled or timed-out run") { await task.result }
 
-        #expect(ContinuousClock.now - started < .seconds(15)) // Doesn't hang; the full suite can be slow.
         if case .success(let output) = result { #expect(output.status != 0) }
         #expect(tree.livingPIDs.isEmpty, "The runner returned while descendants were still alive")
     }
@@ -207,7 +207,7 @@ struct GH_25Tests {
             """.write(to: directory.appending(path: "agent.sh"), atomically: true, encoding: .utf8)
 
         let run = Task {
-            try await ProcessRunner.run("/bin/sh", ["agent.sh"], in: directory, timeout: .seconds(3))
+            try await ProcessRunner.run("/bin/sh", ["agent.sh"], in: directory, timeout: .seconds(10))
         }
         try await Self.eventually { pids.count == 2 }
         let command = try #require(pids.first)
@@ -273,9 +273,7 @@ struct GH_25Tests {
         let runs = await fixture.ledger.workingState().running.compactMap(\.activeRun?.run)
         #expect(runs.count == 2)
 
-        let started = ContinuousClock.now
-        await fixture.reconciler.shutdown(reason: reason)
-        #expect(ContinuousClock.now - started < .seconds(15)) // Doesn't hang; the full suite can be slow.
+        try await withHangGuard("Shutting down") { await fixture.reconciler.shutdown(reason: reason) }
         #expect(await fixture.probe.active == 0)
         #expect(fixture.tree.livingPIDs.isEmpty)
         #expect(await fixture.ledger.workingState().running.isEmpty)
@@ -308,13 +306,13 @@ struct GH_25Tests {
         )
         let defaultRunner = CommandCheckRunner(config: config)
         #expect(defaultRunner.idleTimeout == .seconds(600))
-        let runner = CommandCheckRunner(config: config, timeout: .seconds(20), idleTimeout: .seconds(1))
+        // The full timeout is longer than the hang guard, so only the idle timeout can end the check in time.
+        let runner = CommandCheckRunner(config: config, timeout: .seconds(600), idleTimeout: .seconds(1))
 
-        let started = ContinuousClock.now
-        let output = await runner.runChecks(in: tree.directory, only: nil)
+        let output = try await withHangGuard("The silent check") {
+            await runner.runChecks(in: tree.directory, only: nil)
+        }
 
-        // Well before the 20 s full timeout; generous because the full suite runs checks in parallel.
-        #expect(ContinuousClock.now - started < .seconds(10))
         #expect(!output.passed)
         #expect(output.summary.lowercased().contains("hung"))
         #expect(output.summary.contains(step))
@@ -327,22 +325,23 @@ struct GH_25Tests {
     func outputWithoutNewlinesResetsTheIdleDeadline() async throws {
         let tree = try ProcessTree()
         defer { tree.cleanup() }
+        // Runs at least 4 s, longer than the idle timeout, printing every 0.2 s: far apart from it, even under load.
         let config = RepoConfig(test: .init(command: """
             i=0
-            while [ "$i" -lt 8 ]; do
+            while [ "$i" -lt 20 ]; do
                 printf '.'
                 /bin/sleep 0.2
                 i=$((i + 1))
             done
             """))
-        let runner = CommandCheckRunner(config: config, timeout: .seconds(5), idleTimeout: .seconds(1))
+        let runner = CommandCheckRunner(config: config, timeout: .seconds(600), idleTimeout: .seconds(3))
 
         let started = ContinuousClock.now
         let output = await runner.runChecks(in: tree.directory, only: nil)
 
-        #expect(ContinuousClock.now - started > .seconds(1))
+        #expect(ContinuousClock.now - started > .seconds(3))
         #expect(output.passed)
-        #expect(output.log.contains("........"))
+        #expect(output.log.contains(String(repeating: ".", count: 20)))
         #expect(!output.summary.lowercased().contains("hung"))
     }
 
@@ -372,14 +371,7 @@ struct GH_25Tests {
     }
 
     private static func eventually(_ condition: @Sendable () async -> Bool) async throws {
-        // Generous: under a full parallel test run, starting the fixture's process tree can take many seconds.
-        let deadline = ContinuousClock.now + .seconds(60)
-        while !(await condition()) {
-            guard ContinuousClock.now < deadline else {
-                throw AgentFailure("Timed out waiting for the acceptance-test fixture to become ready")
-            }
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        try await AgentOSTestSupport.eventually("The acceptance-test fixture becoming ready", condition)
     }
 
     enum FailurePoint: String, Sendable {
@@ -459,7 +451,8 @@ struct GH_25Tests {
         func perform() async throws {
             await probe.enter()
             do {
-                let result = try await ProcessRunner.run("/bin/sh", ["-c", command], in: directory, timeout: .seconds(20))
+                // Longer than the hang guard: only a stop, cancellation or the process ending finishes it.
+                let result = try await ProcessRunner.run("/bin/sh", ["-c", command], in: directory, timeout: .seconds(600))
                 try Task.checkCancellation()
                 guard result.status == 0 else { throw AgentFailure("fixture process ended: \(result.status)") }
                 await probe.leave()
@@ -597,7 +590,7 @@ struct GH_25Tests {
             try """
                 trap '' TERM
                 echo $$ > child.pid
-                /bin/sleep 60 &
+                /bin/sleep 600 &
                 echo $! > grandchild.pid
                 wait
                 """.write(to: directory.appending(path: "child.sh"), atomically: true, encoding: .utf8)
@@ -635,7 +628,8 @@ struct GH_25Tests {
         }
         func cleanupWatchdog() -> Task<Void, Never> {
             Task {
-                do { try await Task.sleep(for: .seconds(30)) }
+                // Only for a test that hung: one that ends kills its processes in `cleanup()`.
+                do { try await Task.sleep(for: .seconds(300)) }
                 catch { return }
                 killOwnedProcesses()
             }

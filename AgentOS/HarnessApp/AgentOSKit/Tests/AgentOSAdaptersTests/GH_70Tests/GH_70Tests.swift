@@ -94,11 +94,11 @@ struct GH_70Tests {
             let full = await measure { await fixture.ledger.verifyChain() }
             try requireIntact(full.value, count: Self.recordCount)
             let machine = try await ProcessRunner.run(
-                "/usr/sbin/sysctl", ["-n", "hw.model"], in: directory, timeout: .seconds(30))
+                "/usr/sbin/sysctl", ["-n", "hw.model"], in: directory, timeout: .seconds(600))
             let architecture = try await ProcessRunner.run(
-                "/usr/bin/uname", ["-m"], in: directory, timeout: .seconds(30))
+                "/usr/bin/uname", ["-m"], in: directory, timeout: .seconds(600))
             let swift = try await ProcessRunner.run(
-                "/usr/bin/xcrun", ["swift", "--version"], in: directory, timeout: .seconds(30))
+                "/usr/bin/xcrun", ["swift", "--version"], in: directory, timeout: .seconds(600))
             try #require(machine.status == 0 && architecture.status == 0 && swift.status == 0)
             try #require(!machine.output.isEmpty && !architecture.output.isEmpty && !swift.output.isEmpty)
             let unchangedMedian = try median(unchanged)

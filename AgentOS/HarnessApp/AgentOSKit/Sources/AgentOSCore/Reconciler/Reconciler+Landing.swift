@@ -56,9 +56,16 @@ extension Reconciler {
         // The tests that failed twice in the full check but passed alone, with and without the change, and how
         // they were rerun.
         var failingOnlyUnderLoad: (tests: [String], rerun: String)?
+        // The change's failures show only in the whole check, which passes on agentos/main: it disturbs them.
+        var disturbs = false
         // Failures only in other suites may be unreliable tests, main's or the runner's problem, or a conflict.
         if !output.passed && !output.failingTargets.isEmpty && !output.failingTargets.contains(node.spec.testTarget) {
             let initial = output
+            // The rerun and its diagnosis run with no other work on the machine: load may be what failed.
+            quietLandings += 1
+            defer { quietLandings -= 1 }
+            await waitForOtherWork(than: node.id)
+            try Task.checkCancellation()
             // First the whole check again, unchanged: passing it is as good as passing the first time.
             var again = await checks.runChecks(in: directory, only: nil)
             if case .runnerCrash = again.failureKind {
@@ -68,12 +75,12 @@ extension Reconciler {
                 Initial landing failure: \(initial.summary)
                 Failing tests:
                 \(Self.failureLines(in: initial))
-                The whole check again with the change: \(again.summary)
+                The whole check again with the change, with no other work running: \(again.summary)
                 """
             var log = """
                 Initial landing check:
                 \(initial.log)
-                The whole check again with the change:
+                The whole check again with the change, with no other work running:
                 \(again.log)
                 """
             var decisive = again
@@ -109,6 +116,25 @@ extension Reconciler {
                     problem = "Running only \(missing.joined(separator: ", ")) ran none of those tests; check test.only."
                 } else if !onMain.passed {
                     problem = "These tests fail on latest agentos/main without the change too."
+                } else if alone.passed && checks.selectsSuites {
+                    // Passing alone both ways: does the whole check fail without the change too?
+                    let mainFull = await checkLatestMainFully()
+                    report += "\nThe whole check without the change on latest agentos/main: \(mainFull.summary)"
+                    log += "\nThe whole check without the change on latest agentos/main:\n\(mainFull.log)"
+                    if mainFull.passed {
+                        disturbs = true
+                        report += """
+
+                            The change makes these tests fail in the whole check, with no other work running, though \
+                            they pass alone and the whole check passes without it: it disturbs them (shared state, \
+                            order, timing or load). Fix that in the change.
+                            """
+                    } else if mainFull.failureKind != .reportedFailure {
+                        problem = "The test runner didn't finish the whole check on latest agentos/main."
+                    } else {
+                        let tests = initial.failingTests.union(again.failingTests)
+                        failingOnlyUnderLoad = (tests.isEmpty ? suites : tests.sorted(), how)
+                    }
                 } else if alone.passed {
                     let tests = initial.failingTests.union(again.failingTests)
                     failingOnlyUnderLoad = (tests.isEmpty ? suites : tests.sorted(), how)
@@ -188,7 +214,10 @@ extension Reconciler {
                 .phaseChanged(to: .proven)])
             try? await workspace.removeWorktree(for: node.id)
             if let diagnosis {
-                await tracker.comment(on: node.ticket, "Unreliable test: the landing check failed, then passed when run again in full.\n\(diagnosis)")
+                await tracker.comment(on: node.ticket, """
+                    Unreliable test: the landing check failed, then passed when run again in full with no other work running.
+                    \(diagnosis)
+                    """)
             }
             await tracker.comment(on: node.ticket, "🛬 Landed on main at \(main.prefix(8)) with all tests passing.")
             return "\(node.displayName) landed by \(run) → Proven"
@@ -216,7 +245,7 @@ extension Reconciler {
             return "\(node.displayName) landing failed only under load → escalated"
         }
         var kinds: [EventKind] = [.evidenceRecorded(evidence), .runFinished(run: run, outcome: "failed"), .phaseChanged(to: .ready)]
-        if let diagnosis, !broken.isEmpty && !output.failingTargets.contains(node.spec.testTarget)
+        if let diagnosis, !disturbs, !broken.isEmpty && !output.failingTargets.contains(node.spec.testTarget)
             && output.failingTargets.isSubset(of: provenTargets) {
             let names = broken.map { "\($0.displayName) (\($0.spec.title))" }.joined(separator: ", ")
             let reason = """
@@ -308,6 +337,30 @@ extension Reconciler {
         let log = output.log
         if log.contains(/Test run with [1-9]/) || log.contains(/Executed [1-9]\d* tests?/) { return false }
         return log.contains("Test run with 0 tests") || log.contains("Executed 0 tests")
+    }
+
+    /// All checks on latest agentos/main, without the change. A main it can't check counts as a runner problem.
+    private func checkLatestMainFully() async -> CheckOutput {
+        do {
+            guard let snapshot = try await workspace.createSnapshot() else {
+                throw AgentFailure("Workspace cannot create a latest agentos/main snapshot")
+            }
+            do {
+                try await workspace.prepareBuild(in: snapshot)
+            } catch {
+                await workspace.removeSnapshot(snapshot)
+                throw error
+            }
+            var output = await checks.runChecks(in: snapshot, only: nil)
+            if case .runnerCrash = output.failureKind {
+                output = await checks.runChecks(in: snapshot, only: nil)
+            }
+            await workspace.removeSnapshot(snapshot)
+            return output
+        } catch {
+            return CheckOutput(passed: false, summary: "Could not check latest agentos/main: \(error)", log: "\(error)",
+                               failureKind: .runnerCrash(signal: nil))
+        }
     }
 
     private func checkLatestMain(only suites: [String]) async -> (output: CheckOutput, ranNothing: [String]) {

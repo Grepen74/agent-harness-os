@@ -14,7 +14,7 @@ import AgentOSCore
 import AgentOSUI
 import AgentOSTestSupport
 
-@Suite(.timeLimit(.minutes(1)))
+@Suite(.timeLimit(.minutes(5)))
 struct GH_79Tests {
     @Test
     func implementerSubmissionRecordsTheWholeBranchDiffAndReplaysIt() async throws {

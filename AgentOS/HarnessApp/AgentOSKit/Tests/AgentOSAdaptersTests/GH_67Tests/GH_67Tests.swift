@@ -44,7 +44,7 @@ import Testing
         }
     }
 
-    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    @Test(.timeLimit(.minutes(5)), arguments: [false, true])
     func successfulQuickChecksOnlyValidateTheNewTailAndUnchangedRoundsDoNoHistoricalWork(
         fileBacked: Bool
     ) async throws {
@@ -78,7 +78,7 @@ import Testing
         #expect(repeated.decodedRecords == afterCheck.decodedRecords)
     }
 
-    @Test(.timeLimit(.minutes(1)), arguments: HistoricalDamage.allCases)
+    @Test(.timeLimit(.minutes(5)), arguments: HistoricalDamage.allCases)
     func theNextQuickCheckDetectsEveryHistoricalMutationAndStopsBeforeIntake(
         damage: HistoricalDamage
     ) async throws {
@@ -112,7 +112,7 @@ import Testing
         try await expectSafeStop(Harness(ledger: ledger), matching: failed)
     }
 
-    @Test(.timeLimit(.minutes(1)), arguments: TailDamage.allCases)
+    @Test(.timeLimit(.minutes(5)), arguments: TailDamage.allCases)
     func newRecordsMustHaveValidContentPositionsAndLinksToTheVerifiedTerminalHash(
         damage: TailDamage
     ) async throws {
@@ -161,7 +161,7 @@ import Testing
         try await expectSafeStop(Harness(ledger: ledger), matching: failed)
     }
 
-    @Test(.timeLimit(.minutes(1)), arguments: CompatibilityDamage.allCases)
+    @Test(.timeLimit(.minutes(5)), arguments: CompatibilityDamage.allCases)
     func storesImplementingOnlyLoadAllAndAppendDetectTamperingThroughTheFullReadFallback(
         damage: CompatibilityDamage
     ) async throws {
@@ -298,7 +298,7 @@ import Testing
         #expect(await harness.tracker.signalReads == 1)
     }
 
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(5)))
     func cliVerifyKeepsItsFullCheckPresentationAndSuccessAndFailureExitStatuses() async throws {
         let files = try Files()
         defer { files.remove() }
@@ -314,7 +314,7 @@ import Testing
         }, "Build the package's existing agentos executable before running CLI acceptance tests.")
         let intact = try await ProcessRunner.run(
             executable.path, ["verify", "--dir", files.directory.path],
-            in: files.directory, timeout: .seconds(30))
+            in: files.directory, timeout: .seconds(600))
         #expect(intact.status == 0)
         #expect(intact.output.trimmingCharacters(in: .whitespacesAndNewlines) == "Intact: 2 records")
         var records = try files.store.loadAll()
@@ -322,7 +322,7 @@ import Testing
         try files.write(records)
         let broken = try await ProcessRunner.run(
             executable.path, ["verify", "--dir", files.directory.path],
-            in: files.directory, timeout: .seconds(30))
+            in: files.directory, timeout: .seconds(600))
         #expect(broken.status == 1)
         #expect(broken.output.hasPrefix("Broken at #0: "))
         #expect(broken.output.contains("content"))

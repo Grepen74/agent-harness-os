@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import AgentOSCore
+import AgentOSTestSupport
 
 extension GH_79Tests {
     static var repository: URL {
@@ -113,7 +114,7 @@ extension GH_79Tests {
         }
 
         func until(waiting: Bool = true, _ predicate: (WorkingState) -> Bool) async throws -> WorkingState {
-            let deadline = ContinuousClock.now.advanced(by: .seconds(20))
+            let deadline = ContinuousClock.now.advanced(by: HangGuard.timeout)
             repeat {
                 let report = await reconciler.runRound(waitForAgents: waiting)
                 try #require(report.safeStop == nil, "\(report.safeStop ?? "")")

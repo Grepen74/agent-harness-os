@@ -3,8 +3,10 @@
 // Workspace.createSnapshot() (latest landing main, without the change). CheckRunner supplies named failures in
 // CheckOutput.log; tracker comments expose every rerun's summary.
 
-import AgentOSCore
+@testable import AgentOSCore
+import AgentOSTestSupport
 import Foundation
+import Synchronization
 import Testing
 
 @Suite
@@ -129,6 +131,10 @@ struct GH_26Tests {
         #expect(reason.contains("GH_19Tests.passingLandingRerunLands"))
         #expect(reason.contains("GH_10Tests.catchUpPreservesLandedWork"))
         #expect(reason.contains(selectsSuites ? "rerun alone" : "so all tests"))
+        #expect(reason.contains("with no other work running"))
+        if selectsSuites {
+            #expect(reason.contains(fixture.mainWhole.summary), "Main's own whole check decides it's not the change")
+        }
         #expect(node.failedAttempts == 0)
         #expect(node.phase == .landing, "harness:retry checks the same change again")
         #expect(await fixture.workspace.landedNodes.isEmpty, "Passing alone doesn't rule out interference by the change")
@@ -139,6 +145,121 @@ struct GH_26Tests {
         if !selectsSuites {
             #expect(await fixture.checks.calls.allSatisfy { $0.selection == nil })
         }
+    }
+
+    @Test
+    func failuresOnlyInTheWholeCheckWhichPassesOnMainAreTheChangesOwnMistake() async throws {
+        let fixture = try await Fixture(retryPasses: false, alonePasses: true, mainPasses: true, mainWholePasses: true)
+        defer { fixture.cleanUp() }
+
+        _ = await fixture.reconciler.runRound(waitForAgents: true)
+
+        let node = try #require(await fixture.node())
+        #expect(node.flags[.escalated] == nil, "The change disturbs the tests: rework, not a human")
+        #expect(node.phase == .ready)
+        #expect(await fixture.workspace.landedNodes.isEmpty)
+        let report = await fixture.tracker.comments(on: Fixture.ticket).joined(separator: "\n")
+        #expect(report.contains("own mistake"))
+        #expect(report.contains("disturbs them"))
+        #expect(report.contains(fixture.mainWhole.summary))
+        #expect(await fixture.checks.calls.contains { $0.directory == fixture.workspace.snapshot && $0.selection == nil })
+        for owner in Fixture.owners {
+            let otherComments = await fixture.tracker.comments(on: String(owner.id.dropFirst(3)))
+            #expect(!otherComments.contains { $0.contains("contradicts this ticket") })
+        }
+    }
+
+    @Test
+    func theWholeCheckRunsAgainOnlyAfterOtherWorkFinishesAndNothingStartsMeanwhile() async throws {
+        let running = NodeSpec(
+            id: "wn-GH-90", parent: nil, kind: .leaf, title: "Running", intent: "Busy", acceptanceCriteria: ["Busy"]
+        )
+        let waiting = NodeSpec(
+            id: "wn-GH-91", parent: nil, kind: .leaf, title: "Waiting", intent: "Idle", acceptanceCriteria: ["Idle"]
+        )
+        let author = GatedTestAuthor(holding: running.id)
+        let fixture = try await Fixture(
+            retryPasses: true, otherNodes: [running, waiting], testAuthor: author, maxParallelAgents: 3
+        )
+        defer { fixture.cleanUp() }
+        try await fixture.ledger.append([
+            LedgerEvent(node: running.id, by: .human("Developer"), kind: .gateOpened(.build)),
+        ])
+
+        let round = Task { await fixture.reconciler.runRound() }
+        try await author.started.wait(for: "\(running.id)'s test author starting")
+        try await eventually("the landing waiting for other work") { await fixture.reconciler.quietLandings > 0 }
+        try await fixture.ledger.append([
+            LedgerEvent(node: waiting.id, by: .human("Developer"), kind: .gateOpened(.build)),
+        ])
+        _ = await fixture.reconciler.runRound()
+        #expect(await author.authored == [running.id], "No step starts while the landing waits for quiet")
+        #expect(await fixture.checks.calls.count == 1, "The whole check runs again only once other work finished")
+
+        author.release.open()
+        _ = try await withHangGuard("the landing round") { await round.value }
+        try await withHangGuard("the other steps") { await fixture.reconciler.waitForAgents() }
+
+        #expect(await fixture.checks.calls.count == 2)
+        #expect(await fixture.node()?.phase == .proven)
+        let report = await fixture.tracker.comments(on: Fixture.ticket).joined(separator: "\n")
+        #expect(report.contains("with no other work running"))
+    }
+
+    @Test
+    func infrastructureEscalationsAreRetriedByThemselvesAfterEachWaitUntilTheWaitsRunOut() async throws {
+        let clock = FakeClock()
+        let fixture = try await Fixture(retryPasses: false, alonePasses: true, mainPasses: true,
+                                        retryDelays: [600, 1800], now: { clock.now })
+        defer { fixture.cleanUp() }
+        let retries = { await fixture.tracker.comments(on: Fixture.ticket).filter { $0.contains("Trying again by itself") } }
+
+        _ = await fixture.reconciler.runRound(waitForAgents: true)
+        #expect(await fixture.node()?.flags[.escalated]?.contains("Unreliable tests") == true)
+
+        let escalatedAt = clock.now
+        clock.advance(599)
+        let waiting = await fixture.reconciler.runRound(waitForAgents: true)
+        #expect(await retries().isEmpty, "Not before the first wait is over")
+        #expect(waiting.retryDue == escalatedAt.addingTimeInterval(600), "So an unattended loop keeps going until then")
+        let checksBeforeRetry = await fixture.checks.calls.count
+
+        clock.advance(1)
+        _ = await fixture.reconciler.runRound(waitForAgents: true)
+        #expect(await retries().count == 1)
+        #expect(await fixture.checks.calls.count > checksBeforeRetry, "The retry runs the landing check again")
+        #expect(await fixture.node()?.flags[.escalated] != nil, "Failing again escalates again")
+
+        clock.advance(1799)
+        _ = await fixture.reconciler.runRound(waitForAgents: true)
+        #expect(await retries().count == 1, "The second wait is longer, and counts from the new escalation")
+
+        clock.advance(1)
+        _ = await fixture.reconciler.runRound(waitForAgents: true)
+        clock.advance(100_000)
+        _ = await fixture.reconciler.runRound(waitForAgents: true)
+        let node = try #require(await fixture.node())
+        #expect(await retries().map { $0.contains("(2 of 2)") } == [false, true])
+        #expect(node.flags[.escalated] != nil, "After the last wait it waits for a person")
+        #expect(node.failedAttempts == 0)
+        #expect(await fixture.workspace.landedNodes.isEmpty)
+    }
+
+    @Test
+    func ownMistakesAreNeverRetriedByThemselves() async throws {
+        let clock = FakeClock()
+        let fixture = try await Fixture(retryPasses: false, alonePasses: false, mainPasses: true,
+                                        retryDelays: [600], now: { clock.now })
+        defer { fixture.cleanUp() }
+
+        _ = await fixture.reconciler.runRound(waitForAgents: true)
+        let escalated = try #require(await fixture.node()?.flags[.escalated])
+        #expect(escalated.contains("Requirements conflict"))
+        clock.advance(100_000)
+        _ = await fixture.reconciler.runRound(waitForAgents: true)
+
+        #expect(await fixture.node()?.flags[.escalated] != nil)
+        #expect(!(await fixture.tracker.comments(on: Fixture.ticket).contains { $0.contains("Trying again by itself") }))
     }
 
     @Test
@@ -224,15 +345,20 @@ private extension GH_26Tests {
         let checks: ScriptedChecks
         let reconciler: Reconciler
         let retry: CheckOutput
+        let mainWhole: CheckOutput
         let aloneOutputs: [String: CheckOutput]
         let mainOutputs: [String: CheckOutput]
 
         /// The first full landing check fails in `failingSuites`; `retryPasses` is the whole check run again;
-        /// `alonePasses` and `mainPasses` are the failing suites rerun alone with the change and on latest main.
+        /// `alonePasses` and `mainPasses` are the failing suites rerun alone with the change and on latest main;
+        /// `mainWholePasses` is the whole check on latest main. `otherNodes` are leaves without gates.
         init(
-            retryPasses: Bool, alonePasses: Bool = false, mainPasses: Bool = true, selectsSuites: Bool = true,
-            aloneRunsNothing: Bool = false, failingSuites: Set<String> = Set(owners.map(\.testTarget)),
-            failingTestLogs: (initial: String, rerun: String)? = nil
+            retryPasses: Bool, alonePasses: Bool = false, mainPasses: Bool = true, mainWholePasses: Bool = false,
+            selectsSuites: Bool = true, aloneRunsNothing: Bool = false,
+            failingSuites: Set<String> = Set(owners.map(\.testTarget)),
+            failingTestLogs: (initial: String, rerun: String)? = nil, otherNodes: [NodeSpec] = [],
+            testAuthor: any TestAuthor = UnusedAgents(), maxParallelAgents: Int = 1,
+            retryDelays: [TimeInterval] = [], now: @escaping @Sendable () -> Date = { Date() }
         ) async throws {
             root = FileManager.default.temporaryDirectory.appending(path: "agentos-GH-26-\(UUID().uuidString)")
             let candidate = root.appending(path: "candidate")
@@ -251,6 +377,13 @@ private extension GH_26Tests {
                     )),
                     LedgerEvent(node: owner.id, by: .reconciler, kind: .landed(commit: Self.previousMain)),
                     LedgerEvent(node: owner.id, by: .reconciler, kind: .phaseChanged(to: .proven)),
+                ])
+            }
+            for other in otherNodes {
+                try await ledger.append([
+                    LedgerEvent(node: other.id, by: .human("Developer"), kind: .nodeCreated(
+                        spec: other, ticket: String(other.id.dropFirst(3))
+                    )),
                 ])
             }
             try await ledger.append([
@@ -280,8 +413,9 @@ private extension GH_26Tests {
             }
             aloneOutputs = alone
             mainOutputs = onMain
+            mainWhole = Self.output(passed: mainWholePasses, context: "Whole check on agentos/main", suites: suites)
             checks = ScriptedChecks(
-                workspace: workspace, ledger: ledger, selectsSuites: selectsSuites,
+                workspace: workspace, ledger: ledger, selectsSuites: selectsSuites, mainWhole: mainWhole,
                 initial: Self.output(passed: false, context: "Initial landing check", suites: suites,
                                      log: failingTestLogs?.initial),
                 retry: retry, alone: alone, onMain: onMain
@@ -290,7 +424,13 @@ private extension GH_26Tests {
             reconciler = Reconciler(
                 ledger: ledger, tracker: tracker, external: unused, workspace: workspace,
                 artifacts: MemoryArtifacts(), checks: checks,
-                team: AgentTeam(name: "GH-26", decomposer: unused, testAuthor: unused, implementer: unused)
+                team: AgentTeam(name: "GH-26", decomposer: unused, testAuthor: testAuthor, implementer: unused),
+                policy: {
+                    var policy = Policy(maxParallelAgents: maxParallelAgents)
+                    policy.infrastructureRetryDelays = retryDelays
+                    return policy
+                }(),
+                now: now
             )
         }
 
@@ -335,15 +475,17 @@ private extension GH_26Tests {
         let initial: CheckOutput
         nonisolated let selectsSuites: Bool
         let retry: CheckOutput
+        let mainWhole: CheckOutput
         let alone: [String: CheckOutput]
         let onMain: [String: CheckOutput]
         private var candidateCalls = 0
         private(set) var calls: [Call] = []
 
         init(
-            workspace: RecordingWorkspace, ledger: Ledger, selectsSuites: Bool, initial: CheckOutput,
-            retry: CheckOutput, alone: [String: CheckOutput], onMain: [String: CheckOutput]
+            workspace: RecordingWorkspace, ledger: Ledger, selectsSuites: Bool, mainWhole: CheckOutput,
+            initial: CheckOutput, retry: CheckOutput, alone: [String: CheckOutput], onMain: [String: CheckOutput]
         ) {
+            self.mainWhole = mainWhole
             self.workspace = workspace
             self.ledger = ledger
             self.selectsSuites = selectsSuites
@@ -371,6 +513,7 @@ private extension GH_26Tests {
                 if candidateCalls == 1 { return initial }
                 if candidateCalls == 2 || selectsSuites { return retry }
             }
+            if directory == workspace.snapshot && testTarget == nil && selectsSuites { return mainWhole }
             guard let output = scripted[testTarget ?? "*"] else {
                 Issue.record("Unexpected selection \(testTarget ?? "all tests") in \(directory.lastPathComponent)")
                 return CheckOutput(passed: false, summary: "Unexpected selection", log: "")
@@ -440,6 +583,33 @@ private extension GH_26Tests {
     struct MemoryArtifacts: ArtifactStore {
         func put(named name: String, contents: Data) throws -> StoredArtifact {
             StoredArtifact(path: name, sha256: Hashing.sha256(contents))
+        }
+    }
+
+    /// A time the test moves on itself.
+    final class FakeClock: Sendable {
+        private let time = Mutex(Date(timeIntervalSinceReferenceDate: 800_000_000))
+        var now: Date { time.withLock { $0 } }
+        func advance(_ seconds: TimeInterval) { time.withLock { $0 += seconds } }
+    }
+
+    /// Holds the test author of `held` until `release` opens, and records whose tests it was asked to write.
+    actor GatedTestAuthor: TestAuthor {
+        private enum Stopped: Error { case afterRelease }
+        let held: NodeID
+        nonisolated let started = TestGate()
+        nonisolated let release = TestGate()
+        private(set) var authored: [NodeID] = []
+
+        init(holding held: NodeID) { self.held = held }
+
+        func writeAcceptanceTests(_ task: AgentTask) async throws -> AgentReport {
+            authored.append(task.spec.id)
+            if task.spec.id == held {
+                started.open()
+                try await release.wait()
+            }
+            throw Stopped.afterRelease
         }
     }
 

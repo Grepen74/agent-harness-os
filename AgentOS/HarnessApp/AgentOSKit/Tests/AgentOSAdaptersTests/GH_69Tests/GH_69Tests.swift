@@ -475,7 +475,7 @@ import Testing
         #expect(try Self.imagePixels(hosted.view) == Self.imagePixels(reference.view),
                 "The action bridge must preserve standard SwiftUI control rendering")
         try Self.press("Show older", in: hosted.view)
-        DispatchQueue.global().asyncAfter(deadline: .now() + 10) { signal.finish() }
+        DispatchQueue.global().asyncAfter(deadline: .now() + HangGuard.seconds) { signal.finish() }
         var pressed = false
         for await _ in presses { pressed = true; break }
         #expect(pressed)

@@ -6,7 +6,7 @@ import Testing
 import AgentOSCore
 
 @Suite struct GH_51Tests {
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(5)))
     func agentsStartedInDifferentRoundsBothEscalateAndIdentifyTheOverlappingTicket() async throws {
         try await Self.withFixture { fixture in
             try await fixture.start(.first)
@@ -23,7 +23,7 @@ import AgentOSCore
         }
     }
 
-    @Test(.timeLimit(.minutes(1)), arguments: [TicketID.first, .second])
+    @Test(.timeLimit(.minutes(5)), arguments: [TicketID.first, .second])
     func aFinishedOverlappingTicketRemainsInTheLaterDiagnostic(_ finishesFirst: TicketID) async throws {
         try await Self.withFixture { fixture in
             try await fixture.start(.first)
@@ -43,7 +43,7 @@ import AgentOSCore
         }
     }
 
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(5)))
     func aWatchThatEndedBeforeEitherAffectedAgentStartedIsNotNamed() async throws {
         try await Self.withFixture { fixture in
             try await fixture.start(.earlier)
@@ -63,7 +63,7 @@ import AgentOSCore
         }
     }
 
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(5)))
     func laterRoundsPreserveLiveAndFinishedSpansChangedStateDetailsAndRetryGuidance() async throws {
         try await Self.withFixture { fixture in
             try await fixture.start(.first)
@@ -85,7 +85,7 @@ import AgentOSCore
         }
     }
 
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(5)))
     func aChangeAfterOneCompletionAffectsOnlyTheStillWatchedAgent() async throws {
         try await Self.withFixture { fixture in
             try await fixture.start(.first)

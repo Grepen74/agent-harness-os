@@ -97,7 +97,7 @@ extension GH_69Tests {
     static func waitForPage(_ model: HarnessViewModel, until predicate: @escaping @MainActor () -> Bool) async throws {
         let (changes, signal) = AsyncStream<Void>.makeStream()
         defer { signal.finish() }
-        DispatchQueue.global().asyncAfter(deadline: .now() + 10) { signal.finish() }
+        DispatchQueue.global().asyncAfter(deadline: .now() + HangGuard.seconds) { signal.finish() }
         func observe() -> Bool {
             withObservationTracking {
                 predicate()
