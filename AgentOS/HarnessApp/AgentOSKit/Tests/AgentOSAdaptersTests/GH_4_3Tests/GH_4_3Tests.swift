@@ -132,16 +132,16 @@ struct GH_4_3Tests {
         let aComments = a.comments.filter { $0.text.contains("Catch-up conflict") }
         let packageComments = package.comments.filter { $0.text.contains("Catch-up conflict") }
 
-        #expect(aComments.count == 1)
+        try #require(aComments.count == 1)
         #expect(aComments[0].text.contains(fixture.mainSHA))
         #expect(aComments[0].text.contains("Sources/A.swift"))
         #expect(!aComments[0].text.contains("Package.swift"))
-        #expect(packageComments.count == 1)
+        try #require(packageComments.count == 1)
         #expect(packageComments[0].text.contains(fixture.mainSHA))
         #expect(packageComments[0].text.contains("Package.swift"))
         #expect(!packageComments[0].text.contains("Sources/A.swift"))
-        #expect(a.status == "Catch-up conflict")
-        #expect(package.status == "Catch-up conflict")
+        #expect(a.status == "Needs human")
+        #expect(package.status == "Needs human")
         #expect(await fixture.session.tracker.boardColumn(for: fixture.aTicket) == "Needs human")
         #expect(await fixture.session.tracker.boardColumn(for: fixture.packageTicket) == "Needs human")
     }
@@ -193,6 +193,8 @@ struct GH_4_3Tests {
         )
         try await commit("main moves again", in: fixture.repo)
         let laterMain = try await git(["rev-parse", "main"], in: fixture.repo)
+        try await fixture.session.ledger.record(Baseline(
+            commit: laterMain, passed: true, summary: "Fixture baseline passed", seconds: 0, log: nil))
         await fixture.session.runUntilFinished()
         let conflicts = catchUpConflicts(in: await fixture.session.ledger.allRecords())
         for ticket in [fixture.aTicket, fixture.packageTicket] {
@@ -248,6 +250,8 @@ struct GH_4_3Tests {
         try "developer package\n".write(to: repo.appending(path: "Package.swift"), atomically: true, encoding: .utf8)
         try await commit("developer changes", in: repo)
         let mainSHA = try await git(["rev-parse", "main"], in: repo)
+        try await session.ledger.record(Baseline(
+            commit: mainSHA, passed: true, summary: "Fixture baseline passed", seconds: 0, log: nil))
         return Fixture(
             repo: repo,
             session: session,
@@ -333,8 +337,13 @@ struct GH_4_3Tests {
 
     private func catchUpConflicts(in records: [RecordedEvent]) -> [RecordedConflict] {
         records.compactMap { record in
-            guard case .catchUpConflicted(let main, let files, let tickets) = record.event.kind else { return nil }
-            return RecordedConflict(main: main, files: files, tickets: tickets)
+            switch record.event.kind {
+            case .catchUpConflicted(let main, let files, let tickets),
+                 .requirementCatchUpConflicted(_, let main, let files, let tickets):
+                return RecordedConflict(main: main, files: files, tickets: tickets)
+            default:
+                return nil
+            }
         }
     }
 

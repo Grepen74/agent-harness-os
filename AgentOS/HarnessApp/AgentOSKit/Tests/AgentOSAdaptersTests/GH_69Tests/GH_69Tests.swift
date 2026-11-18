@@ -679,5 +679,6 @@ import Testing
         "catchUpSucceeded", "caughtUp", "testDraftKept", "diagnosisRecorded",
         "agentConfigured", "overlapHoldStarted", "overlapHoldEnded",
         "actualChangedFilesRecorded", "predictedPathsExpanded", "requirementBranchCreated",
+        "requirementBranchObserved", "requirementCatchUpConflicted",
     ]
 }

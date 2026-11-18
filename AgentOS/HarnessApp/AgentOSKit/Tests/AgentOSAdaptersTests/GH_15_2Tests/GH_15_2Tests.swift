@@ -34,7 +34,7 @@ struct GH_15_2Tests {
         #expect(node.phase == .proven)
         #expect(node.landedCommit != nil)
         #expect(node.failedAttempts == 0)
-        #expect(await fixture.ticket().status == "Done")
+        #expect(await fixture.ticket().status == "In review")
     }
 
     @Test
