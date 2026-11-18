@@ -62,7 +62,7 @@ read from `main` only.
 | Setting | Built-in harness default | Repo may |
 |---|---|---|
 | Landing target | Local requirement branch `agentos/<ticket key>` | No override; `landing.branch` is ignored with a warning |
-| Push / open pull requests | Never (phase 9: an opt-in setting; only the harness pushes, never agents) | Switch it off |
+| Push / open pull requests | Off; saved in Settings (only the harness may publish, never agents) | `pullRequests: false` disables it; `true` requires the harness setting to be on |
 | Agent tools | Copilot CLI, with `git push`/`fetch`/`pull`/`remote`/`config`/`stash`, `gh` and network installs denied | Deny more |
 | Agent models | Offered models, plus a default model per role (breakdown, acceptance tests, implementation); none = the CLI's default | Pick a model per role among the offered ones |
 | Reasoning effort | A default effort per role (`copilot --reasoning-effort`; none = the CLI's default) and the highest effort a repo may choose (built-in `high`) | Pick an effort per role up to that cap, or up to the role's harness effort if higher |
@@ -80,6 +80,22 @@ The policy pane shows every effective value with its source (*harness*, *repo*).
 loosen a limit becomes a blocker finding, not a silent override, and the harness's value applies.
 The retired `landing.branch` key has no effect, even when it names the default branch.
 Disabling a signal the harness doesn't know is a warning.
+
+### Final requirement verification
+
+After the last leaf is proven, the harness checks a disposable checkout of the requirement branch tip:
+the full test command (no leaf-suite filter) and all configured checks, including build preparation.
+The requirement's ledger records the result, commit, full log artifact and SHA-256. A prior leaf landing
+check does not replace this check. Completed verification survives a restart without rerunning.
+
+Failure or interruption waits for a person; no agent rework or automatic retry starts. Fix the problem
+and add `harness:retry` to the requirement ticket to run final verification again. With **Push / open pull
+requests** off, passing verification leaves the branch local and the requirement **In review**, until a
+person merges its tip into `main`. The harness detects that merge and marks it **Done**.
+
+The optional boolean `pullRequests` repo key inherits the saved harness setting when absent. `false`
+switches publishing off for the repo. `true` while the harness setting is off has no effect and adds a
+`config.policy` readiness blocker; remove the key, set it to `false`, or enable publishing in Settings.
 
 **Avoid building overlapping work at the same time** is a Settings toggle, on by default even for older saved
 settings. A repo may turn it on with `limits.avoidOverlappingWork: true`, but cannot turn it off when the
@@ -185,6 +201,7 @@ is configured, Copilot CLI chooses its own default. Display titles are not confi
 | `components` | Array of strings naming source components or repository paths for touch sets | Empty component list | None; declares existing components available to breakdown |
 | `landing` | Retired landing configuration object | Requirement-scoped branches | Remove this obsolete object |
 | `landing.branch` | String branch name; ignored, with no effect | Always `agentos/<ticket key>` | A warning says the key is ignored and its value has no effect; remove it |
+| `pullRequests` | Boolean: allow pushing and opening pull requests | Inherit the harness setting; built-in `false` | A repo may switch it off, not on; `true` is a `config.policy` blocker when the harness setting is off |
 | `signals` | Object containing disabled signal tokens | Inherit the harness's offered signals | May only disable signals, not enable ones the harness switched off |
 | `signals.disable` | Array of signal-token strings, such as `go` or `harness:go`; multiple tokens allowed | Empty list; inherit harness signals | Only removes signals from the harness's offered set; unknown tokens produce a warning |
 | `limits` | Object containing optional integer limits and overlap protection | Inherit current harness limits | Repo limits may only tighten the harness settings |

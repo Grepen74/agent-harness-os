@@ -7,6 +7,7 @@ public enum LedgerEventKind: String, Hashable, CaseIterable, Sendable {
     case testsFixed, otherTestsUpdated, reviewRecorded, humanReviewRequested, humanReviewApproved
     case requirementBranchCreated
     case requirementBranchObserved, requirementCatchUpConflicted
+    case requirementVerificationStarted, requirementVerificationFinished, requirementVerificationRetryRequested, requirementMerged
     case expectedAPIReported, brokenTestReported, brokenTestRouted, runStarted, agentConfigured, runFinished
     case changeSubmitted, attemptFailed, testDraftKept, diagnosisRecorded, acceptanceTestPreflightFailed, passingCheckRecorded, mainMovedRework
     case actualChangedFilesRecorded, predictedPathsExpanded
@@ -40,6 +41,10 @@ public enum LedgerEventKind: String, Hashable, CaseIterable, Sendable {
         case .requirementBranchCreated: self = .requirementBranchCreated
         case .requirementBranchObserved: self = .requirementBranchObserved
         case .requirementCatchUpConflicted: self = .requirementCatchUpConflicted
+        case .requirementVerificationStarted: self = .requirementVerificationStarted
+        case .requirementVerificationFinished: self = .requirementVerificationFinished
+        case .requirementVerificationRetryRequested: self = .requirementVerificationRetryRequested
+        case .requirementMerged: self = .requirementMerged
         case .otherTestsUpdated: self = .otherTestsUpdated
         case .reviewRecorded: self = .reviewRecorded
         case .humanReviewRequested: self = .humanReviewRequested

@@ -48,8 +48,10 @@ extension Reconciler {
             let here = state.nodes[ref] ?? state.node(forTicket: ref)
             if let here, let requirement = state.lineage(of: here.id).last,
                requirement.id != state.lineage(of: node.id).last?.id,
-               requirementBranches != nil || requirement.requirementBranchObservation != nil {
-                return requirement.requirementBranchObservation == nil || state.status(of: requirement) != "Done"
+               requirementBranches != nil || requirement.requirementBranchObservation != nil
+                || requirement.requirementVerificationStarted {
+                return (!requirement.requirementMerged && requirement.requirementBranchObservation == nil)
+                    || state.status(of: requirement) != "Done"
             }
             return here?.phase != .proven
         }

@@ -29,6 +29,9 @@ public protocol Workspace: Sendable {
     /// Returns the starting commit only when the branch was created.
     func prepareRequirementBranch(for requirement: NodeIdentity, leaves: [NodeID]) async throws -> String?
     func catchUpRequirementBranch(for requirement: NodeIdentity) async throws -> String
+    /// A disposable checkout of the requirement tip for full final verification.
+    func requirementWorktree(for requirement: NodeIdentity) async throws -> URL
+    func requirementIsMerged(_ requirement: NodeIdentity) async throws -> Bool
 
     func branch(for id: NodeID) -> String
     func worktree(for id: NodeID) -> URL
@@ -116,6 +119,12 @@ public protocol Workspace: Sendable {
 }
 
 public extension Workspace {
+    func requirementWorktree(for requirement: NodeIdentity) async throws -> URL {
+        throw AgentFailure("This workspace does not support final requirement verification.")
+    }
+    func requirementIsMerged(_ requirement: NodeIdentity) async throws -> Bool {
+        throw AgentFailure("This workspace does not support requirement merge detection.")
+    }
     func prepareRequirementBranch(for requirement: NodeIdentity, leaves: [NodeID]) async throws -> String? { nil }
     func catchUpRequirementBranch(for requirement: NodeIdentity) async throws -> String {
         throw AgentFailure("This workspace does not support requirement catch-up.")

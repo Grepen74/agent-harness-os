@@ -7,7 +7,7 @@ extension Reconciler {
 
     public func retryRequirementCatchUp() async -> RoundReport {
         var report = RoundReport()
-        guard shutdownReason == nil, !isCatchingUpRequirements else { return report }
+        guard shutdownReason == nil, !isCatchingUpRequirements, !isVerifyingRequirements else { return report }
         isCatchingUpRequirements = true
         defer { isCatchingUpRequirements = false }
         do {

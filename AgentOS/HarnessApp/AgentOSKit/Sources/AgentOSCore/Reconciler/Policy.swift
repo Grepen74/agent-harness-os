@@ -40,6 +40,7 @@ public struct Policy: Sendable, Equatable {
     /// Landing is always one at a time.
     public var maxParallelAgents = 1
     public var avoidOverlappingWork = true
+    public var pullRequests = false
     /// How long the harness waits before it tries again, by itself, work stopped by an infrastructure problem (a
     /// test runner that keeps crashing, tests failing only under load, a broken landing branch): one wait per try
     /// since a person last acted. After the last, the work waits for a person. Empty: only people retry.
@@ -54,12 +55,14 @@ public struct Policy: Sendable, Equatable {
 
     public init(maxAttempts: Int = 3, maxReworks: Int = 3, maxAgentRuns: Int = 12, maxParallelAgents: Int = 1,
                 allowedSignals: Set<HarnessCommand> = Set(HarnessCommand.allCases), protectedPaths: [String] = [],
-                guesswork: Guesswork = .assumeAndReport, avoidOverlappingWork: Bool = true) {
+                guesswork: Guesswork = .assumeAndReport, avoidOverlappingWork: Bool = true,
+                pullRequests: Bool = false) {
         self.maxAttempts = maxAttempts
         self.maxReworks = maxReworks
         self.maxAgentRuns = maxAgentRuns
         self.maxParallelAgents = maxParallelAgents
         self.avoidOverlappingWork = avoidOverlappingWork
+        self.pullRequests = pullRequests
         self.allowedSignals = allowedSignals
         self.protectedPaths = protectedPaths
         self.guesswork = guesswork
@@ -176,6 +179,10 @@ extension WorkingState {
         if node.awaitingHumanReview { return "In review" }
         if node.flags[.needsInput] != nil { return "Needs input" }
         if node.flags[.blocked] != nil { return "Blocked" }
+        if node.spec.parent == nil, node.requirementVerificationStarted {
+            if node.requirementVerification?.passed != true { return "Needs input" }
+            return node.requirementMerged || node.requirementBranchObservation?.containedInMain == true ? "Done" : "In review"
+        }
         if node.spec.parent == nil, let observation = node.requirementBranchObservation {
             let leaves = requirementLeaves(for: node.id)
             if !leaves.isEmpty && leaves.allSatisfy({ $0.phase == .proven }) {

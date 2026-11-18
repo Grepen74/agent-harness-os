@@ -195,6 +195,11 @@ extension Reconciler {
             return "build approved for \(node.spec.id) and everything below it" + (try await approve(reviews, by: person))
 
         case .retry:
+            if let node, node.spec.parent == nil, node.requirementVerificationStarted,
+               node.requirementVerification?.passed != true {
+                try await write(node.id, by: .human(person), [.requirementVerificationRetryRequested])
+                return "final verification will run again on the requirement branch; no agent rework is started"
+            }
             if let node, node.flags[.needsInput] != nil {
                 return try await resume(node, answeredOn: ticket, by: person)
             }

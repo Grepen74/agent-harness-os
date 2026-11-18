@@ -82,6 +82,10 @@ public enum EventKind: Codable, Sendable {
     case requirementBranchCreated(branch: String, from: String)
     case requirementBranchObserved(branch: String, tip: String, main: String, containedInMain: Bool)
     case requirementCatchUpConflicted(branch: String, main: String, files: [String], tickets: [String])
+    case requirementVerificationStarted
+    case requirementVerificationFinished(Evidence)
+    case requirementVerificationRetryRequested
+    case requirementMerged(commit: String)
     /// Fingerprint of the node's acceptance tests; nobody may change them afterwards.
     case testsFixed(digest: String)
     /// Other work's tests the acceptance tests changed (written after `testsFixed`), with their fingerprint: they
@@ -248,6 +252,11 @@ extension EventKind {
             "observed \(branch) at \(tip), \(contained ? "contained" : "not contained") in main \(main)"
         case .requirementCatchUpConflicted(let branch, let main, let files, let tickets):
             "\(branch) catch-up to \(main) conflicted in \(files.joined(separator: ", ")); requirements: \(tickets.joined(separator: ", "))"
+        case .requirementVerificationStarted: "final requirement verification started"
+        case .requirementVerificationFinished(let evidence):
+            "final requirement verification \(evidence.passed ? "passed" : "failed") at \(evidence.commit)"
+        case .requirementVerificationRetryRequested: "human requested final requirement verification"
+        case .requirementMerged(let commit): "requirement merged into main at \(commit)"
         case .otherTestsUpdated(let files, _): "updated other work's tests: \(files.joined(separator: ", "))"
         case .reviewRecorded(let review):
             "\(review.stage.rawValue) review \(review.result.passed ? "passed" : "failed")"

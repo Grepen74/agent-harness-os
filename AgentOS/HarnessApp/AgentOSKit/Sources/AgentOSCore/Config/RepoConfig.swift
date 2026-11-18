@@ -184,10 +184,11 @@ public struct RepoConfig: Codable, Sendable, Equatable {
     public var agents: Agents?
     public var protectedPaths: [String]?
     public var tracker: Tracker?
+    public var pullRequests: Bool?
 
     public static let path = ".agentos/config.json"
     public static let knownKeys: Set<String> = ["build", "test", "checks", "leafTests", "components", "landing", "signals",
-                                                "limits", "agents", "protectedPaths", "tracker", "review"]
+                                                "limits", "agents", "protectedPaths", "tracker", "review", "pullRequests"]
 
     /// Every command line the config runs, in order.
     public var commands: [String] {
@@ -196,7 +197,8 @@ public struct RepoConfig: Codable, Sendable, Equatable {
 
     public init(build: Build? = nil, test: Test, checks: [NamedCheck]? = nil, leafTests: LeafTests? = nil,
                 components: [String]? = nil, landing: Landing? = nil, signals: Signals? = nil, limits: Limits? = nil,
-                agents: Agents? = nil, protectedPaths: [String]? = nil, tracker: Tracker? = nil, review: Review? = nil) {
+                agents: Agents? = nil, protectedPaths: [String]? = nil, tracker: Tracker? = nil, review: Review? = nil,
+                pullRequests: Bool? = nil) {
         self.build = build
         self.test = test
         self.checks = checks
@@ -209,6 +211,7 @@ public struct RepoConfig: Codable, Sendable, Equatable {
         self.protectedPaths = protectedPaths
         self.tracker = tracker
         self.review = review
+        self.pullRequests = pullRequests
     }
 
     public struct ParseError: Error, CustomStringConvertible {

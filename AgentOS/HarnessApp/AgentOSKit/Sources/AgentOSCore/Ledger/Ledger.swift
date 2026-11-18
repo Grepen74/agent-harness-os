@@ -151,7 +151,10 @@ public actor Ledger: HarnessLedgerRefreshSource {
         switch event.kind {
         case .gateOpened:
             guard event.by.isHuman else { throw LedgerError.notAllowed("only humans can open gates") }
-        case .evidenceRecorded(let evidence), .landingReworkNeeded(let evidence):
+        case .requirementVerificationRetryRequested:
+            guard event.by.isHuman else { throw LedgerError.notAllowed("only humans can retry final verification") }
+        case .evidenceRecorded(let evidence), .landingReworkNeeded(let evidence),
+             .requirementVerificationFinished(let evidence):
             guard case .agent(let run, .verifier) = event.by, run == evidence.checkedBy else {
                 throw LedgerError.notAllowed("evidence must be recorded by the verifier run that produced it")
             }

@@ -95,6 +95,18 @@ public struct SimulationWorkspace: Workspace, MainTipRepository {
         try await createSnapshot(at: landingBranch(for: id))
     }
 
+    public func requirementWorktree(for requirement: NodeIdentity) async throws -> URL {
+        try await createSnapshot(at: requirementBranch(for: requirement.ticketKey))
+    }
+
+    public func requirementIsMerged(_ requirement: NodeIdentity) async throws -> Bool {
+        let branch = requirementBranch(for: requirement.ticketKey)
+        guard let commit = try await tip(of: branch), let main = try await tip(of: defaultBranch) else {
+            throw AgentFailure("Could not detect the merge: restore \(branch) and \(defaultBranch), then run again.")
+        }
+        return try await isAncestor(commit, of: main)
+    }
+
     private func createSnapshot(at branch: String) async throws -> URL {
         let directory = root.appending(path: "snapshots/\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory.deletingLastPathComponent(), withIntermediateDirectories: true)

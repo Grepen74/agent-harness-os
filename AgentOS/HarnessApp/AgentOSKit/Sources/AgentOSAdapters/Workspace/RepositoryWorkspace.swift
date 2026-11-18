@@ -138,7 +138,7 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
         try await createSnapshot(at: landingBranch(for: id))
     }
 
-    private func createSnapshot(at branch: String) async throws -> URL {
+    func createSnapshot(at branch: String) async throws -> URL {
         let directory = snapshotsDirectory.appending(path: UUID().uuidString)
         try await worktreeLock.withPermit {
             try FileManager.default.createDirectory(at: snapshotsDirectory, withIntermediateDirectories: true)

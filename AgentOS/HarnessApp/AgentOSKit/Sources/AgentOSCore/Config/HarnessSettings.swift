@@ -11,6 +11,7 @@ public struct HarnessSettings: Codable, Sendable, Equatable {
     public var maxAgentRuns = 12
     public var maxParallelAgents = 2
     public var avoidOverlappingWork = true
+    public var pullRequests = false
     /// The signals people may use at all (doc 05 §3).
     public var offeredSignals: Set<HarnessCommand> = Set(HarnessCommand.allCases)
     /// The signals there were when these settings were saved, so a newer signal is offered rather than looking
@@ -37,7 +38,7 @@ public struct HarnessSettings: Codable, Sendable, Equatable {
     /// The `gh` account the harness uses for GitHub Issues, when several are logged in (nil: the active one).
     public var githubAccount: String?
 
-    /// Not settings: the harness never pushes, and these are always denied and protected. Agents work in worktrees
+    /// Agents may never publish; these tools are always denied and paths protected. Agents work in worktrees
     /// that share the repo's `.git`: fetches, stashes, remotes and config would change your repo, and `gh` could push.
     public static let deniedTools = ["git push", "git fetch", "git pull", "git remote", "git config", "git stash", "gh",
                                      "network installs"]
@@ -58,6 +59,7 @@ public struct HarnessSettings: Codable, Sendable, Equatable {
         maxParallelAgents = try container.decodeIfPresent(Int.self, forKey: .maxParallelAgents) ?? defaults.maxParallelAgents
         avoidOverlappingWork = try container.decodeIfPresent(Bool.self, forKey: .avoidOverlappingWork)
             ?? defaults.avoidOverlappingWork
+        pullRequests = try container.decodeIfPresent(Bool.self, forKey: .pullRequests) ?? false
         let known = try container.decodeIfPresent(Set<HarnessCommand>.self, forKey: .knownSignals)
             ?? [.preview, .breakdown, .build, .go, .retry, .retest]
         let offered = try container.decodeIfPresent(Set<HarnessCommand>.self, forKey: .offeredSignals) ?? defaults.offeredSignals
@@ -152,7 +154,16 @@ public struct EffectivePolicy: Sendable, Equatable {
         }
         result.settings.append(EffectiveSetting(name: "Landing branch", value: "agentos/<ticket key>",
                                                 source: .harness, note: nil))
-        result.settings.append(EffectiveSetting(name: "Push / open pull requests", value: "Never", source: .harness, note: nil))
+        result.policy.pullRequests = harness.pullRequests && repo?.pullRequests != false
+        let refusedPublishing = repo?.pullRequests == true && !harness.pullRequests
+        if refusedPublishing {
+            refuse("Repo config enables pull requests",
+                   "pullRequests may only be enabled when Push / open pull requests is on in harness settings.")
+        }
+        result.settings.append(EffectiveSetting(
+            name: "Push / open pull requests", value: result.policy.pullRequests ? "On" : "Off",
+            source: repo?.pullRequests != nil && !refusedPublishing ? .repo : .harness,
+            note: refusedPublishing ? "repo asked for On: refused" : nil))
 
         // Limits: lower is fine, higher is refused.
         func limit(_ name: String, key: String, harness: Int, repo: Int?) -> Int {

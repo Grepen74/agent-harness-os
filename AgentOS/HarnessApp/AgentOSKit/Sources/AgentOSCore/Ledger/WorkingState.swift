@@ -87,6 +87,10 @@ public struct NodeState: Sendable, Identifiable {
     public var testsDigest: String?
     public var requirementBranch: String?
     public var requirementBranchObservation: RequirementBranchObservation?
+    public var requirementVerificationStarted = false
+    public var requirementVerification: Evidence?
+    public var requirementVerificationRetryPending = false
+    public var requirementMerged = false
     public var catchUpConflict: CatchUpConflict?
     public var lastCatchUpSuccess: CatchUpSuccess?
     /// Other work's tests this node's acceptance tests changed, locked by `updatedOtherTestsDigest`.
@@ -201,6 +205,10 @@ public struct WorkingState: Sendable {
             if let conflict = node.catchUpConflict {
                 items.append((node, .needsInput,
                               "\(node.requirementBranch ?? node.ticket) catch-up needs a person: \(conflict.files.joined(separator: ", "))"))
+            }
+            if node.requirementVerificationStarted && node.requirementVerification?.passed != true {
+                items.append((node, .needsInput,
+                              "Final verification needs a person: \(node.requirementVerification?.summary ?? "interrupted"). Fix the problem, then add harness:retry."))
             }
             return items
         }
@@ -345,6 +353,17 @@ public struct WorkingState: Sendable {
             node.overlapHold = nil
         case .requirementBranchCreated(let branch, _):
             node.requirementBranch = branch
+        case .requirementVerificationStarted:
+            node.requirementVerificationStarted = true
+            node.requirementVerification = nil
+            node.requirementVerificationRetryPending = false
+        case .requirementVerificationFinished(var evidence):
+            evidence.recordedAt = event.at
+            node.requirementVerification = evidence
+        case .requirementVerificationRetryRequested:
+            if event.by.isHuman { node.requirementVerificationRetryPending = true }
+        case .requirementMerged:
+            node.requirementMerged = true
         case .requirementBranchObserved(let branch, let tip, let main, let contained):
             node.requirementBranch = branch
             node.requirementBranchObservation = RequirementBranchObservation(
@@ -470,7 +489,9 @@ public struct WorkingState: Sendable {
             evidence.recordedAt = event.at
             node.evidence.append(evidence)
             if !evidence.passed { node.latestReviewFeedback = nil }
-            if !evidence.passed && evidence.failureClassification != .runnerCrash
+            // Final verification waits for a person; it is not another implementation attempt.
+            if !evidence.passed && evidence.checkedBy != node.requirementVerification?.checkedBy
+                && evidence.failureClassification != .runnerCrash
                 && evidence.failureClassification != .landingInfrastructure
                 && evidence.failureClassification != .unreliableTests {
                 node.failedAttempts += 1

@@ -35,6 +35,8 @@ public actor Reconciler {
     var isCatchingUpRequirements = false
     let artifacts: any ArtifactStore
     let checks: any CheckRunner
+    let publisher: (any RequirementPublisher)?
+    var isVerifyingRequirements = false
     let acceptanceTestPreflight: any AcceptanceTestPreflight
     public nonisolated let policy: Policy
     public private(set) var team: AgentTeam
@@ -72,7 +74,8 @@ public actor Reconciler {
                 requirementBranches: (any RequirementBranchRepository)? = nil,
                 acceptanceTestPreflight: any AcceptanceTestPreflight = SkippedAcceptanceTestPreflight(),
                 beforeStep: (@Sendable (NodeID) async -> Void)? = nil,
-                now: @escaping @Sendable () -> Date = { Date() }) {
+                now: @escaping @Sendable () -> Date = { Date() },
+                publisher: (any RequirementPublisher)? = nil) {
         self.beforeStep = beforeStep
         self.now = now
         self.ledger = ledger
@@ -82,6 +85,7 @@ public actor Reconciler {
         self.workspace = workspace
         self.requirementBranches = requirementBranches
         self.checks = checks
+        self.publisher = publisher
         self.acceptanceTestPreflight = acceptanceTestPreflight
         self.team = team
         self.policy = policy
@@ -131,6 +135,7 @@ public actor Reconciler {
     public func runRound(waitForAgents: Bool) async -> RoundReport {
         var report = RoundReport()
         guard shutdownReason == nil, !Task.isCancelled else { return finish(report) }
+        guard !isVerifyingRequirements else { return finish(report) }
         let chain = await ledger.verifyIncrementally()
         if let problem = chain.problem {
             report.safeStop = "Ledger integrity check failed at #\(problem.position): \(problem.reason). " +
@@ -179,6 +184,7 @@ public actor Reconciler {
                 if !waitForAgents { try await scheduleAvailableSteps(in: await ledger.workingState()) }
             }
             try await clearObsoleteOverlapHolds()
+            try await verifyCompletedRequirements(&report)
         } catch {
             report.safeStop = "Couldn't reconcile work: \(error). Check the workspace and ledger, then run again."
         }
@@ -192,7 +198,7 @@ public actor Reconciler {
         var report = report
         report.actions += completedActions
         completedActions.removeAll()
-        report.hasRunningAgents = slotsInUse > 0
+        report.hasRunningAgents = slotsInUse > 0 || isVerifyingRequirements
         if report.safeStop == nil { report.safeStop = lifecycleFailure }
         return report
     }

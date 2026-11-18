@@ -19,7 +19,15 @@ extension Reconciler {
         }
 
         var steps: [String?] = []
-        if let parent = node.spec.parent.flatMap({ state.nodes[$0] }), parent.phase != .split {
+        if node.spec.parent == nil, node.requirementVerificationStarted {
+            if node.requirementVerification?.passed != true {
+                steps.append(step(.retry, "Fix the final verification failure, then harness:retry to run the full checks again (no agent rework)"))
+            } else if state.status(of: node) == "Done" {
+                steps.append(step(nil, "Nothing: the requirement is merged into main"))
+            } else {
+                steps.append(step(nil, "Review the verified requirement and merge agentos/\(node.ticket) into main"))
+            }
+        } else if let parent = node.spec.parent.flatMap({ state.nodes[$0] }), parent.phase != .split {
             steps.append(step(nil, "Nothing for now: \(parent.displayName) was replanned. Its next breakdown keeps this ticket " +
                 "if it still contains it unchanged, or closes it"))
         } else if node.awaitingHumanReview {
