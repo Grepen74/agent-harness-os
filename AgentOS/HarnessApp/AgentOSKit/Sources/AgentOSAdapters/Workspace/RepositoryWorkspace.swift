@@ -24,6 +24,7 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
     /// Worktrees share the repo's `.git`: adding, removing and pruning them one at a time avoids git's lock
     /// errors when leaves start side by side. Agents and checks still run in parallel.
     let worktreeLock = AsyncSemaphore(1)
+    let mergeAidLock = AsyncSemaphore(1)
     private let requirementBranches = RequirementBranchBindings()
 
     public struct NotConfigured: Error, CustomStringConvertible {
@@ -555,7 +556,17 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
             files += names.map { "\(folder)/\($0)" }
         }
         for file in files.sorted() {
-            if let data = FileManager.default.contents(atPath: common.appending(path: file).path) {
+            if var data = FileManager.default.contents(atPath: common.appending(path: file).path) {
+                // Harness-owned merge aids may change while another requirement's agent is running.
+                if let text = String(data: data, encoding: .utf8) {
+                    if file == "config" {
+                        data = Data(RequirementMergeAid.unmanagedConfiguration(text).utf8)
+                    } else if file == "info/attributes" {
+                        let unmanaged = RequirementMergeAid.unmanagedAttributes(text)
+                        if unmanaged.isEmpty { continue }
+                        data = Data(unmanaged.utf8)
+                    }
+                }
                 state.append("\(Hashing.sha256(data)) \(file)")
             }
         }

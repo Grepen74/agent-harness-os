@@ -49,18 +49,13 @@ public struct SimulationWorkspace: Workspace, MainTipRepository {
     }
 
     public func catchUpRequirementBranch(for requirement: NodeIdentity) async throws -> String {
-        let directory = try await createSnapshot(at: "agentos/\(requirement.ticketKey)")
-        do {
-            let old = try await head(of: directory)
-            try await git(["-c", "user.name=AgentOS", "-c", "user.email=harness@agents.agentos.local",
-                           "merge", "-q", "--no-edit", "main"], in: directory)
-            let tip = try await head(of: directory)
-            try await git(["update-ref", "refs/heads/agentos/\(requirement.ticketKey)", tip, old], in: repoDirectory)
-            await removeSnapshot(directory)
+        let branch = requirementBranch(for: requirement.ticketKey)
+        switch try await mergeMain(localMainTip(), into: branch) {
+        case .clean:
+            guard let tip = try await tip(of: branch) else { throw AgentFailure("Missing requirement branch \(branch).") }
             return tip
-        } catch {
-            await removeSnapshot(directory)
-            throw error
+        case .conflict(let files):
+            throw AgentFailure("Catch-up of \(branch) conflicts in \(files.joined(separator: ", ")). Resolve the conflict, then retry catch-up.")
         }
     }
 

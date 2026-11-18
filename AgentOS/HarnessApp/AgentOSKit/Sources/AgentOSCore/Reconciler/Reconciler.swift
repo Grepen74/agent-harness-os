@@ -31,6 +31,8 @@ public actor Reconciler {
     let tracker: any TrackerAdapter
     let external: any ExternalDependencySource
     let workspace: any Workspace
+    let requirementBranches: (any RequirementBranchRepository)?
+    var isCatchingUpRequirements = false
     let artifacts: any ArtifactStore
     let checks: any CheckRunner
     let acceptanceTestPreflight: any AcceptanceTestPreflight
@@ -67,6 +69,7 @@ public actor Reconciler {
     public init(ledger: Ledger, tracker: any TrackerAdapter, external: any ExternalDependencySource,
                 workspace: any Workspace, artifacts: any ArtifactStore, checks: any CheckRunner, team: AgentTeam,
                 policy: Policy = Policy(),
+                requirementBranches: (any RequirementBranchRepository)? = nil,
                 acceptanceTestPreflight: any AcceptanceTestPreflight = SkippedAcceptanceTestPreflight(),
                 beforeStep: (@Sendable (NodeID) async -> Void)? = nil,
                 now: @escaping @Sendable () -> Date = { Date() }) {
@@ -77,6 +80,7 @@ public actor Reconciler {
         self.tracker = tracker
         self.external = external
         self.workspace = workspace
+        self.requirementBranches = requirementBranches
         self.checks = checks
         self.acceptanceTestPreflight = acceptanceTestPreflight
         self.team = team
@@ -143,7 +147,16 @@ public actor Reconciler {
         await intakeExternal(&report)
 
         do {
-            try await restoreRequirementBranches()
+            guard !isCatchingUpRequirements else { return finish(report) }
+            isCatchingUpRequirements = true
+            do {
+                try await restoreRequirementBranches()
+                try await reconcileRequirementBranches(&report)
+            } catch {
+                isCatchingUpRequirements = false
+                throw error
+            }
+            isCatchingUpRequirements = false
             let retries = try await retryInfrastructureProblems(in: await ledger.workingState())
             report.actions += retries.actions
             report.retryDue = retries.nextDue
@@ -271,7 +284,7 @@ public actor Reconciler {
     @discardableResult
     private func scheduleAvailableSteps(in state: WorkingState, order: [NodeID]? = nil, excluding: Set<NodeID> = [],
                                         reportCompletion: Bool = true) async throws -> [(NodeID, Task<String?, Never>)] {
-        guard quietLandings == 0 else { return [] }
+        guard quietLandings == 0, !isCatchingUpRequirements else { return [] }
         let waitingToLand = !isLanding && state.landingQueue.contains {
             tasks[$0.id] == nil && !$0.awaitingHumanReview && !landingWaits.contains($0.id)
         }
@@ -321,7 +334,7 @@ public actor Reconciler {
             guard shutdownReason == nil else { return nil }
             if landing {
                 guard node.phase == .landing, node.activeRun == nil, node.flags[.escalated] == nil,
-                      !node.awaitingHumanReview else { return nil }
+                      !node.awaitingHumanReview, !requirementIsHeld(node, in: state) else { return nil }
                 result = try await land(node)
             } else {
                 result = try await advance(node, in: state)
@@ -362,6 +375,7 @@ public actor Reconciler {
     }
 
     func canAdvance(_ node: NodeState, in state: WorkingState) -> Bool {
+        guard !requirementIsHeld(node, in: state) else { return false }
         if wantsDiagnosis(node) { return true }
         guard node.flags[.escalated] == nil, node.flags[.needsInput] == nil, node.activeRun == nil,
               !node.ticketClosed else { return false }

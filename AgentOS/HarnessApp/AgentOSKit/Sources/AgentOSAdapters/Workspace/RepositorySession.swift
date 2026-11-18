@@ -29,7 +29,7 @@ public final class RepositorySession: Sendable {
             ledger: ledger, tracker: self.tracker.adapter, external: NoExternalSystem(), workspace: workspace,
             artifacts: FileArtifactStore(directory: workspace.artifactsDirectory),
             checks: checks ?? CommandCheckRunner(config: config, simulators: SimulatorPool(size: policy.maxParallelAgents)),
-            team: team, policy: policy.policy,
+            team: team, policy: policy.policy, requirementBranches: workspace,
             acceptanceTestPreflight: SwiftAcceptanceTestPreflight())
     }
 
@@ -120,13 +120,7 @@ public final class RepositorySession: Sendable {
     /// One reconciler round; with waiting, it returns once the agents it started have finished.
     @discardableResult
     public func step(waitForAgents: Bool) async -> RoundReport {
-        // Catch up first, so signals handled this round (e.g. harness:retry) see the latest main.
-        let caughtUp = await catchUp.reconcile(busy: await reconciler.busyNodes)
-        var report = await reconciler.runRound(waitForAgents: waitForAgents)
-        // The round projects every ticket's usual status; a catch-up conflict takes precedence.
-        await catchUp.projectCurrentConflict()
-        if let caughtUp { report.actions.insert(caughtUp, at: 0) }
-        return report
+        await reconciler.runRound(waitForAgents: waitForAgents)
     }
 
     public func catchUpStatus() async -> CatchUpStatus {
@@ -153,8 +147,9 @@ public final class RepositorySession: Sendable {
         try await catchUp.openInTerminal(for: requirement)
     }
 
-    public func retryCatchUp() async {
-        _ = await catchUp.reconcile(force: true, busy: await reconciler.busyNodes)
+    @discardableResult
+    public func retryCatchUp() async -> RoundReport {
+        await reconciler.retryRequirementCatchUp()
     }
 
     /// Rounds that don't wait for the agents they start, until nothing more happens without a human (or `maxRounds`

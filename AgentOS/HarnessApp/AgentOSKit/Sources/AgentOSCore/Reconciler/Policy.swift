@@ -171,10 +171,17 @@ extension WorkingState {
     /// ledger's own word for where it is in the V; this also says whether it waits for someone.
     public func status(of node: NodeState) -> String {
         if node.ticketClosed && node.phase != .proven { return "Closed" }
+        if node.catchUpConflict != nil { return "Needs human" }
         if node.flags[.escalated] != nil { return "Needs human" }
         if node.awaitingHumanReview { return "In review" }
         if node.flags[.needsInput] != nil { return "Needs input" }
         if node.flags[.blocked] != nil { return "Blocked" }
+        if node.spec.parent == nil, let observation = node.requirementBranchObservation {
+            let leaves = requirementLeaves(for: node.id)
+            if !leaves.isEmpty && leaves.allSatisfy({ $0.phase == .proven }) {
+                return observation.containedInMain ? "Done" : "In review"
+            }
+        }
         // A replanned parent holds its old children until its new breakdown; a proven parent holds nothing.
         if let parent = node.spec.parent.flatMap({ nodes[$0] }), parent.phase != .split, parent.phase != .proven { return "Paused" }
         switch node.phase {

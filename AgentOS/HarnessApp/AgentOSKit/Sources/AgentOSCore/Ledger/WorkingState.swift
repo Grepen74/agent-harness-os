@@ -61,6 +61,12 @@ public struct CatchUpSuccess: Sendable, Hashable {
     }
 }
 
+public struct RequirementBranchObservation: Sendable, Equatable {
+    public let tip: String
+    public let main: String
+    public let containedInMain: Bool
+}
+
 /// The current state of one Work Node, derived from its events.
 public struct NodeState: Sendable, Identifiable {
     public var id: NodeID { spec.id }
@@ -80,6 +86,7 @@ public struct NodeState: Sendable, Identifiable {
     public var children: [NodeID] = []
     public var testsDigest: String?
     public var requirementBranch: String?
+    public var requirementBranchObservation: RequirementBranchObservation?
     public var catchUpConflict: CatchUpConflict?
     public var lastCatchUpSuccess: CatchUpSuccess?
     /// Other work's tests this node's acceptance tests changed, locked by `updatedOtherTestsDigest`.
@@ -190,7 +197,12 @@ public struct WorkingState: Sendable {
     /// Everything that needs a human right now (doc 06): the most important view.
     public var attentionList: [(node: NodeState, flag: Flag, reason: String)] {
         creationOrder.compactMap { nodes[$0] }.filter { !$0.ticketClosed }.flatMap { node in
-            Flag.allCases.compactMap { flag in node.flags[flag].map { (node, flag, $0) } }
+            var items = Flag.allCases.compactMap { flag in node.flags[flag].map { (node, flag, $0) } }
+            if let conflict = node.catchUpConflict {
+                items.append((node, .needsInput,
+                              "\(node.requirementBranch ?? node.ticket) catch-up needs a person: \(conflict.files.joined(separator: ", "))"))
+            }
+            return items
         }
     }
 
@@ -246,6 +258,7 @@ public struct WorkingState: Sendable {
             node.children = old.children
             node.overlapHold = old.overlapHold
             node.requirementBranch = old.requirementBranch
+            node.requirementBranchObservation = old.requirementBranchObservation
             node.catchUpConflict = old.catchUpConflict
             node.lastCatchUpSuccess = old.lastCatchUpSuccess
             nodes[id] = node
@@ -332,6 +345,13 @@ public struct WorkingState: Sendable {
             node.overlapHold = nil
         case .requirementBranchCreated(let branch, _):
             node.requirementBranch = branch
+        case .requirementBranchObserved(let branch, let tip, let main, let contained):
+            node.requirementBranch = branch
+            node.requirementBranchObservation = RequirementBranchObservation(
+                tip: tip, main: main, containedInMain: contained)
+        case .requirementCatchUpConflicted(let branch, let main, let files, let tickets):
+            node.requirementBranch = branch
+            node.catchUpConflict = CatchUpConflict(mainSHA: main, files: files, tickets: tickets)
         case .catchUpConflicted(let main, let files, let tickets):
             node.catchUpConflict = CatchUpConflict(mainSHA: main, files: files, tickets: tickets)
         case .catchUpSucceeded(let main, let tip, let method):
@@ -412,6 +432,15 @@ public struct WorkingState: Sendable {
             node.landedCommit = commit
             node.landingReworkPending = false
             node.landingRerunPending = false
+            // A new landing is not covered by an earlier ancestry observation.
+            if let root = lineage(of: id).last, let observation = root.requirementBranchObservation {
+                let updated = RequirementBranchObservation(tip: commit, main: observation.main, containedInMain: false)
+                if root.id == id {
+                    node.requirementBranchObservation = updated
+                } else {
+                    nodes[root.id]?.requirementBranchObservation = updated
+                }
+            }
         case .questionsRaised(let role, let questions):
             node.openQuestions = questions
             // Tests written on a guess aren't kept: they start over once the questions are answered.

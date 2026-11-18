@@ -42,6 +42,12 @@ extension RepositoryWorkspace {
     }
 
     func mergeRequirementBranch(_ branch: String, main: String) async throws -> RequirementCatchUpResult {
+        try await withoutCatchUpMergeAids {
+            try await mergeRequirementBranchWithoutAids(branch, main: main)
+        }
+    }
+
+    private func mergeRequirementBranchWithoutAids(_ branch: String, main: String) async throws -> RequirementCatchUpResult {
         guard try await checkout(of: branch) == nil else {
             throw AgentFailure("\(branch) is checked out. Switch that checkout to another branch, then retry catch-up.")
         }

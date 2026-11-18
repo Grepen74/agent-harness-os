@@ -80,6 +80,8 @@ public enum EventKind: Codable, Sendable {
 
     // Work
     case requirementBranchCreated(branch: String, from: String)
+    case requirementBranchObserved(branch: String, tip: String, main: String, containedInMain: Bool)
+    case requirementCatchUpConflicted(branch: String, main: String, files: [String], tickets: [String])
     /// Fingerprint of the node's acceptance tests; nobody may change them afterwards.
     case testsFixed(digest: String)
     /// Other work's tests the acceptance tests changed (written after `testsFixed`), with their fingerprint: they
@@ -242,6 +244,10 @@ extension EventKind {
                 (paths.isEmpty ? "components \(components.joined(separator: ", "))" : "paths \(paths.joined(separator: ", "))")
         case .testsFixed(let digest): "acceptance tests fixed (\(digest.prefix(8)))"
         case .requirementBranchCreated(let branch, let from): "created \(branch) from \(from)"
+        case .requirementBranchObserved(let branch, let tip, let main, let contained):
+            "observed \(branch) at \(tip), \(contained ? "contained" : "not contained") in main \(main)"
+        case .requirementCatchUpConflicted(let branch, let main, let files, let tickets):
+            "\(branch) catch-up to \(main) conflicted in \(files.joined(separator: ", ")); requirements: \(tickets.joined(separator: ", "))"
         case .otherTestsUpdated(let files, _): "updated other work's tests: \(files.joined(separator: ", "))"
         case .reviewRecorded(let review):
             "\(review.stage.rawValue) review \(review.result.passed ? "passed" : "failed")"
