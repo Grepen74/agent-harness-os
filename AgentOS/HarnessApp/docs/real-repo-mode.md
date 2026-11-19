@@ -70,6 +70,7 @@ read from `main` only.
 | Agent timeouts | Per role: 20 minutes, 10 for the diagnoser; the longest a repo may choose: 1 hour (at most 4) | Choose per role, longer or shorter, up to the longest allowed |
 | Max attempts / reworks per leaf | 3 / 3 | Lower |
 | Max parallel agents | 2 | Lower |
+| Landing batch size | 4; 1 lands one at a time | Choose from 1 through the current harness setting |
 | Avoid building overlapping work at the same time | On | Turn on, but not off |
 | Guesswork | `assume and report`: carry on and post assumptions; a leaf whose work rests on assumptions waits for a person to see its acceptance tests before build, even under `harness:go`. Guesses about what users observe (what to check, which screen, which behaviour) always stop the node; guesses about implementation don't. Other levels: `ask` (assumptions are questions too), `autonomous` (assumptions are posted, nothing waits) | Choose a stricter level (`agents.guesswork`) |
 | Signals people may use (doc 05 §3) | All, including `harness:go` | Switch some off, e.g. `go` to force a breakdown review |
@@ -230,6 +231,7 @@ is configured, Copilot CLI chooses its own default. Display titles are not confi
 | `limits.maxReworks` | Integer: maximum reworks per leaf | Inherit harness setting; built-in 3 | At least 1 and at most the current harness setting |
 | `limits.maxAgentRuns` | Integer: test-author and implementer runs per ticket since a person last acted on it | Inherit harness setting; built-in 12 | At least 1 and at most the current harness setting; any human action on the ticket starts a new budget |
 | `limits.maxParallelAgents` | Integer: maximum concurrent harness-started agents | Inherit harness setting; built-in 2 | At least 1 and at most the current harness setting; does not count agents' sub-agents |
+| `limits.landingBatchSize` | Integer: maximum nodes checked together in a landing batch | Inherit harness setting; built-in 4 | At least 1 and at most the current harness setting; 1 lands one at a time. Invalid or larger values are `config.policy` blockers; the harness value applies |
 | `limits.avoidOverlappingWork` | Boolean: avoid building overlapping work at the same time | Inherit harness setting; built-in `true` | A repo may turn it on, not off; `false` is refused when the harness has it on |
 | `agents` | Object containing agent policy and context options | Inherit harness agent policy and default context | May only tighten policy; provider remains Copilot CLI |
 | `agents.deny` | Array of strings naming additional denied tools or commands | No additions to the harness deny list | Additive union with harness denials; cannot remove them |

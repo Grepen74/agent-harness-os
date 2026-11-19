@@ -10,6 +10,7 @@ public struct HarnessSettings: Codable, Sendable, Equatable {
     /// Test-author and implementer runs per ticket before a person must look.
     public var maxAgentRuns = 12
     public var maxParallelAgents = 2
+    public var landingBatchSize = 4
     public var avoidOverlappingWork = true
     public var pullRequests = false
     /// The signals people may use at all (doc 05 §3).
@@ -57,6 +58,7 @@ public struct HarnessSettings: Codable, Sendable, Equatable {
         maxReworks = try container.decodeIfPresent(Int.self, forKey: .maxReworks) ?? defaults.maxReworks
         maxAgentRuns = try container.decodeIfPresent(Int.self, forKey: .maxAgentRuns) ?? defaults.maxAgentRuns
         maxParallelAgents = try container.decodeIfPresent(Int.self, forKey: .maxParallelAgents) ?? defaults.maxParallelAgents
+        landingBatchSize = try container.decodeIfPresent(Int.self, forKey: .landingBatchSize) ?? defaults.landingBatchSize
         avoidOverlappingWork = try container.decodeIfPresent(Bool.self, forKey: .avoidOverlappingWork)
             ?? defaults.avoidOverlappingWork
         pullRequests = try container.decodeIfPresent(Bool.self, forKey: .pullRequests) ?? false
@@ -201,6 +203,8 @@ public struct EffectivePolicy: Sendable, Equatable {
                                            harness: harness.maxAgentRuns, repo: repo?.limits?.maxAgentRuns)
         result.maxParallelAgents = limit("Max parallel agents", key: "maxParallelAgents",
                                           harness: harness.maxParallelAgents, repo: repo?.limits?.maxParallelAgents)
+        result.policy.landingBatchSize = limit("Landing batch size", key: "landingBatchSize",
+                                               harness: harness.landingBatchSize, repo: repo?.limits?.landingBatchSize)
 
         let overlapFromRepo = repo?.limits?.avoidOverlappingWork == true
         let overlapRefused = harness.avoidOverlappingWork && repo?.limits?.avoidOverlappingWork == false
