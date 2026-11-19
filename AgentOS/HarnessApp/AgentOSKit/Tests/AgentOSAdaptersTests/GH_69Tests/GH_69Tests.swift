@@ -484,8 +484,9 @@ import Testing
         #expect(RenderedUI.shows("GH-69", in: try Self.visibleText(hosted.view)))
         try Self.select("All tickets", filter: "All tickets", in: hosted.view)
         try await Self.waitForPage(HarnessViewModel()) { probe.ticket == "All tickets" }
-        try Self.scrollToLastLedgerRow(in: hosted.view, count: 400)
-        #expect(RenderedUI.shows("Independent paging row 399", in: try Self.visibleText(hosted.view)))
+        try await Self.scrollToLastRow(of: 400, in: hosted.view, until: "Independent paging row 399") {
+            RenderedUI.shows("Independent paging row 399", in: $0)
+        }
     }
 
     @Test
@@ -533,8 +534,9 @@ import Testing
         try Self.press("Show older", in: hosted.view)
         try await Self.waitForPage(model) { model.ledgerPage.limit == 400 && model.ledgerPage.records.count == 400 }
         Self.expectPage(model, all: all, matching: all, limit: 400)
-        try Self.scrollToLastLedgerRow(in: hosted.view, count: 400)
-        #expect(Self.showsRow(all[333], in: try Self.visibleText(hosted.view)))
+        try await Self.scrollToLastRow(of: 400, in: hosted.view, until: "Row #\(all[333].position)") {
+            Self.showsRow(all[333], in: $0)
+        }
         try Self.select("GH-69", filter: "All tickets", in: hosted.view)
         try await Self.waitForPage(model) {
             model.ledgerPage.limit == 200 && model.ledgerPage.records.map(\.event.id) == [all[732].event.id, all[0].event.id]
@@ -566,8 +568,9 @@ import Testing
         try Self.press("Show older", in: hosted.view)
         try await Self.waitForPage(model) { model.ledgerPage.limit == 400 && model.ledgerPage.records.count == 400 }
         Self.expectPage(model, all: all, matching: all.filter { $0.event.node == "other" }, limit: 400)
-        try Self.scrollToLastLedgerRow(in: hosted.view, count: 400)
-        #expect(Self.showsRow(all[332], in: try Self.visibleText(hosted.view)))
+        try await Self.scrollToLastRow(of: 400, in: hosted.view, until: "Row #\(all[332].position)") {
+            Self.showsRow(all[332], in: $0)
+        }
         try Self.select("All tickets", filter: "All tickets", in: hosted.view)
         try await Self.waitForPage(model) {
             model.ledgerPage.limit == 200 && model.ledgerPage.records.first?.event.id == last.event.id
@@ -660,6 +663,17 @@ import Testing
     /// list's edge, so its hash, also unique to the row, counts too.
     private static func showsRow(_ record: RecordedEvent, in text: String) -> Bool {
         RenderedUI.shows("#\(record.position)", in: text) || RenderedUI.shows(String(record.hash.prefix(10)), in: text)
+    }
+
+    /// Scrolls the list of `count` rows to its last row until the rendered text satisfies `shown`. One scroll and
+    /// capture isn't enough: SwiftUI sizes rows from estimates until they're laid out, so the last row can still be
+    /// clipped at the list's edge when the first image is taken.
+    private static func scrollToLastRow(of count: Int, in view: NSView, until what: String,
+                                        _ shown: (String) -> Bool) async throws {
+        try await eventually("\(what) showing after scrolling to the last of \(count) rows") {
+            try Self.scrollToLastLedgerRow(in: view, count: count)
+            return shown(try Self.visibleText(view))
+        }
     }
 
     private static func visibleText(_ view: NSView) throws -> String {

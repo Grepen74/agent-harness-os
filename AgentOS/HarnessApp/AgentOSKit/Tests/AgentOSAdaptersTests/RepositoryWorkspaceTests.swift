@@ -834,22 +834,28 @@ struct RepositoryWorkspaceTests {
     /// killed git left behind, however long the test takes.
     final class HeldGitLock: @unchecked Sendable {
         private let lock = NSLock()
-        private var holder: Process?
+        private var holder: (process: Process, exited: DispatchSemaphore)?
 
         func hold(_ file: URL) async throws {
             FileManager.default.createFile(atPath: file.path, contents: nil)
             let process = Process()
             process.executableURL = URL(filePath: "/bin/sh")
             process.arguments = ["-c", "exec 3>>\"$1\"; exec sleep 600", "sh", file.path]
+            let exited = DispatchSemaphore(value: 0)
+            process.terminationHandler = { _ in exited.signal() }
             try process.run()
-            lock.withLock { holder = process }
+            lock.withLock { holder = (process, exited) }
             try await eventually("The git lock being held open") { GitLocks.isOpen(file) }
         }
 
+        /// Ends the holder and waits until it's gone, so the lock is closed. Not `waitUntilExit()`: it waits by
+        /// spinning the calling thread's run loop, and was seen waiting forever here under a loaded suite.
         func release() {
-            guard let process = lock.withLock({ () -> Process? in defer { holder = nil }; return holder }) else { return }
-            process.terminate()
-            process.waitUntilExit()
+            guard let holder = lock.withLock({ defer { self.holder = nil }; return self.holder }) else { return }
+            kill(holder.process.processIdentifier, SIGKILL)
+            if holder.exited.wait(timeout: .now() + HangGuard.seconds) == .timedOut {
+                Issue.record("The process holding the git lock didn't exit")
+            }
         }
     }
 
