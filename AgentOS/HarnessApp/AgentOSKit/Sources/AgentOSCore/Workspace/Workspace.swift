@@ -25,6 +25,8 @@ public struct ActiveLeavesCatchUpResult: Sendable, Equatable {
 public protocol Workspace: Sendable {
     var supportsLandingBatches: Bool { get }
     func createLandingBatch(for nodes: [NodeID]) async throws -> LandingBatchWorkspace
+    /// Validates each member immediately after applying it, before any later member changes the tree.
+    func createLandingBatch(for nodes: [NodeID], validating: @escaping LandingBatchValidation) async throws -> LandingBatchWorkspace
     func landBatch(_ batch: LandingBatchWorkspace) async throws -> LandingBatchMove
     /// Makes sure the repository exists and is usable. Called at the start of every round.
     func prepare() async throws

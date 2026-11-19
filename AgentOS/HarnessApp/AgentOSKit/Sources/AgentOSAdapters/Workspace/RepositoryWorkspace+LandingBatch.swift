@@ -5,6 +5,16 @@ extension RepositoryWorkspace {
     public var supportsLandingBatches: Bool { true }
 
     public func createLandingBatch(for nodes: [NodeID]) async throws -> LandingBatchWorkspace {
+        try await buildLandingBatch(for: nodes, validating: nil)
+    }
+
+    public func createLandingBatch(for nodes: [NodeID],
+                                   validating: @escaping LandingBatchValidation) async throws -> LandingBatchWorkspace {
+        try await buildLandingBatch(for: nodes, validating: validating)
+    }
+
+    private func buildLandingBatch(for nodes: [NodeID],
+                                   validating: LandingBatchValidation?) async throws -> LandingBatchWorkspace {
         guard let first = nodes.first else { throw AgentFailure("A landing batch needs at least one node.") }
         let branch = try landingBranch(for: first)
         var sources: [GitLandingBatch.Source] = []
@@ -17,7 +27,8 @@ extension RepositoryWorkspace {
         }
         let directory = try await createSnapshot(at: branch)
         do {
-            return try await GitLandingBatch(root: root).build(in: directory, branch: branch, sources: sources)
+            return try await GitLandingBatch(root: root).build(in: directory, branch: branch, sources: sources,
+                                                             validating: validating)
         } catch {
             await removeSnapshot(directory)
             throw error

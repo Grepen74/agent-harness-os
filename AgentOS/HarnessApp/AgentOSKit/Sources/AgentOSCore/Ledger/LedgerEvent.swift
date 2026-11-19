@@ -140,6 +140,7 @@ public enum EventKind: Codable, Sendable {
     /// Merged into main: the node's change is now part of the product.
     case landed(commit: String)
     case landingBatchChecked(LandingBatchCheck)
+    case landingBatchMemberRemoved(name: String, branch: String, node: NodeID, reason: String)
 
     // Clarifying questions (doc 05: open questions and assumptions)
     /// An agent can't go on without a person's answer; replaces the node's open questions.
@@ -322,6 +323,8 @@ extension EventKind {
         case .landed(let commit): "landed on main at \(commit.prefix(8))"
         case .landingBatchChecked(let check):
             "\(check.name) on \(check.branch): \(check.nodes.joined(separator: ", ")) at \(check.candidateCommit.prefix(8)) — \(check.passed ? "passed" : "failed")"
+        case .landingBatchMemberRemoved(let name, let branch, let node, let reason):
+            "\(name) on \(branch): removed \(node) — \(reason)"
         case .questionsRaised(let role, let questions):
             "\(role.rawValue) asks: \(questions.map(\.question).joined(separator: " · "))"
         case .assumptionsReported(let role, let assumptions):

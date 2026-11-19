@@ -19,7 +19,8 @@ public struct GitLandingBatch: Sendable {
 
     public init(root: URL) { self.root = root }
 
-    public func build(in directory: URL, branch: String, sources: [Source]) async throws -> LandingBatchWorkspace {
+    public func build(in directory: URL, branch: String, sources: [Source],
+                      validating: LandingBatchValidation? = nil) async throws -> LandingBatchWorkspace {
         let base = try await git(["rev-parse", "HEAD"], in: directory)
         var members: [LandingBatchMember] = []
         for source in sources {
@@ -58,6 +59,11 @@ public struct GitLandingBatch: Sendable {
             }
             members.append(LandingBatchMember(node: source.node, commit: try await git(["rev-parse", "HEAD"], in: directory),
                                                changedFiles: changed))
+            if let validating, let member = members.last {
+                try await validating(LandingBatchWorkspace(
+                    directory: directory, branch: branch, baseCommit: base,
+                    candidateCommit: member.commit, members: members), member)
+            }
         }
         return LandingBatchWorkspace(directory: directory, branch: branch, baseCommit: base,
                                      candidateCommit: try await git(["rev-parse", "HEAD"], in: directory), members: members)

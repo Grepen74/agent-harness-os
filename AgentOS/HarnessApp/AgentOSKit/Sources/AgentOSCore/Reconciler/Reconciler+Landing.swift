@@ -15,18 +15,7 @@ extension Reconciler {
 
         // 1. Textual conflict → rework from the latest main. Not the agent's fault, so not a failed attempt.
         if case .conflict(let files) = try await rebaseOntoMain(node, in: directory) {
-            try await resetForRework(node, in: directory)
-            let reason = "merge conflict in \(files.isEmpty ? "some files" : files.joined(separator: ", ")) with newer work on main"
-            let predictions = PredictedPath.normalize(node.spec.predictedPaths)
-            let additions = PredictedPath.normalize(files).filter { file in
-                !predictions.contains { file == $0 || file.hasPrefix($0 + "/") }
-            }
-            var kinds: [EventKind] = []
-            if !additions.isEmpty { kinds.append(.predictedPathsExpanded(files: additions)) }
-            kinds += [.runFinished(run: run, outcome: "conflict"), .reworkNeeded(reason: reason), .phaseChanged(to: .ready)]
-            try await write(node.id, by: checker, kinds)
-            await tracker.comment(on: node.ticket, "♻️ Rework: \(reason). The implementation is redone on the latest code; the tests are kept.")
-            return try await escalateIfNeeded(node.id) ?? "\(node.displayName) conflicted at landing → rework"
+            return try await reworkLandingConflict(node, files: files, run: run)
         }
 
         // 2. Re-check everything on top of the latest main.
@@ -271,10 +260,19 @@ extension Reconciler {
             }
             return "\(node.displayName) breaks \(broken.map(\.displayName).joined(separator: ", ")) → requirements conflict, escalated"
         }
+        return try await failOwnLandingCheck(node, evidence: evidence, run: run, candidate: candidate)
+    }
+
+    func failOwnLandingCheck(_ node: NodeState, evidence: Evidence, run: RunID,
+                             candidate: String) async throws -> String {
+        guard let submission = node.lastSubmission else { throw AgentFailure("No submitted change for \(node.id).") }
+        let checker = Participant.agent(run: run, role: .verifier)
+        var evidence = evidence
         evidence.failureClassification = .ownMistake
+        var kinds: [EventKind] = [.evidenceRecorded(evidence), .runFinished(run: run, outcome: "failed"), .phaseChanged(to: .ready)]
         let reranSameCandidate = node.evidence.last?.commit == candidate
         if node.landingRerunPending && reranSameCandidate {
-            let reason = "Landing rerun failed; this is the agent's own mistake: \(output.summary)"
+            let reason = "Landing rerun failed; this is the agent's own mistake: \(evidence.summary)"
             kinds[0] = .landingReworkNeeded(evidence)
             kinds.append(.attemptFailed(summary: reason))
             try await write(node.id, by: checker, kinds)
@@ -285,7 +283,7 @@ extension Reconciler {
             $0.passed && $0.check == "own acceptance tests on branch" && $0.commit == submission.commit
         }
         if !alreadyPassedOwnCheck {
-            let reason = "Landing check failed; this is the agent's own mistake: \(output.summary)"
+            let reason = "Landing check failed; this is the agent's own mistake: \(evidence.summary)"
             try await write(node.id, by: checker, [
                 .evidenceRecorded(evidence), .runFinished(run: run, outcome: "failed"), .phaseChanged(to: .ready),
             ])
@@ -297,7 +295,7 @@ extension Reconciler {
         let cause = node.landingRerunPending ? " after main moved" : ""
         await tracker.comment(
             on: node.ticket,
-            "♻️ Landing check failed\(cause); this is the agent's own mistake: \(output.summary). "
+            "♻️ Landing check failed\(cause); this is the agent's own mistake: \(evidence.summary). "
                 + "The implementer will rework the candidate."
         )
         return try await escalateIfNeeded(node.id) ?? "\(node.displayName) failed at landing; will retry"

@@ -8,18 +8,24 @@ extension Reconciler {
             guard shutdownReason == nil, !Task.isCancelled,
                   slotsInUse < max(1, policy.maxParallelAgents) else { break }
             guard !considered.contains(queued.id) else { continue }
-            if policy.landingBatchSize <= 1 || !workspace.supportsLandingBatches || policy.review.requiresReview {
+            if policy.landingBatchSize <= 1 || !workspace.supportsLandingBatches {
                 if let action = await step(queued.id, landing: true) { report.actions.append(action) }
                 continue
             }
             let state = await ledger.workingState()
             guard let node = state.nodes[queued.id], eligibleForLanding(node, in: state) else { continue }
+            if try await needsHumanLandingReview(node) {
+                considered.insert(node.id)
+                if let action = await step(node.id, landing: true) { report.actions.append(action) }
+                continue
+            }
             var members = [node]
             let branch = await requirementBranch(for: node.id)
             for candidate in queue where candidate.id != node.id && !considered.contains(candidate.id) {
                 guard members.count < policy.landingBatchSize else { break }
                 guard let current = state.nodes[candidate.id], eligibleForLanding(current, in: state),
                       await requirementBranch(for: current.id) == branch else { continue }
+                guard try await !needsHumanLandingReview(current) else { continue }
                 members.append(current)
             }
             considered.formUnion(members.map(\.id))
@@ -59,7 +65,8 @@ extension Reconciler {
             !requirementIsHeld(node, in: state) && node.lastSubmission != nil
     }
 
-    private func performLandingBatch(_ nodes: [NodeState]) async -> String? {
+    private func performLandingBatch(_ queued: [NodeState]) async -> String? {
+        var nodes = queued
         let run = Self.newRunID()
         let name = "Landing batch \(run)"
         var candidate: LandingBatchWorkspace?
@@ -68,22 +75,19 @@ extension Reconciler {
                 landingWaits.remove(node.id)
                 try await write(node.id, by: .reconciler, [.runStarted(run: run, role: .verifier)], expecting: node.version)
             }
-            let batch = try await workspace.createLandingBatch(for: nodes.map(\.id))
-            candidate = batch
-            var violation: String?
-            for member in batch.members {
-                guard let node = nodes.first(where: { $0.id == member.node }) else { continue }
-                if let reason = try await protectedTestsViolation(node, in: batch.directory, changedFiles: member.changedFiles) {
-                    violation = reason
-                    break
+            var reviewed: [NodeState] = []
+            for node in nodes {
+                if let ready = try await reviewBeforeBatching(node, run: run) {
+                    reviewed.append(ready)
+                } else {
+                    ownedRuns[node.id] = nil
                 }
             }
-            if let violation {
-                try await finishBatchRuns(nodes, run: run, outcome: "batch safety check: \(violation)")
-                await workspace.removeSnapshot(batch.directory)
-                candidate = nil
-                return try await landIndividually(nodes)
+            nodes = reviewed
+            guard let batch = try await prepareLandingBatch(&nodes, name: name, run: run) else {
+                return "\(name): no eligible members"
             }
+            candidate = batch
             try await workspace.prepareBuild(in: batch.directory)
             let output = await checks.runChecks(in: batch.directory, only: nil)
             try await write(nil, by: .agent(run: run, role: .verifier), [
@@ -131,14 +135,6 @@ extension Reconciler {
             return "\(name) on \(batch.branch): \(output.passed ? "checked" : "failed")"
         } catch {
             if let candidate { await workspace.removeSnapshot(candidate.directory) }
-            if error is LandingBatchConflict {
-                do {
-                    try await finishBatchRuns(nodes, run: run, outcome: "batch conflict; rebasing members individually")
-                    return try await landIndividually(nodes)
-                } catch {
-                    return await failLandingBatch(nodes, name: name, error: error)
-                }
-            }
             return await failLandingBatch(nodes, name: name, error: error)
         }
     }
