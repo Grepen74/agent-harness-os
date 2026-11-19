@@ -36,6 +36,8 @@ public actor Reconciler {
     let artifacts: any ArtifactStore
     let checks: any CheckRunner
     let publisher: (any RequirementPublisher)?
+    let pullRequests: (any RequirementPullRequestService)?
+    var isObservingPullRequests = false
     var isVerifyingRequirements = false
     let acceptanceTestPreflight: any AcceptanceTestPreflight
     public nonisolated let policy: Policy
@@ -70,12 +72,13 @@ public actor Reconciler {
 
     public init(ledger: Ledger, tracker: any TrackerAdapter, external: any ExternalDependencySource,
                 workspace: any Workspace, artifacts: any ArtifactStore, checks: any CheckRunner, team: AgentTeam,
-                policy: Policy = Policy(),
+                policy: Policy? = nil,
                 requirementBranches: (any RequirementBranchRepository)? = nil,
                 acceptanceTestPreflight: any AcceptanceTestPreflight = SkippedAcceptanceTestPreflight(),
                 beforeStep: (@Sendable (NodeID) async -> Void)? = nil,
                 now: @escaping @Sendable () -> Date = { Date() },
-                publisher: (any RequirementPublisher)? = nil) {
+                publisher: (any RequirementPublisher)? = nil,
+                pullRequests: (any RequirementPullRequestService)? = nil) {
         self.beforeStep = beforeStep
         self.now = now
         self.ledger = ledger
@@ -85,10 +88,14 @@ public actor Reconciler {
         self.workspace = workspace
         self.requirementBranches = requirementBranches
         self.checks = checks
-        self.publisher = publisher
+        self.pullRequests = pullRequests
+        self.publisher = publisher ?? pullRequests.map {
+            ServiceRequirementPublisher(ledger: ledger, tracker: tracker, service: $0)
+        }
         self.acceptanceTestPreflight = acceptanceTestPreflight
         self.team = team
-        self.policy = policy
+        // An explicitly supplied service opts in unless the caller supplies a policy.
+        self.policy = policy ?? Policy(pullRequests: pullRequests != nil)
     }
 
     public func setTeam(_ team: AgentTeam) { self.team = team }
@@ -135,7 +142,7 @@ public actor Reconciler {
     public func runRound(waitForAgents: Bool) async -> RoundReport {
         var report = RoundReport()
         guard shutdownReason == nil, !Task.isCancelled else { return finish(report) }
-        guard !isVerifyingRequirements else { return finish(report) }
+        guard !isVerifyingRequirements, !isObservingPullRequests else { return finish(report) }
         let chain = await ledger.verifyIncrementally()
         if let problem = chain.problem {
             report.safeStop = "Ledger integrity check failed at #\(problem.position): \(problem.reason). " +
@@ -148,6 +155,12 @@ public actor Reconciler {
         }
         guard shutdownReason == nil, !Task.isCancelled else { return finish(report) }
 
+        do {
+            try await observeRequirementPullRequests(&report)
+        } catch {
+            report.safeStop = "Couldn't read requirement pull requests: \(error). Check GitHub access, then run again."
+            return finish(report)
+        }
         await intakeSignals(&report, waitingForPreviews: waitForAgents)
         await intakeExternal(&report)
 

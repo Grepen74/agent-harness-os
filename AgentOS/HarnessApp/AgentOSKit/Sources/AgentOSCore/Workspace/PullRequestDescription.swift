@@ -1,8 +1,7 @@
-import AgentOSCore
 import Foundation
 
-enum PullRequestDescription {
-    static func render(_ request: RequirementPublicationRequest, root: NodeState,
+public enum PullRequestDescription {
+    public static func render(_ request: RequirementPublicationRequest, root: NodeState,
                        state: WorkingState, closesIssue: Bool) -> String {
         var sections = [
             "# \(root.ticket): \(root.spec.title)", root.spec.intent,

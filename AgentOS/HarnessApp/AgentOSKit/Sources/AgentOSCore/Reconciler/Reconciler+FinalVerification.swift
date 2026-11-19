@@ -7,6 +7,7 @@ extension Reconciler {
         defer { isVerifyingRequirements = false }
         let state = await ledger.workingState()
         for root in state.roots where !root.ticketClosed && root.phase == .proven {
+            guard !root.requirementMerged, root.pullRequestNumber == nil else { continue }
             let leaves = state.requirementLeaves(for: root.id)
             guard !leaves.isEmpty, leaves.allSatisfy({ $0.phase == .proven }),
                   !requirementIsHeld(root, in: state) else { continue }
@@ -80,6 +81,10 @@ extension Reconciler {
         guard policy.pullRequests, let publisher else { return }
         let state = await ledger.workingState()
         for root in state.roots where !root.ticketClosed && !root.requirementMerged {
+            guard root.pullRequestState != .closed || root.publicationRetryPending else { continue }
+            // An old ledger may know the PR but not the tip it published. Observing it
+            // is not permission to republish; an explicit retry can recover that tip.
+            guard root.pullRequestNumber == nil || root.publishedCommit != nil || root.publicationRetryPending else { continue }
             guard !requirementIsHeld(root, in: state),
                   !state.lineage(of: root.id).contains(where: { !$0.flags.isEmpty }),
                   root.publicationFailure == nil || root.publicationRetryPending else { continue }
@@ -89,7 +94,14 @@ extension Reconciler {
             if let requirementBranches {
                 tip = try await requirementBranches.tip(of: branch)
             } else {
-                tip = root.requirementBranchObservation?.tip ?? root.requirementVerification?.commit
+                let checkout = try await workspace.requirementWorktree(for: root.identity)
+                do {
+                    tip = try await workspace.head(of: checkout)
+                } catch {
+                    await workspace.removeSnapshot(checkout)
+                    throw error
+                }
+                await workspace.removeSnapshot(checkout)
             }
             guard let tip else { continue }
             guard root.publishedCommit != tip || root.publicationRetryPending else { continue }

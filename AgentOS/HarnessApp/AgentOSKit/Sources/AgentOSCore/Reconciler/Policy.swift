@@ -173,6 +173,8 @@ extension WorkingState {
     /// ledger, never the source (doc 03 §5). The phase is the
     /// ledger's own word for where it is in the V; this also says whether it waits for someone.
     public func status(of node: NodeState) -> String {
+        if node.spec.parent == nil, node.pullRequestState == .merged { return "Done" }
+        if node.spec.parent == nil, node.pullRequestState == .closed { return "Needs input" }
         if node.ticketClosed && node.phase != .proven { return "Closed" }
         if node.catchUpConflict != nil { return "Needs human" }
         if node.publicationFailure != nil { return "Needs input" }
@@ -180,6 +182,7 @@ extension WorkingState {
         if node.awaitingHumanReview { return "In review" }
         if node.flags[.needsInput] != nil { return "Needs input" }
         if node.flags[.blocked] != nil { return "Blocked" }
+        if node.spec.parent == nil, node.pullRequestState == .open { return "In review" }
         if node.spec.parent == nil, node.requirementVerificationStarted {
             if node.requirementVerification?.passed != true { return "Needs input" }
             return node.requirementMerged || node.requirementBranchObservation?.containedInMain == true ? "Done" : "In review"

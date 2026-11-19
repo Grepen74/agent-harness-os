@@ -34,7 +34,8 @@ public final class RepositorySession: Sendable {
             artifacts: FileArtifactStore(directory: workspace.artifactsDirectory),
             checks: checks ?? CommandCheckRunner(config: config, simulators: SimulatorPool(size: policy.maxParallelAgents)),
             team: team, policy: policy.policy, requirementBranches: workspace,
-            acceptanceTestPreflight: SwiftAcceptanceTestPreflight(), publisher: publication)
+            acceptanceTestPreflight: SwiftAcceptanceTestPreflight(), publisher: publication,
+            pullRequests: publication)
     }
 
     private struct PublicationTransport: GitHubTransport {

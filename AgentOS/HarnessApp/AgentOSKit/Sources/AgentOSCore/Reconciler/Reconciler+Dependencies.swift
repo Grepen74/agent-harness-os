@@ -49,7 +49,7 @@ extension Reconciler {
             if let here, let requirement = state.lineage(of: here.id).last,
                requirement.id != state.lineage(of: node.id).last?.id,
                requirementBranches != nil || requirement.requirementBranchObservation != nil
-                || requirement.requirementVerificationStarted {
+                || requirement.requirementVerificationStarted || requirement.pullRequestNumber != nil {
                 return (!requirement.requirementMerged && requirement.requirementBranchObservation == nil)
                     || state.status(of: requirement) != "Done"
             }

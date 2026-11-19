@@ -28,6 +28,8 @@ public protocol TrackerAdapter: Sendable {
     func createChildTicket(parent: String, spec: NodeSpec, by: Participant) async throws -> String
     func comment(on key: String, _ text: String) async
     func setStatus(of key: String, to status: String) async
+    /// Requirement PR statuses stay visible on ticket labels as well as a configured board.
+    func setPullRequestStatus(of key: String, to status: String) async
     /// A ticket the harness made that's no longer wanted (its parent was replanned): say why, and close it.
     func close(_ key: String, saying text: String) async
     /// The ticket was closed on the tracker (by a person, outside the harness). False when unsure.
@@ -39,6 +41,9 @@ extension TrackerAdapter {
     public func contextTickets() async -> [Ticket] { [] }
     public var contextRepository: String { "" }
     public func isClosed(_ key: String) async -> Bool { false }
+    public func setPullRequestStatus(of key: String, to status: String) async {
+        await setStatus(of: key, to: status)
+    }
 
     /// Trackers without closing show it as a status.
     public func close(_ key: String, saying text: String) async {

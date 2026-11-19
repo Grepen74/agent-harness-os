@@ -98,6 +98,11 @@ pushes tags or leaf branches, or merges pull requests. The description includes 
 mapping, checks and local artifact names with SHA-256 hashes; no evidence is uploaded. Publication errors
 appear on the ticket and under **Needs attention**; only a human `harness:retry` resumes publication.
 
+The requirement follows its pull request: open is **In review**, merged is **Done**, and closed without
+merging is **Needs input**, on ticket labels and comments and the configured board's mapped status.
+After a close, `harness:retry` pushes again and reopens the same pull request. After a merge, build signals
+are refused with a link to the merged pull request and a request to open a follow-up ticket.
+
 Use **Override in repo config…** in the Policy pane to choose a permitted value and copy its full-path
 JSON fragment. Use exact config tokens: **assume and report** is `assume-and-report`. Merge the fragment
 into the existing config, preserving sibling fields; model choices come from harness Settings, and

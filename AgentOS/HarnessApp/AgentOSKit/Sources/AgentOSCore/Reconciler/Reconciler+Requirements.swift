@@ -3,7 +3,7 @@ import Foundation
 extension Reconciler {
     func restoreRequirementBranches() async throws {
         let state = await ledger.workingState()
-        for requirement in state.roots where !requirement.ticketClosed {
+        for requirement in state.roots where !requirement.ticketClosed && !requirement.requirementMerged {
             let leaves = state.requirementLeaves(for: requirement.id)
             let started = leaves.contains {
                 $0.testsDigest != nil || $0.lastSubmission != nil || $0.activeRun != nil ||

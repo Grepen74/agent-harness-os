@@ -2,7 +2,7 @@ import AgentOSCore
 import Foundation
 
 /// Harness-owned publication. Only an explicit requirement ref can cross this boundary.
-public actor PullRequestPublicationCoordinator: RequirementPublisher {
+public actor PullRequestPublicationCoordinator: RequirementPublisher, RequirementPullRequestService {
     private let ledger: Ledger
     private let tracker: any TrackerAdapter
     private var repository: String
@@ -41,6 +41,7 @@ public actor PullRequestPublicationCoordinator: RequirementPublisher {
                   root.spec.parent == nil, !root.ticketClosed, !root.requirementMerged,
                   Self.safeBranch(request.branch, ticket: root.ticket),
                   !request.commit.isEmpty else { continue }
+            guard root.pullRequestState != .closed || root.publicationRetryPending else { continue }
             if root.publicationFailure != nil, !root.publicationRetryPending {
                 try await acceptRetry(for: root)
                 state = await ledger.workingState()
@@ -59,21 +60,13 @@ public actor PullRequestPublicationCoordinator: RequirementPublisher {
             guard root.publishedCommit != request.commit || root.publicationRetryPending else { continue }
             try await record(.requirementPublicationStarted, on: root.id)
             do {
-                if repository.isEmpty {
-                    let remote = try await git(["remote", "get-url", "--push", "origin"])
-                    guard let resolved = GitHubIssuesTracker.repo(fromRemote: remote) else {
-                        throw GitHubError(description: "origin must point to a GitHub repository before publishing pull requests.")
-                    }
-                    repository = resolved
-                }
+                try await resolveRepository()
                 let tip = try await git(["rev-parse", "--verify", "refs/heads/\(request.branch)"])
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 guard tip == request.commit else {
                     throw GitHubError(description: "Requirement branch moved from \(request.commit) to \(tip); verify its current tip before publishing.")
                 }
-                let ref = "refs/heads/\(request.branch)"
-                _ = try await git(["push", "--no-force", "--no-follow-tags", "--no-mirror",
-                                  "--recurse-submodules=no", "origin", "\(ref):\(ref)"])
+                _ = try await push(branch: request.branch)
                 try await record(.requirementPushed(branch: request.branch, commit: request.commit), on: root.id)
                 let title = "\(root.ticket): \(root.spec.title)"
                 let body = PullRequestDescription.render(
@@ -92,10 +85,12 @@ public actor PullRequestPublicationCoordinator: RequirementPublisher {
                 }
                 if root.pullRequestNumber == nil {
                     try await record(.requirementPullRequestOpened(number: pr.number, url: pr.html_url), on: root.id)
+                } else if root.pullRequestState == .closed {
+                    try await record(.requirementPullRequestReopened(number: pr.number, url: pr.html_url), on: root.id)
                 }
                 try await record(.requirementPublicationFinished(commit: request.commit), on: root.id)
                 await tracker.comment(on: root.ticket,
-                    "Published \(request.branch) at \(request.commit): \(pr.html_url). A person can review and merge the pull request.")
+                    "In review: published \(request.branch) at \(request.commit): \(pr.html_url). A person can review and merge the pull request.")
             } catch {
                 let message = "Pull request publication failed: \(error). Fix the problem, then add harness:retry to push and open or update the same pull request. No automatic retry or agent rework will run."
                 try await record(.requirementPublicationFailed(error: message), on: root.id)
@@ -129,11 +124,69 @@ public actor PullRequestPublicationCoordinator: RequirementPublisher {
 
     private var collection: String { "repos/\(repository)/pulls" }
 
+    private func resolveRepository() async throws {
+        guard repository.isEmpty else { return }
+        let remote = try await git(["remote", "get-url", "--push", "origin"])
+        guard let resolved = GitHubIssuesTracker.repo(fromRemote: remote) else {
+            throw GitHubError(description: "origin must point to a GitHub repository before publishing pull requests.")
+        }
+        repository = resolved
+    }
+
+    public func pullRequest(number: Int) async throws -> RequirementPullRequest {
+        try await resolveRepository()
+        let data = try await transport.request("GET", "\(collection)/\(number)", body: nil)
+        return try JSONDecoder().decode(PullRequest.self, from: data).snapshot
+    }
+
+    public func push(branch: String) async throws -> String {
+        guard policy.policy.pullRequests, branch.hasPrefix("agentos/"),
+              Self.safeBranch(branch, ticket: String(branch.dropFirst("agentos/".count))) else {
+            throw GitHubError(description: "Only an enabled requirement branch may be pushed.")
+        }
+        let tip = try await git(["rev-parse", "--verify", "refs/heads/\(branch)"])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let ref = "refs/heads/\(branch)"
+        _ = try await git(["push", "--no-force", "--no-follow-tags", "--no-mirror",
+                          "--recurse-submodules=no", "origin", "\(ref):\(ref)"])
+        return tip
+    }
+
+    public func open(branch: String, title: String, body: String) async throws -> RequirementPullRequest {
+        guard policy.policy.pullRequests, branch.hasPrefix("agentos/"),
+              Self.safeBranch(branch, ticket: String(branch.dropFirst("agentos/".count))) else {
+            throw GitHubError(description: "Only an enabled requirement branch may open a pull request.")
+        }
+        try await resolveRepository()
+        if let existing = try await findPullRequest(branch: branch) {
+            return try await update(existing.number, title: title, body: body, allowReopen: false).snapshot
+        }
+        return try await send("POST", collection, [
+            "head": branch, "base": "main", "title": title, "body": body,
+        ]).snapshot
+    }
+
+    public func reopen(number: Int) async throws -> RequirementPullRequest {
+        guard policy.policy.pullRequests else {
+            throw GitHubError(description: "Push / open pull requests is disabled.")
+        }
+        let existing = try await pullRequest(number: number)
+        guard existing.state != .merged else {
+            throw GitHubError(description: "Pull request \(existing.url) was merged; open a follow-up ticket instead.")
+        }
+        return try await send("PATCH", "\(collection)/\(number)", ["state": "open"]).snapshot
+    }
+
     private struct PullRequest: Decodable {
         let number: Int
         let html_url: String
         let state: String
         let merged_at: String?
+
+        var snapshot: RequirementPullRequest {
+            RequirementPullRequest(number: number, url: html_url,
+                state: merged_at != nil ? .merged : state == "closed" ? .closed : .open)
+        }
     }
 
     private func findPullRequest(branch: String) async throws -> PullRequest? {

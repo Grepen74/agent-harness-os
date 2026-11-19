@@ -93,6 +93,7 @@ public struct NodeState: Sendable, Identifiable {
     public var requirementMerged = false
     public var pullRequestNumber: Int?
     public var pullRequestURL: String?
+    public var pullRequestState: RequirementPullRequest.State?
     public var publishedCommit: String?
     public var publicationFailure: String?
     public var publicationRetryPending = false
@@ -278,6 +279,10 @@ public struct WorkingState: Sendable {
             node.requirementBranchObservation = old.requirementBranchObservation
             node.catchUpConflict = old.catchUpConflict
             node.lastCatchUpSuccess = old.lastCatchUpSuccess
+            node.pullRequestNumber = old.pullRequestNumber
+            node.pullRequestURL = old.pullRequestURL
+            node.pullRequestState = old.pullRequestState
+            node.publishedCommit = old.publishedCommit
             nodes[id] = node
             return
         }
@@ -373,9 +378,25 @@ public struct WorkingState: Sendable {
             if event.by.isHuman { node.requirementVerificationRetryPending = true }
         case .requirementMerged:
             node.requirementMerged = true
-        case .requirementPullRequestOpened(let number, let url):
+        case .requirementPullRequestOpened(let number, let url),
+             .requirementPullRequestReopened(let number, let url):
             node.pullRequestNumber = number
             node.pullRequestURL = url
+            node.pullRequestState = .open
+            node.flags[.needsInput] = nil
+        case .requirementPullRequestMerged(let number, let url):
+            node.pullRequestNumber = number
+            node.pullRequestURL = url
+            node.pullRequestState = .merged
+            node.requirementMerged = true
+            node.flags[.needsInput] = nil
+            node.publicationFailure = nil
+            node.publicationRetryPending = false
+        case .requirementPullRequestClosed(let number, let url):
+            node.pullRequestNumber = number
+            node.pullRequestURL = url
+            node.pullRequestState = .closed
+            node.flags[.needsInput] = "Pull request \(url) was closed without merging. Add harness:retry to push and reopen the same pull request."
         case .requirementPublicationStarted:
             node.publicationFailure = "Publication was interrupted. Check origin and the pull request, then add harness:retry to push and update the same pull request."
             node.publicationRetryPending = false
@@ -387,7 +408,10 @@ public struct WorkingState: Sendable {
             node.publicationFailure = error
             node.publicationRetryPending = false
         case .requirementPublicationRetryRequested:
-            if event.by.isHuman { node.publicationRetryPending = true }
+            if event.by.isHuman {
+                node.publicationRetryPending = true
+                if node.pullRequestState == .closed { node.flags[.needsInput] = nil }
+            }
         case .acceptanceCriterionProofsRecorded(let proofs):
             node.acceptanceCriterionProofs = proofs
         case .requirementBranchObserved(let branch, let tip, let main, let contained):

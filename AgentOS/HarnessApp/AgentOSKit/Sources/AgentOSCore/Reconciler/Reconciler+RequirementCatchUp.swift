@@ -26,7 +26,7 @@ extension Reconciler {
         let state = await ledger.workingState()
         let canCatchUp = state.baseline?.passed == true && state.baseline?.commit == main
 
-        for root in state.roots where !root.ticketClosed {
+        for root in state.roots where !root.ticketClosed && !root.requirementMerged {
             let branch = repository.requirementBranch(for: root.ticket)
             guard let oldTip = try await repository.tip(of: branch) else { continue }
             guard canCatchUp else {

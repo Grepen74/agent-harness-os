@@ -89,6 +89,9 @@ public enum EventKind: Codable, Sendable {
     case requirementPushed(branch: String, commit: String)
     case requirementPublicationStarted
     case requirementPullRequestOpened(number: Int, url: String)
+    case requirementPullRequestMerged(number: Int, url: String)
+    case requirementPullRequestClosed(number: Int, url: String)
+    case requirementPullRequestReopened(number: Int, url: String)
     case requirementPublicationFinished(commit: String)
     case requirementPublicationFailed(error: String)
     case requirementPublicationRetryRequested
@@ -257,6 +260,9 @@ extension EventKind {
         case .requirementPushed(let branch, let commit): "pushed \(branch) at \(commit)"
         case .requirementPublicationStarted: "requirement publication started"
         case .requirementPullRequestOpened(let number, let url): "opened pull request #\(number): \(url)"
+        case .requirementPullRequestMerged(let number, let url): "merged pull request #\(number): \(url)"
+        case .requirementPullRequestClosed(let number, let url): "closed pull request #\(number) without merging: \(url)"
+        case .requirementPullRequestReopened(let number, let url): "reopened pull request #\(number): \(url)"
         case .requirementPublicationFinished(let commit): "pull request updated at \(commit)"
         case .requirementPublicationFailed(let error): "publication needs a person: \(error)"
         case .requirementPublicationRetryRequested: "human requested pull request publication retry"

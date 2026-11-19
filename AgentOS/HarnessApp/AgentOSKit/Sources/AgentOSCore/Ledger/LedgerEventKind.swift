@@ -9,6 +9,7 @@ public enum LedgerEventKind: String, Hashable, CaseIterable, Sendable {
     case requirementBranchObserved, requirementCatchUpConflicted
     case requirementVerificationStarted, requirementVerificationFinished, requirementVerificationRetryRequested, requirementMerged
     case requirementPushed, requirementPullRequestOpened, requirementPublicationFinished
+    case requirementPullRequestMerged, requirementPullRequestClosed, requirementPullRequestReopened
     case requirementPublicationStarted
     case requirementPublicationFailed, requirementPublicationRetryRequested, acceptanceCriterionProofsRecorded
     case expectedAPIReported, brokenTestReported, brokenTestRouted, runStarted, agentConfigured, runFinished
@@ -51,6 +52,9 @@ public enum LedgerEventKind: String, Hashable, CaseIterable, Sendable {
         case .requirementPushed: self = .requirementPushed
         case .requirementPublicationStarted: self = .requirementPublicationStarted
         case .requirementPullRequestOpened: self = .requirementPullRequestOpened
+        case .requirementPullRequestMerged: self = .requirementPullRequestMerged
+        case .requirementPullRequestClosed: self = .requirementPullRequestClosed
+        case .requirementPullRequestReopened: self = .requirementPullRequestReopened
         case .requirementPublicationFinished: self = .requirementPublicationFinished
         case .requirementPublicationFailed: self = .requirementPublicationFailed
         case .requirementPublicationRetryRequested: self = .requirementPublicationRetryRequested

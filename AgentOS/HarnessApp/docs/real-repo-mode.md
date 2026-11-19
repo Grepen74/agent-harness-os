@@ -106,6 +106,14 @@ waits without automatic retries or agent rework: its error appears in a ticket c
 attention**. Fix it and add `harness:retry` to push again and open or update the same pull request, including
 when GitHub created it but its response was lost.
 
+The requirement's ticket follows its pull request: **In review** while open, **Done** when merged,
+and **Needs input** when closed without merging. These statuses appear in ticket labels and comments,
+and in the board's status field when `tracker.project` is configured, using `tracker.project.statusMap`.
+A close posts the pull request link and waits for a person: `harness:retry` pushes the branch again and
+reopens that same pull request, never a replacement. Opening, closing, reopening and merging are durable
+ledger events. After a merge, `harness:retry` and other build signals are refused with the merged pull
+request link and instructions to open a follow-up ticket.
+
 The optional boolean `pullRequests` repo key inherits the saved harness setting when absent. `false`
 switches publishing off for the repo. `true` while the harness setting is off has no effect and adds a
 `config.policy` readiness blocker; remove the key, set it to `false`, or enable publishing in Settings.

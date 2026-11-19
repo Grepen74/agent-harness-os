@@ -88,6 +88,7 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
     private var labelSetters: [String: Participant] = [:]
     /// Statuses the harness set: the listed labels can be older.
     private var statuses: [Int: String] = [:]
+    private var labelledPullRequestStatuses: [Int: String] = [:]
     /// Issues confirmed closed; see `isClosed`.
     private var closedIssues: Set<Int> = []
     private var labelsCreated = false
@@ -204,7 +205,16 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
     /// On the board when the config names one and it has an option for the status; otherwise an `agentos:`
     /// label. Written only when it changes (the reconciler sets every status each round).
     public func setStatus(of key: String, to status: String) async {
-        guard let number = Self.number(key), statuses[number] != status else { return }
+        await setStatus(of: key, to: status, includingLabel: false)
+    }
+
+    public func setPullRequestStatus(of key: String, to status: String) async {
+        await setStatus(of: key, to: status, includingLabel: true)
+    }
+
+    private func setStatus(of key: String, to status: String, includingLabel: Bool) async {
+        guard let number = Self.number(key),
+              statuses[number] != status || (includingLabel && labelledPullRequestStatuses[number] != status) else { return }
         var labels = (await listOpenIssues()).first { $0.number == number }?.labels.map(\.name)
         if labels == nil {
             labels = await attempt("Reading \(key)") { try await self.get(Issue.self, "repos/\(self.repo)/issues/\(number)") }?
@@ -214,9 +224,12 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
         if let board, await attempt("Reading the board \(board.name)", { try await board.shows(status) }) == true {
             guard await attempt("Moving \(key) to \(status) on the board", { try await board.set(issue: number, to: status) }) != nil
             else { return }
-            for old in statusLabels { await removeLabel(old, from: number) }
-            statuses[number] = status
-            return
+            if !includingLabel {
+                for old in statusLabels { await removeLabel(old, from: number) }
+                labelledPullRequestStatuses[number] = nil
+                statuses[number] = status
+                return
+            }
         }
         let wanted = Self.statusPrefix + status
         for old in statusLabels where old != wanted { await removeLabel(old, from: number) }
@@ -229,6 +242,7 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
             listedAt = nil
         }
         statuses[number] = status
+        if includingLabel { labelledPullRequestStatuses[number] = status }
     }
 
     // MARK: TicketBoard (what people do through the app)
