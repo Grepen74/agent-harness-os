@@ -379,19 +379,22 @@ extension Reconciler {
             details: details
         )
         let history = await ledger.records(for: node.id)
-        // A person stepping in (retest, retry, an answer) gives the test author a fresh set of attempts.
+        // Only back-to-back preflight failures count. A person stepping in (retest, retry, an answer) or the node
+        // moving on (tests passed preflight, a review sent them back) gives the test author a fresh set of attempts.
         let lastReset = history.lastIndex {
-            guard case .human = $0.event.by else { return false }
             switch $0.event.kind {
-            case .attemptsReset, .flagCleared(.needsInput), .phaseChanged(to: .specified): return true
+            case .phaseChanged: return true
+            case .attemptsReset, .flagCleared(.needsInput):
+                if case .human = $0.event.by { return true }
+                return false
             default: return false
             }
         }
-        let authorAttempts = history[(lastReset.map { $0 + 1 } ?? 0)...].filter {
-            if case .runStarted(_, .testAuthor) = $0.event.kind { return true }
+        let earlierFailures = history[(lastReset.map { $0 + 1 } ?? 0)...].filter {
+            if case .acceptanceTestPreflightFailed = $0.event.kind { return true }
             return false
         }.count
-        let reachedLimit = authorAttempts >= policy.maxAttempts
+        let reachedLimit = earlierFailures + 1 >= policy.maxAttempts
         let reason = "Acceptance tests \(problem). First error: \(summary)"
         var kinds: [EventKind] = [
             .runFinished(run: run, outcome: breaksRules ? "acceptance tests broke the test rules" : "acceptance tests did not compile"),

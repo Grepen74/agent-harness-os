@@ -15,9 +15,6 @@
     "AgentOS/HarnessApp/AgentOSKit/Sources/AgentOSUI",
     "AgentOS/HarnessApp/AgentOSKit/Sources/agentos"
   ],
-  "landing" : {
-    "branch" : "agentos/main"
-  },
   "leafTests" : {
     "folder" : "AgentOS/HarnessApp/AgentOSKit/Tests/AgentOSAdaptersTests",
     "target" : "AgentOSAdaptersTests",

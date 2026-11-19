@@ -682,7 +682,7 @@ struct GH_28Tests {
                                          classification: .testAuthorMistake)
         let fixture = try await Fixture(
             testResults: ["The test sleeps.", "The test pins call order."].map { .init(passed: false, findings: [$0]) },
-            preflight: QueuedPreflight([.compiled, .diagnostics([mistake], fullLog: ""), .diagnostics([mistake], fullLog: "")]))
+            preflight: QueuedPreflight([.compiled] + Array(repeating: .diagnostics([mistake], fullLog: ""), count: 3)))
         defer { fixture.cleanUp() }
         try await fixture.advanceUntil { await fixture.node()?.flags[.needsInput] != nil }
         await fixture.tracker.add(.retry, by: .human("Alice"))

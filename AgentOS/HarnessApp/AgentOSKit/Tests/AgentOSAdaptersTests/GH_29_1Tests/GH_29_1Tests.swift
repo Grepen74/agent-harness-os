@@ -212,6 +212,32 @@ struct GH_29_1Tests {
     }
 
     @Test
+    func earlierTestAuthorRunsThatPassedPreflightDontUseUpItsAttempts() async throws {
+        let finding = CompilerDiagnostic(
+            file: "Tests/AgentOSAdaptersTests/GH_29_1Tests/GH_29_1Tests.swift",
+            line: 19,
+            message: CompilerDiagnostic.testRulePrefix + "a time limit",
+            classification: .testAuthorMistake
+        )
+        let fixture = try await Fixture(preflight: .init(outcomes: [.diagnostics([finding], fullLog: "rules")]), maxAttempts: 3)
+        // Two earlier author runs: the tests passed preflight, then a review sent them back.
+        try await fixture.ledger.append([
+            LedgerEvent(node: Fixture.spec.id, by: .reconciler, kind: .runStarted(run: "r1", role: .testAuthor)),
+            LedgerEvent(node: Fixture.spec.id, by: .reconciler, kind: .runFinished(run: "r1", outcome: "review findings")),
+            LedgerEvent(node: Fixture.spec.id, by: .reconciler, kind: .runStarted(run: "r2", role: .testAuthor)),
+            LedgerEvent(node: Fixture.spec.id, by: .agent(run: "r2", role: .testAuthor),
+                        kind: .runFinished(run: "r2", outcome: "acceptance tests committed")),
+            LedgerEvent(node: Fixture.spec.id, by: .agent(run: "r2", role: .testAuthor), kind: .phaseChanged(to: .ready)),
+            LedgerEvent(node: Fixture.spec.id, by: .reconciler, kind: .phaseChanged(to: .specified)),
+        ])
+
+        _ = await fixture.reconciler.runRound(waitForAgents: true)
+
+        #expect(try await fixture.node().flags[.needsInput] == nil)
+        #expect(await fixture.tracker.comments.last?.contains("returned to the test author") == true)
+    }
+
+    @Test
     func aRetestGivesTheTestAuthorFreshAttemptsAfterTheLimitWasReached() async throws {
         let mistake = CompilerDiagnostic(
             file: "Tests/AgentOSAdaptersTests/GH_29_1Tests/GH_29_1Tests.swift",
