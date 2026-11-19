@@ -318,6 +318,8 @@ includes a member the test author reported on a protocol but calls on a type tha
 whose arguments don't match the current signature. A missing member of an existing type that the test author
 didn't report counts as its own mistake. On such
 a return the test author is told to make the smallest fix: every rewritten line risks a new mistake.
+Only back-to-back returns count towards the attempt limit (then "Needs input"): earlier test-author runs whose
+tests passed, or that a review sent back, don't use it up.
 The test author builds and runs its own suite before finishing. Where the API its tests expect doesn't exist
 yet, it adds placeholders (minimal bodies that compile, never a crash). Its new-behaviour tests should fail
 against them, and its own helpers (fakes, renderers) must work. The harness then throws away everything it
