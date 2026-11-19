@@ -31,8 +31,14 @@ public actor Reconciler {
     let tracker: any TrackerAdapter
     let external: any ExternalDependencySource
     let workspace: any Workspace
+    let requirementBranches: (any RequirementBranchRepository)?
+    var isCatchingUpRequirements = false
     let artifacts: any ArtifactStore
     let checks: any CheckRunner
+    let publisher: (any RequirementPublisher)?
+    let pullRequests: (any RequirementPullRequestService)?
+    var isObservingPullRequests = false
+    var isVerifyingRequirements = false
     let acceptanceTestPreflight: any AcceptanceTestPreflight
     public nonisolated let policy: Policy
     public private(set) var team: AgentTeam
@@ -71,10 +77,13 @@ public actor Reconciler {
 
     public init(ledger: Ledger, tracker: any TrackerAdapter, external: any ExternalDependencySource,
                 workspace: any Workspace, artifacts: any ArtifactStore, checks: any CheckRunner, team: AgentTeam,
-                policy: Policy = Policy(),
+                policy: Policy? = nil,
+                requirementBranches: (any RequirementBranchRepository)? = nil,
                 acceptanceTestPreflight: any AcceptanceTestPreflight = SkippedAcceptanceTestPreflight(),
                 beforeStep: (@Sendable (NodeID) async -> Void)? = nil,
-                now: @escaping @Sendable () -> Date = { Date() }) {
+                now: @escaping @Sendable () -> Date = { Date() },
+                publisher: (any RequirementPublisher)? = nil,
+                pullRequests: (any RequirementPullRequestService)? = nil) {
         self.beforeStep = beforeStep
         self.now = now
         self.ledger = ledger
@@ -82,10 +91,16 @@ public actor Reconciler {
         self.tracker = tracker
         self.external = external
         self.workspace = workspace
+        self.requirementBranches = requirementBranches
         self.checks = checks
+        self.pullRequests = pullRequests
+        self.publisher = publisher ?? pullRequests.map {
+            ServiceRequirementPublisher(ledger: ledger, tracker: tracker, service: $0)
+        }
         self.acceptanceTestPreflight = acceptanceTestPreflight
         self.team = team
-        self.policy = policy
+        // An explicitly supplied service opts in unless the caller supplies a policy.
+        self.policy = policy ?? Policy(pullRequests: pullRequests != nil)
     }
 
     public func setTeam(_ team: AgentTeam) { self.team = team }
@@ -132,6 +147,7 @@ public actor Reconciler {
     public func runRound(waitForAgents: Bool) async -> RoundReport {
         var report = RoundReport()
         guard shutdownReason == nil, !Task.isCancelled else { return finish(report) }
+        guard !isVerifyingRequirements, !isObservingPullRequests else { return finish(report) }
         let chain = await ledger.verifyIncrementally()
         if let problem = chain.problem {
             report.safeStop = "Ledger integrity check failed at #\(problem.position): \(problem.reason). " +
@@ -144,12 +160,27 @@ public actor Reconciler {
         }
         guard shutdownReason == nil, !Task.isCancelled else { return finish(report) }
 
+        do {
+            try await observeRequirementPullRequests(&report)
+        } catch {
+            report.safeStop = "Couldn't read requirement pull requests: \(error). Check GitHub access, then run again."
+            return finish(report)
+        }
         await intakeSignals(&report, waitingForPreviews: waitForAgents)
         await refreshDependenciesThere()
         await intakeExternal(&report)
 
         do {
-            try await restoreRequirementBranches()
+            guard !isCatchingUpRequirements else { return finish(report) }
+            isCatchingUpRequirements = true
+            do {
+                try await restoreRequirementBranches()
+                try await reconcileRequirementBranches(&report)
+            } catch {
+                isCatchingUpRequirements = false
+                throw error
+            }
+            isCatchingUpRequirements = false
             let retries = try await retryInfrastructureProblems(in: await ledger.workingState())
             report.actions += retries.actions
             report.retryDue = retries.nextDue
@@ -172,6 +203,7 @@ public actor Reconciler {
                 if !waitForAgents { try await scheduleAvailableSteps(in: await ledger.workingState()) }
             }
             try await clearObsoleteOverlapHolds()
+            try await verifyCompletedRequirements(&report)
         } catch {
             report.safeStop = "Couldn't reconcile work: \(error). Check the workspace and ledger, then run again."
         }
@@ -185,7 +217,7 @@ public actor Reconciler {
         var report = report
         report.actions += completedActions
         completedActions.removeAll()
-        report.hasRunningAgents = slotsInUse > 0
+        report.hasRunningAgents = slotsInUse > 0 || isVerifyingRequirements
         if report.safeStop == nil { report.safeStop = lifecycleFailure }
         return report
     }
@@ -277,7 +309,7 @@ public actor Reconciler {
     @discardableResult
     private func scheduleAvailableSteps(in state: WorkingState, order: [NodeID]? = nil, excluding: Set<NodeID> = [],
                                         reportCompletion: Bool = true) async throws -> [(NodeID, Task<String?, Never>)] {
-        guard quietLandings == 0 else { return [] }
+        guard quietLandings == 0, !isCatchingUpRequirements else { return [] }
         let waitingToLand = !isLanding && state.landingQueue.contains {
             tasks[$0.id] == nil && !$0.awaitingHumanReview && !landingWaits.contains($0.id)
         }
@@ -327,7 +359,7 @@ public actor Reconciler {
             guard shutdownReason == nil else { return nil }
             if landing {
                 guard node.phase == .landing, node.activeRun == nil, node.flags[.escalated] == nil,
-                      !node.awaitingHumanReview else { return nil }
+                      !node.awaitingHumanReview, !requirementIsHeld(node, in: state) else { return nil }
                 result = try await land(node)
             } else {
                 result = try await advance(node, in: state)
@@ -368,6 +400,7 @@ public actor Reconciler {
     }
 
     func canAdvance(_ node: NodeState, in state: WorkingState) -> Bool {
+        guard !requirementIsHeld(node, in: state) else { return false }
         if wantsDiagnosis(node) { return true }
         guard node.flags[.escalated] == nil, node.flags[.needsInput] == nil, node.activeRun == nil,
               !node.ticketClosed else { return false }

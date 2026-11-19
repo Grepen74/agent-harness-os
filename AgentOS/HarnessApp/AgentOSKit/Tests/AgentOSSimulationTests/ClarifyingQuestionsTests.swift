@@ -51,7 +51,11 @@ struct ClarifyingQuestionsTests {
         await sim.tracker.addComment("The play and pause buttons", to: "APP-1", by: alice)
         await sim.signal(.retry, "APP-1")
         await sim.signal(.retry, "APP-1")
-        #expect(await sim.lastComment("APP-1").contains("- Nothing: it's done"))
+        reply = await sim.lastComment("APP-1")
+        #expect(reply.lowercased().contains("review"))
+        #expect(reply.lowercased().contains("merge"))
+        #expect(reply.contains("agentos/APP-1"))
+        #expect(reply.contains("main"))
     }
 
     @Test func aPreviewsQuestionsCanBeAnsweredInAComment() async throws {

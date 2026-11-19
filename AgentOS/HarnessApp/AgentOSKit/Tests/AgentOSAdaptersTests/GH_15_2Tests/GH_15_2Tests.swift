@@ -14,7 +14,7 @@ struct GH_15_2Tests {
 
         await fixture.run()
 
-        #expect(await fixture.checks.fullCheckCount == 2)
+        #expect(await fixture.checks.fullCheckCount == 3)
         let records = await fixture.session.ledger.allRecords()
         #expect(!records.contains { record in
             if case .attemptFailed(let summary) = record.event.kind {
@@ -34,7 +34,7 @@ struct GH_15_2Tests {
         #expect(node.phase == .proven)
         #expect(node.landedCommit != nil)
         #expect(node.failedAttempts == 0)
-        #expect(await fixture.ticket().status == "Done")
+        #expect(await fixture.ticket().status == "In review")
     }
 
     @Test
@@ -82,7 +82,7 @@ struct GH_15_2Tests {
         let node = try #require(await fixture.node())
         #expect(node.phase == .proven)
         #expect(node.failedAttempts == 0)
-        #expect(await fixture.checks.fullCheckCount == 1)
+        #expect(await fixture.checks.fullCheckCount == 2)
     }
 }
 

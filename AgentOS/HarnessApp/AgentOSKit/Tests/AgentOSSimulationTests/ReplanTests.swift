@@ -116,7 +116,7 @@ struct ReplanTests {
         for key in children { #expect(await sim.tracker.ticket(key)?.status == "Done") }
     }
 
-    @Test func aTicketBlockedByAnotherWaitsUntilThatOneIsProven() async throws {
+    @Test func aTicketBlockedByAnotherWaitsUntilThatOneIsMergedIntoMain() async throws {
         let sim = try makeSimulation()
         await sim.tracker.createTicket(title: "Greeting", description: "Say hi", acceptanceCriteria: ["Says hello"], by: alice)
         await sim.tracker.createTicket(title: "Farewell", description: "Say bye", acceptanceCriteria: ["Says goodbye"],
@@ -127,6 +127,16 @@ struct ReplanTests {
         await sim.signal(.go, "APP-1")
         await sim.runUntilFinished()
         #expect(await sim.node("APP-1")?.phase == .proven)
+        #expect(await sim.tracker.ticket("APP-1")?.status == "In review")
+        #expect(await sim.node("APP-2")?.flags[.blocked] == "Waiting for APP-1")
+        #expect(await sim.node("APP-2")?.phase != .proven)
+
+        let merge = try await ProcessRunner.run(
+            "/usr/bin/env", ["git", "merge", "--ff-only", "agentos/APP-1"], in: sim.workspace.repoDirectory
+        )
+        try #require(merge.status == 0, "\(merge.output)")
+        await sim.runUntilFinished()
+        #expect(await sim.tracker.ticket("APP-1")?.status == "Done")
         #expect(await sim.node("APP-2")?.phase == .proven)
     }
 }

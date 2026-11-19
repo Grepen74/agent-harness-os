@@ -421,6 +421,7 @@ import Testing
       "checks": [{"name": "lint", "command": "run-lint"}],
       "leafTests": {"target": "AppTests", "folder": "Tests/AppTests", "updatable": ["Tests/UnitTests"]},
       "components": ["Sources/App"],
+      "pullRequests": false,
       "landing": {"branch": "agentos/main"},
       "signals": {"disable": ["go"]},
       "limits": {"maxAttempts": 2, "maxReworks": 2, "maxAgentRuns": 8, "maxParallelAgents": 1, "avoidOverlappingWork": true},

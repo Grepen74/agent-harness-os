@@ -6,6 +6,12 @@ public enum LedgerEventKind: String, Hashable, CaseIterable, Sendable {
     case overlapHoldStarted, overlapHoldEnded
     case testsFixed, otherTestsUpdated, reviewRecorded, humanReviewRequested, humanReviewApproved
     case requirementBranchCreated
+    case requirementBranchObserved, requirementCatchUpConflicted
+    case requirementVerificationStarted, requirementVerificationFinished, requirementVerificationRetryRequested, requirementMerged
+    case requirementPushed, requirementPullRequestOpened, requirementPublicationFinished
+    case requirementPullRequestMerged, requirementPullRequestClosed, requirementPullRequestReopened
+    case requirementPublicationStarted
+    case requirementPublicationFailed, requirementPublicationRetryRequested, acceptanceCriterionProofsRecorded
     case expectedAPIReported, brokenTestReported, brokenTestRouted, runStarted, agentConfigured, runFinished
     case changeSubmitted, attemptFailed, testDraftKept, diagnosisRecorded, acceptanceTestPreflightFailed, passingCheckRecorded, mainMovedRework
     case actualChangedFilesRecorded, predictedPathsExpanded
@@ -37,6 +43,22 @@ public enum LedgerEventKind: String, Hashable, CaseIterable, Sendable {
         case .overlapHoldEnded: self = .overlapHoldEnded
         case .testsFixed: self = .testsFixed
         case .requirementBranchCreated: self = .requirementBranchCreated
+        case .requirementBranchObserved: self = .requirementBranchObserved
+        case .requirementCatchUpConflicted: self = .requirementCatchUpConflicted
+        case .requirementVerificationStarted: self = .requirementVerificationStarted
+        case .requirementVerificationFinished: self = .requirementVerificationFinished
+        case .requirementVerificationRetryRequested: self = .requirementVerificationRetryRequested
+        case .requirementMerged: self = .requirementMerged
+        case .requirementPushed: self = .requirementPushed
+        case .requirementPublicationStarted: self = .requirementPublicationStarted
+        case .requirementPullRequestOpened: self = .requirementPullRequestOpened
+        case .requirementPullRequestMerged: self = .requirementPullRequestMerged
+        case .requirementPullRequestClosed: self = .requirementPullRequestClosed
+        case .requirementPullRequestReopened: self = .requirementPullRequestReopened
+        case .requirementPublicationFinished: self = .requirementPublicationFinished
+        case .requirementPublicationFailed: self = .requirementPublicationFailed
+        case .requirementPublicationRetryRequested: self = .requirementPublicationRetryRequested
+        case .acceptanceCriterionProofsRecorded: self = .acceptanceCriterionProofsRecorded
         case .otherTestsUpdated: self = .otherTestsUpdated
         case .reviewRecorded: self = .reviewRecorded
         case .humanReviewRequested: self = .humanReviewRequested

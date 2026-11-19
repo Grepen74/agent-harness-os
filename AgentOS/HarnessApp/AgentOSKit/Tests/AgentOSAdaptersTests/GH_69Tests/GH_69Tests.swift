@@ -163,8 +163,8 @@ import Testing
         await model.refreshLedger(from: ledger)
         let choices = model.ledgerPage.eventKinds.map(\.rawValue)
         #expect(choices.count == Set(choices).count)
-        #expect(Set(choices) == Set(Self.existingEventCaseNames))
-        #expect(Set(LedgerEventKind.allCases.map(\.rawValue)) == Set(Self.existingEventCaseNames))
+        #expect(Set(choices) == Set(LedgerEventKind.allCases.map(\.rawValue)))
+        #expect(Set(choices).isSuperset(of: Self.existingEventCaseNames))
         #expect(LedgerEventKind(events[0].kind) == LedgerEventKind(events[1].kind))
         #expect(LedgerEventKind(events[2].kind) == LedgerEventKind(events[3].kind))
         #expect(LedgerEventKind(events[0].kind) != LedgerEventKind(events[2].kind))
@@ -523,8 +523,8 @@ import Testing
             .first { $0.itemTitles.contains("All event kinds") })
         #expect(Set(tickets.itemTitles) == Set(["All tickets", "GH-69", "other"]))
         #expect(tickets.itemTitles.count == 3)
-        #expect(Set(kinds.itemTitles) == Set(["All event kinds"] + Self.existingEventCaseNames))
-        #expect(kinds.itemTitles.count == Self.existingEventCaseNames.count + 1)
+        #expect(Set(kinds.itemTitles) == Set(["All event kinds"] + LedgerEventKind.allCases.map(\.rawValue)))
+        #expect(kinds.itemTitles.count == LedgerEventKind.allCases.count + 1)
         #expect(tickets.itemArray.allSatisfy { $0.isEnabled })
         #expect(kinds.itemArray.allSatisfy { $0.isEnabled })
         #expect(model.ledgerPage.canShowOlder)
@@ -679,5 +679,6 @@ import Testing
         "catchUpSucceeded", "caughtUp", "testDraftKept", "diagnosisRecorded",
         "agentConfigured", "overlapHoldStarted", "overlapHoldEnded",
         "actualChangedFilesRecorded", "predictedPathsExpanded", "requirementBranchCreated",
+        "requirementBranchObserved", "requirementCatchUpConflicted",
     ]
 }

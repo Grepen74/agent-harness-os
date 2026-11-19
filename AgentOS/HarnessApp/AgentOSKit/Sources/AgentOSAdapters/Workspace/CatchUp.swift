@@ -207,10 +207,10 @@ public actor CatchUpCoordinator {
         let directory = workspace.worktreesDirectory.appending(path: "catch-up-diff-\(UUID().uuidString)")
         try await setManualMergeAid(files: conflict.files, enabled: false)
         try await addDetachedWorktree(directory)
-        _ = try await ProcessRunner.run(
-            "/usr/bin/env", ["git", "merge", "--no-commit", "--no-ff", conflict.mainSHA],
-            in: directory
-        )
+        _ = try await workspace.withoutCatchUpMergeAids {
+            try await ProcessRunner.run(
+                "/usr/bin/env", ["git", "merge", "--no-commit", "--no-ff", conflict.mainSHA], in: directory)
+        }
         let diff = try await git(["diff", "--no-ext-diff"], in: directory)
         try await removeWorktree(directory)
         try await setManualMergeAid(files: conflict.files, enabled: true)
@@ -227,10 +227,10 @@ public actor CatchUpCoordinator {
         }
         try await setManualMergeAid(files: conflict.files, enabled: false)
         try await addDetachedWorktree(directory)
-        let result = try await ProcessRunner.run(
-            "/usr/bin/env", ["git", "merge", "--no-commit", "--no-ff", conflict.mainSHA],
-            in: directory
-        )
+        let result = try await workspace.withoutCatchUpMergeAids {
+            try await ProcessRunner.run(
+                "/usr/bin/env", ["git", "merge", "--no-commit", "--no-ff", conflict.mainSHA], in: directory)
+        }
         guard result.status != 0 else {
             throw AgentFailure("The recorded catch-up no longer conflicts.")
         }
@@ -360,39 +360,7 @@ public actor CatchUpCoordinator {
     }
 
     private func setManualMergeAid(files: [String], enabled: Bool) async throws {
-        let common = try await git(
-            ["rev-parse", "--path-format=absolute", "--git-common-dir"],
-            in: workspace.root
-        )
-        let attributes = URL(filePath: common).appending(path: "info/attributes")
-        let start = "# agentos catch-up conflict \(landingBranch)"
-        let end = "# end agentos catch-up conflict \(landingBranch)"
-        let existing = (try? String(contentsOf: attributes, encoding: .utf8)) ?? ""
-        var lines = existing.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        if let first = lines.firstIndex(of: start), let last = lines[first...].firstIndex(of: end) {
-            lines.removeSubrange(first...last)
-        }
-        while lines.last == "" { lines.removeLast() }
-        if enabled {
-            lines.append(start)
-            lines += files.sorted().map { "\($0) merge=union" }
-            lines.append(end)
-            _ = try await git(
-                ["config", "branch.\(landingBranch).mergeOptions", "--no-commit"],
-                in: workspace.root
-            )
-        } else {
-            let result = try await ProcessRunner.run(
-                "/usr/bin/env",
-                ["git", "config", "--unset", "branch.\(landingBranch).mergeOptions"],
-                in: workspace.root
-            )
-            if result.status != 0 && result.status != 5 {
-                throw AgentFailure("Could not clear catch-up merge options: \(result.output)")
-            }
-        }
-        let contents = lines.isEmpty ? "" : lines.joined(separator: "\n") + "\n"
-        try contents.write(to: attributes, atomically: true, encoding: .utf8)
+        try await workspace.updateCatchUpMergeAid(for: landingBranch, files: enabled ? files : [])
     }
 
     private func addDetachedWorktree(_ directory: URL) async throws {

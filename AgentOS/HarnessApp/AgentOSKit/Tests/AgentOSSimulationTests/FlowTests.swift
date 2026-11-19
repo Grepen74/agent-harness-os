@@ -126,7 +126,7 @@ struct FlowTests {
         let state = await sim.ledger.workingState()
         #expect(state.nodes.count == 4) // the epic and its three leaves
         #expect(state.nodes.values.allSatisfy { $0.phase == .proven })
-        #expect(await sim.tracker.ticket("APP-1")?.status == "Done")
+        #expect(await sim.tracker.ticket("APP-1")?.status == "In review")
         #expect(await sim.ledger.verifyChain().isIntact)
 
         // Leaves that overlap in WeatherUI/WeatherService either wait for each other or are reworked on the
@@ -231,7 +231,7 @@ struct FlowTests {
         #expect(await sim.tracker.ticket("APP-1")?.status == "Landing")
         await checks.release()
         _ = await running.value
-        #expect(await sim.tracker.ticket("APP-1")?.status == "Done")
+        #expect(await sim.tracker.ticket("APP-1")?.status == "In review")
     }
 
     @Test func breakdownOnALeafIsRejected() async throws {
@@ -281,7 +281,7 @@ struct FlowTests {
         let log = history.output.split(separator: "\n").map(String.init)
         #expect(log.first?.hasPrefix(String(landed.prefix(7))) == true)
         #expect(log.first?.contains(leaf.lastSubmission!.run) == true) // the commit is authored by the run that built it
-        #expect(leaf.evidence.last?.check.contains("landing") == true)
+        #expect(leaf.evidence.contains { $0.check.contains("landing") && $0.commit == landed })
         #expect(leaf.evidence.last?.builtBy != leaf.evidence.last?.checkedBy)
         #expect(try await sim.workspace.mainLog().count == 1)
     }

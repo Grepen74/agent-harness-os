@@ -631,6 +631,10 @@ public struct CopilotTestAuthor: TestAuthor {
         List the public production symbols and signatures your tests expect in expectedAPI, and the \
         repository-relative paths of other work's test files you updated in updatedTests (anything else you \
         change outside \(task.testFolder)/ is thrown away). \
+        Also include acceptanceCriterionProofs: [{"node": "\(task.spec.id)", "criterion": 1, "tests": ["Suite.testName"]}]. \
+        Map each acceptance criterion (1-based) to the tests that prove it. Where your tests also prove a \
+        parent's criterion, include a proof with that parent's work-node ID and criterion number. \
+        Do not invent tests or claim coverage for source-only criteria. \
         \(CopilotCLI.stopRule(task.guesswork, stop: "write only that report and no tests", proceed: "write the tests"))
 
         \(CopilotCLI.dataBlock(task.spec))\(CopilotCLI.answersBlock(task.clarifications))

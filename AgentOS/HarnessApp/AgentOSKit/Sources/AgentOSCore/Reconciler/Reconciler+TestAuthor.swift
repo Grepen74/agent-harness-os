@@ -155,6 +155,7 @@ extension Reconciler {
             + (reset ? [.attemptsReset] : [])
             + (updatedOtherTests.isEmpty ? [] : [otherTestsEvent])
             + [.expectedAPIReported(report.expectedAPI),
+            .acceptanceCriterionProofsRecorded(report.acceptanceCriterionProofs),
             .assumptionsReported(role: .testAuthor, assumptions: assumptions), .phaseChanged(to: .ready)]
             + (review ? [.flagSet(.needsInput, reason: reviewReason)] : []))
         let reviewNote = review ? """

@@ -43,6 +43,8 @@ extension GH_69Tests {
             .actualChangedFilesRecorded(files: ["Sources/Engine.swift"]),
             .predictedPathsExpanded(files: ["Sources/Shared.swift"]),
             .requirementBranchCreated(branch: "agentos/GH-69", from: "main"),
+            .requirementBranchObserved(branch: "agentos/GH-69", tip: "tip", main: "main", containedInMain: false),
+            .requirementCatchUpConflicted(branch: "agentos/GH-69", main: "main", files: ["File.swift"], tickets: ["GH-69"]),
             .attemptFailed(summary: "failed"),
             .acceptanceTestPreflightFailed(evidence),
             .passingCheckRecorded(kind: .preCheck, mainCommit: "main"),

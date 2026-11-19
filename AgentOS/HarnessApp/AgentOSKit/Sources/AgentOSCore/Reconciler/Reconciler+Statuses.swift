@@ -18,8 +18,8 @@ extension Reconciler {
 
     func projectStatuses() async {
         let state = await ledger.workingState()
-        for node in state.nodes.values where !node.ticketClosed {
-            await tracker.setStatus(of: node.ticket, to: state.status(of: node))
+        for node in state.nodes.values where !node.ticketClosed || node.pullRequestState == .merged {
+            await projectStatus(of: node, in: state)
         }
     }
 
@@ -29,8 +29,17 @@ extension Reconciler {
     func projectStatus(of id: NodeID) async {
         let state = await ledger.workingState()
         guard let node = state.nodes[id] else { return }
-        for affected in [node] + node.children.compactMap({ state.nodes[$0] }) where !affected.ticketClosed {
-            await tracker.setStatus(of: affected.ticket, to: state.status(of: affected))
+        for affected in [node] + node.children.compactMap({ state.nodes[$0] })
+            where !affected.ticketClosed || affected.pullRequestState == .merged {
+            await projectStatus(of: affected, in: state)
+        }
+    }
+
+    private func projectStatus(of node: NodeState, in state: WorkingState) async {
+        if node.spec.parent == nil, node.pullRequestNumber != nil {
+            await tracker.setPullRequestStatus(of: node.ticket, to: state.status(of: node))
+        } else {
+            await tracker.setStatus(of: node.ticket, to: state.status(of: node))
         }
     }
 

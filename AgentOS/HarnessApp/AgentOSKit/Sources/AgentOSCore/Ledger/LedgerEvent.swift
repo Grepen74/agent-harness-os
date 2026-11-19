@@ -80,6 +80,22 @@ public enum EventKind: Codable, Sendable {
 
     // Work
     case requirementBranchCreated(branch: String, from: String)
+    case requirementBranchObserved(branch: String, tip: String, main: String, containedInMain: Bool)
+    case requirementCatchUpConflicted(branch: String, main: String, files: [String], tickets: [String])
+    case requirementVerificationStarted
+    case requirementVerificationFinished(Evidence)
+    case requirementVerificationRetryRequested
+    case requirementMerged(commit: String)
+    case requirementPushed(branch: String, commit: String)
+    case requirementPublicationStarted
+    case requirementPullRequestOpened(number: Int, url: String)
+    case requirementPullRequestMerged(number: Int, url: String)
+    case requirementPullRequestClosed(number: Int, url: String)
+    case requirementPullRequestReopened(number: Int, url: String)
+    case requirementPublicationFinished(commit: String)
+    case requirementPublicationFailed(error: String)
+    case requirementPublicationRetryRequested
+    case acceptanceCriterionProofsRecorded([AcceptanceCriterionProof])
     /// Fingerprint of the node's acceptance tests; nobody may change them afterwards.
     case testsFixed(digest: String)
     /// Other work's tests the acceptance tests changed (written after `testsFixed`), with their fingerprint: they
@@ -241,7 +257,26 @@ extension EventKind {
             "overlap hold ended: waited for \(waitingFor); " +
                 (paths.isEmpty ? "components \(components.joined(separator: ", "))" : "paths \(paths.joined(separator: ", "))")
         case .testsFixed(let digest): "acceptance tests fixed (\(digest.prefix(8)))"
+        case .requirementPushed(let branch, let commit): "pushed \(branch) at \(commit)"
+        case .requirementPublicationStarted: "requirement publication started"
+        case .requirementPullRequestOpened(let number, let url): "opened pull request #\(number): \(url)"
+        case .requirementPullRequestMerged(let number, let url): "merged pull request #\(number): \(url)"
+        case .requirementPullRequestClosed(let number, let url): "closed pull request #\(number) without merging: \(url)"
+        case .requirementPullRequestReopened(let number, let url): "reopened pull request #\(number): \(url)"
+        case .requirementPublicationFinished(let commit): "pull request updated at \(commit)"
+        case .requirementPublicationFailed(let error): "publication needs a person: \(error)"
+        case .requirementPublicationRetryRequested: "human requested pull request publication retry"
+        case .acceptanceCriterionProofsRecorded(let proofs): "recorded \(proofs.count) acceptance criterion proofs"
         case .requirementBranchCreated(let branch, let from): "created \(branch) from \(from)"
+        case .requirementBranchObserved(let branch, let tip, let main, let contained):
+            "observed \(branch) at \(tip), \(contained ? "contained" : "not contained") in main \(main)"
+        case .requirementCatchUpConflicted(let branch, let main, let files, let tickets):
+            "\(branch) catch-up to \(main) conflicted in \(files.joined(separator: ", ")); requirements: \(tickets.joined(separator: ", "))"
+        case .requirementVerificationStarted: "final requirement verification started"
+        case .requirementVerificationFinished(let evidence):
+            "final requirement verification \(evidence.passed ? "passed" : "failed") at \(evidence.commit)"
+        case .requirementVerificationRetryRequested: "human requested final requirement verification"
+        case .requirementMerged(let commit): "requirement merged into main at \(commit)"
         case .otherTestsUpdated(let files, _): "updated other work's tests: \(files.joined(separator: ", "))"
         case .reviewRecorded(let review):
             "\(review.stage.rawValue) review \(review.result.passed ? "passed" : "failed")"

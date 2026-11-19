@@ -120,6 +120,10 @@ extension Reconciler {
         guard let ticket = await tracker.ticket(signal.ticket) else { throw Rejection(reason: "Ticket not found.") }
         var state = await ledger.workingState()
         var node = state.node(forTicket: ticket.key)
+        if let node, node.spec.parent == nil, node.pullRequestState == .merged,
+           signal.command != .preview {
+            throw Rejection(reason: "Pull request \(node.pullRequestURL ?? "") was merged. Open a follow-up ticket for further work; this requirement is Done.")
+        }
         if let replanned = state.superseded[ticket.key], node == nil {
             throw Rejection(reason: "Superseded: \(replanned) was replanned and this ticket is no longer part of it.")
         }
@@ -195,6 +199,22 @@ extension Reconciler {
             return "build approved for \(node.spec.id) and everything below it" + (try await approve(reviews, by: person))
 
         case .retry:
+            if let node, node.spec.parent == nil, node.pullRequestState == .closed {
+                guard policy.pullRequests else {
+                    throw Rejection(reason: "Push / open pull requests is disabled. Enable it before adding harness:retry to reopen \(node.pullRequestURL ?? "").")
+                }
+                try await write(node.id, by: .human(person), [.requirementPublicationRetryRequested])
+                return "publication will push the branch and reopen the same pull request \(node.pullRequestURL ?? ""); no agent rework is started"
+            }
+            if let node, node.spec.parent == nil, node.requirementVerificationStarted,
+               node.requirementVerification?.passed != true {
+                try await write(node.id, by: .human(person), [.requirementVerificationRetryRequested])
+                return "final verification will run again on the requirement branch; no agent rework is started"
+            }
+            if let node, node.spec.parent == nil, node.publicationFailure != nil {
+                try await write(node.id, by: .human(person), [.requirementPublicationRetryRequested])
+                return "publication will push and open or update the same pull request again; no agent rework is started"
+            }
             if let node, node.flags[.needsInput] != nil {
                 return try await resume(node, answeredOn: ticket, by: person)
             }

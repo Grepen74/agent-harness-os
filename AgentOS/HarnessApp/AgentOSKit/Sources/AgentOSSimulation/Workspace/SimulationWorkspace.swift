@@ -49,18 +49,13 @@ public struct SimulationWorkspace: Workspace, MainTipRepository {
     }
 
     public func catchUpRequirementBranch(for requirement: NodeIdentity) async throws -> String {
-        let directory = try await createSnapshot(at: "agentos/\(requirement.ticketKey)")
-        do {
-            let old = try await head(of: directory)
-            try await git(["-c", "user.name=AgentOS", "-c", "user.email=harness@agents.agentos.local",
-                           "merge", "-q", "--no-edit", "main"], in: directory)
-            let tip = try await head(of: directory)
-            try await git(["update-ref", "refs/heads/agentos/\(requirement.ticketKey)", tip, old], in: repoDirectory)
-            await removeSnapshot(directory)
+        let branch = requirementBranch(for: requirement.ticketKey)
+        switch try await mergeMain(localMainTip(), into: branch) {
+        case .clean:
+            guard let tip = try await tip(of: branch) else { throw AgentFailure("Missing requirement branch \(branch).") }
             return tip
-        } catch {
-            await removeSnapshot(directory)
-            throw error
+        case .conflict(let files):
+            throw AgentFailure("Catch-up of \(branch) conflicts in \(files.joined(separator: ", ")). Resolve the conflict, then retry catch-up.")
         }
     }
 
@@ -98,6 +93,18 @@ public struct SimulationWorkspace: Workspace, MainTipRepository {
 
     public func createSnapshot(for id: NodeID) async throws -> URL? {
         try await createSnapshot(at: landingBranch(for: id))
+    }
+
+    public func requirementWorktree(for requirement: NodeIdentity) async throws -> URL {
+        try await createSnapshot(at: requirementBranch(for: requirement.ticketKey))
+    }
+
+    public func requirementIsMerged(_ requirement: NodeIdentity) async throws -> Bool {
+        let branch = requirementBranch(for: requirement.ticketKey)
+        guard let commit = try await tip(of: branch), let main = try await tip(of: defaultBranch) else {
+            throw AgentFailure("Could not detect the merge: restore \(branch) and \(defaultBranch), then run again.")
+        }
+        return try await isAncestor(commit, of: main)
     }
 
     private func createSnapshot(at branch: String) async throws -> URL {

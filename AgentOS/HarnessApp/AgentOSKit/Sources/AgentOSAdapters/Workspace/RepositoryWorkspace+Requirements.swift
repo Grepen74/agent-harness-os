@@ -7,6 +7,18 @@ enum RequirementCatchUpResult {
 }
 
 extension RepositoryWorkspace {
+    public func requirementWorktree(for requirement: NodeIdentity) async throws -> URL {
+        try await createSnapshot(at: requirementBranch(for: requirement.ticketKey))
+    }
+
+    public func requirementIsMerged(_ requirement: NodeIdentity) async throws -> Bool {
+        let branch = requirementBranch(for: requirement.ticketKey)
+        guard let commit = try await tip(of: branch), let main = try await tip(of: defaultBranch) else {
+            throw AgentFailure("Could not detect the merge: restore \(branch) and \(defaultBranch), then run again.")
+        }
+        return try await isAncestor(commit, of: main)
+    }
+
     /// Old leaf branches can include retired landing work. Their own reflog identifies the original
     /// starting commit without consulting the retired branch or migrating its other commits.
     func leafBase(in directory: URL, landingBranch: String) async throws -> String {
@@ -42,6 +54,12 @@ extension RepositoryWorkspace {
     }
 
     func mergeRequirementBranch(_ branch: String, main: String) async throws -> RequirementCatchUpResult {
+        try await withoutCatchUpMergeAids {
+            try await mergeRequirementBranchWithoutAids(branch, main: main)
+        }
+    }
+
+    private func mergeRequirementBranchWithoutAids(_ branch: String, main: String) async throws -> RequirementCatchUpResult {
         guard try await checkout(of: branch) == nil else {
             throw AgentFailure("\(branch) is checked out. Switch that checkout to another branch, then retry catch-up.")
         }

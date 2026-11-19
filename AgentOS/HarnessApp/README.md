@@ -83,6 +83,26 @@ but cannot turn it off when the harness has it on. The Policy pane shows **On** 
 explicit `true` is *repo*, otherwise *harness*. A refused `false` keeps it **On**, shows
 `repo asked for false: refused`, and adds a `config.policy` readiness blocker; remove the override or set it to `true`.
 
+**Push / open pull requests** is off by default in **Settings** and saved with the other harness settings.
+Repo config `pullRequests: false` disables publishing for that repo. An absent key inherits Settings;
+`true` cannot override an off harness setting and produces a `config.policy` blocker.
+Once every leaf of a requirement is proven, the harness runs the full test command and configured checks
+again on its requirement branch tip, storing the result and full log in the ledger's evidence.
+A failure waits for a person without agent rework or automatic retries: fix the problem, then use
+`harness:retry`. With publishing off, a passing requirement stays local and **In review** until a person
+merges its branch into `main`; the harness detects the merge and shows **Done**.
+
+With publishing on, the harness pushes only the requirement's `agentos/<ticket key>` branch to `origin`
+and opens one pull request into `main`, updating it after later catch-ups and landings. It never force-pushes,
+pushes tags or leaf branches, or merges pull requests. The description includes the breakdown, criterion/test
+mapping, checks and local artifact names with SHA-256 hashes; no evidence is uploaded. Publication errors
+appear on the ticket and under **Needs attention**; only a human `harness:retry` resumes publication.
+
+The requirement follows its pull request: open is **In review**, merged is **Done**, and closed without
+merging is **Needs input**, on ticket labels and comments and the configured board's mapped status.
+After a close, `harness:retry` pushes again and reopens the same pull request. After a merge, build signals
+are refused with a link to the merged pull request and a request to open a follow-up ticket.
+
 Use **Override in repo config…** in the Policy pane to choose a permitted value and copy its full-path
 JSON fragment. Use exact config tokens: **assume and report** is `assume-and-report`. Merge the fragment
 into the existing config, preserving sibling fields; model choices come from harness Settings, and

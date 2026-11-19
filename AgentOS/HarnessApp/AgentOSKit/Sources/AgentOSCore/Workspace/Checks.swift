@@ -13,19 +13,22 @@ public struct CheckOutput: Sendable {
     /// Test targets with failures, i.e. whose node's behaviour is broken (doc 08 §5). Empty if unknown.
     public let failingTargets: Set<String>
     public let failureKind: CheckFailureKind
+    public let checks: [CheckResult]
 
     public init(
         passed: Bool,
         summary: String,
         log: String,
         failingTargets: Set<String> = [],
-        failureKind: CheckFailureKind = .reportedFailure
+        failureKind: CheckFailureKind = .reportedFailure,
+        checks: [CheckResult] = []
     ) {
         self.passed = passed
         self.summary = summary
         self.log = log
         self.failingTargets = failingTargets
         self.failureKind = failureKind
+        self.checks = checks
     }
 
     /// The tests the log names as failing, as `Suite.test`: Swift Testing's "Test name(…) recorded an issue … at

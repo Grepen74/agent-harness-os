@@ -22,7 +22,8 @@ struct CrossRequirementDependencyTests {
         await fixture.workspace.merge()
         _ = await fixture.reconciler.runRound(waitForAgents: true)
 
-        #expect(try #require(await fixture.node(Fixture.dependent.id)).flags[.blocked] == nil)
+        let unblocked = try #require(await fixture.node(Fixture.dependent.id))
+        #expect(unblocked.flags[.blocked] == nil, "\(unblocked.flags)")
         #expect(await fixture.tracker.comments(on: "GH-7").contains { $0.contains("Unblocked") })
     }
 
@@ -97,8 +98,11 @@ struct CrossRequirementDependencyTests {
                     LedgerEvent(node: part.id, by: .reconciler, kind: .phaseChanged(to: .proven)),
                 ])
             }
+            // Done: its pull request is merged on GitHub, but the merge isn't in the local main until `merge()`.
             try await ledger.append([
                 LedgerEvent(node: Self.dependency.id, by: .reconciler, kind: .phaseChanged(to: .proven)),
+                LedgerEvent(node: Self.dependency.id, by: .adapter("tracker"), kind: .requirementPullRequestMerged(
+                    number: 12, url: "https://example.com/pull/12")),
                 LedgerEvent(node: dependent.id, by: .human("Alice"), kind: .nodeCreated(spec: dependent, ticket: "GH-7")),
                 LedgerEvent(node: dependent.id, by: .human("Alice"), kind: .gateOpened(.breakdown)),
                 LedgerEvent(node: dependent.id, by: .human("Alice"), kind: .gateOpened(.build)),
@@ -121,7 +125,7 @@ struct CrossRequirementDependencyTests {
         func node(_ id: NodeID) async -> NodeState? { await ledger.workingState().nodes[id] }
     }
 
-    /// Has the landed commit nowhere but its own requirement branch until `merge()`.
+    /// Has the landed commit nowhere but its own requirement branch until `merge()` (pulling the merged pull request).
     private actor MergeWorkspace: Workspace {
         struct Question: Sendable { let branch: String?; let commit: String }
         private var merged = false

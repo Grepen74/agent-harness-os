@@ -61,6 +61,12 @@ public struct CatchUpSuccess: Sendable, Hashable {
     }
 }
 
+public struct RequirementBranchObservation: Sendable, Equatable {
+    public let tip: String
+    public let main: String
+    public let containedInMain: Bool
+}
+
 /// The current state of one Work Node, derived from its events.
 public struct NodeState: Sendable, Identifiable {
     public var id: NodeID { spec.id }
@@ -80,6 +86,18 @@ public struct NodeState: Sendable, Identifiable {
     public var children: [NodeID] = []
     public var testsDigest: String?
     public var requirementBranch: String?
+    public var requirementBranchObservation: RequirementBranchObservation?
+    public var requirementVerificationStarted = false
+    public var requirementVerification: Evidence?
+    public var requirementVerificationRetryPending = false
+    public var requirementMerged = false
+    public var pullRequestNumber: Int?
+    public var pullRequestURL: String?
+    public var pullRequestState: RequirementPullRequest.State?
+    public var publishedCommit: String?
+    public var publicationFailure: String?
+    public var publicationRetryPending = false
+    public var acceptanceCriterionProofs: [AcceptanceCriterionProof] = []
     public var catchUpConflict: CatchUpConflict?
     public var lastCatchUpSuccess: CatchUpSuccess?
     /// Other work's tests this node's acceptance tests changed, locked by `updatedOtherTestsDigest`.
@@ -192,7 +210,19 @@ public struct WorkingState: Sendable {
     /// Everything that needs a human right now (doc 06): the most important view.
     public var attentionList: [(node: NodeState, flag: Flag, reason: String)] {
         creationOrder.compactMap { nodes[$0] }.filter { !$0.ticketClosed }.flatMap { node in
-            Flag.allCases.compactMap { flag in node.flags[flag].map { (node, flag, $0) } }
+            var items = Flag.allCases.compactMap { flag in node.flags[flag].map { (node, flag, $0) } }
+            if let conflict = node.catchUpConflict {
+                items.append((node, .needsInput,
+                              "\(node.requirementBranch ?? node.ticket) catch-up needs a person: \(conflict.files.joined(separator: ", "))"))
+            }
+            if node.requirementVerificationStarted && node.requirementVerification?.passed != true {
+                items.append((node, .needsInput,
+                              "Final verification needs a person: \(node.requirementVerification?.summary ?? "interrupted"). Fix the problem, then add harness:retry."))
+            }
+            if let failure = node.publicationFailure {
+                items.append((node, .needsInput, failure))
+            }
+            return items
         }
     }
 
@@ -248,8 +278,13 @@ public struct WorkingState: Sendable {
             node.children = old.children
             node.overlapHold = old.overlapHold
             node.requirementBranch = old.requirementBranch
+            node.requirementBranchObservation = old.requirementBranchObservation
             node.catchUpConflict = old.catchUpConflict
             node.lastCatchUpSuccess = old.lastCatchUpSuccess
+            node.pullRequestNumber = old.pullRequestNumber
+            node.pullRequestURL = old.pullRequestURL
+            node.pullRequestState = old.pullRequestState
+            node.publishedCommit = old.publishedCommit
             nodes[id] = node
             return
         }
@@ -334,6 +369,60 @@ public struct WorkingState: Sendable {
             node.overlapHold = nil
         case .requirementBranchCreated(let branch, _):
             node.requirementBranch = branch
+        case .requirementVerificationStarted:
+            node.requirementVerificationStarted = true
+            node.requirementVerification = nil
+            node.requirementVerificationRetryPending = false
+        case .requirementVerificationFinished(var evidence):
+            evidence.recordedAt = event.at
+            node.requirementVerification = evidence
+        case .requirementVerificationRetryRequested:
+            if event.by.isHuman { node.requirementVerificationRetryPending = true }
+        case .requirementMerged:
+            node.requirementMerged = true
+        case .requirementPullRequestOpened(let number, let url),
+             .requirementPullRequestReopened(let number, let url):
+            node.pullRequestNumber = number
+            node.pullRequestURL = url
+            node.pullRequestState = .open
+            node.flags[.needsInput] = nil
+        case .requirementPullRequestMerged(let number, let url):
+            node.pullRequestNumber = number
+            node.pullRequestURL = url
+            node.pullRequestState = .merged
+            node.requirementMerged = true
+            node.flags[.needsInput] = nil
+            node.publicationFailure = nil
+            node.publicationRetryPending = false
+        case .requirementPullRequestClosed(let number, let url):
+            node.pullRequestNumber = number
+            node.pullRequestURL = url
+            node.pullRequestState = .closed
+            node.flags[.needsInput] = "Pull request \(url) was closed without merging. Add harness:retry to push and reopen the same pull request."
+        case .requirementPublicationStarted:
+            node.publicationFailure = "Publication was interrupted. Check origin and the pull request, then add harness:retry to push and update the same pull request."
+            node.publicationRetryPending = false
+        case .requirementPublicationFinished(let commit):
+            node.publishedCommit = commit
+            node.publicationFailure = nil
+            node.publicationRetryPending = false
+        case .requirementPublicationFailed(let error):
+            node.publicationFailure = error
+            node.publicationRetryPending = false
+        case .requirementPublicationRetryRequested:
+            if event.by.isHuman {
+                node.publicationRetryPending = true
+                if node.pullRequestState == .closed { node.flags[.needsInput] = nil }
+            }
+        case .acceptanceCriterionProofsRecorded(let proofs):
+            node.acceptanceCriterionProofs = proofs
+        case .requirementBranchObserved(let branch, let tip, let main, let contained):
+            node.requirementBranch = branch
+            node.requirementBranchObservation = RequirementBranchObservation(
+                tip: tip, main: main, containedInMain: contained)
+        case .requirementCatchUpConflicted(let branch, let main, let files, let tickets):
+            node.requirementBranch = branch
+            node.catchUpConflict = CatchUpConflict(mainSHA: main, files: files, tickets: tickets)
         case .catchUpConflicted(let main, let files, let tickets):
             node.catchUpConflict = CatchUpConflict(mainSHA: main, files: files, tickets: tickets)
         case .catchUpSucceeded(let main, let tip, let method):
@@ -415,6 +504,15 @@ public struct WorkingState: Sendable {
             node.landedAt = record.position
             node.landingReworkPending = false
             node.landingRerunPending = false
+            // A new landing is not covered by an earlier ancestry observation.
+            if let root = lineage(of: id).last, let observation = root.requirementBranchObservation {
+                let updated = RequirementBranchObservation(tip: commit, main: observation.main, containedInMain: false)
+                if root.id == id {
+                    node.requirementBranchObservation = updated
+                } else {
+                    nodes[root.id]?.requirementBranchObservation = updated
+                }
+            }
         case .questionsRaised(let role, let questions):
             node.openQuestions = questions
             // Tests written on a guess aren't kept: they start over once the questions are answered.
@@ -444,7 +542,9 @@ public struct WorkingState: Sendable {
             evidence.recordedAt = event.at
             node.evidence.append(evidence)
             if !evidence.passed { node.latestReviewFeedback = nil }
-            if !evidence.passed && evidence.failureClassification != .runnerCrash
+            // Final verification waits for a person; it is not another implementation attempt.
+            if !evidence.passed && evidence.checkedBy != node.requirementVerification?.checkedBy
+                && evidence.failureClassification != .runnerCrash
                 && evidence.failureClassification != .landingInfrastructure
                 && evidence.failureClassification != .unreliableTests {
                 node.failedAttempts += 1

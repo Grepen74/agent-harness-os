@@ -33,10 +33,10 @@ struct SettingsView: View {
         @Bindable var model = model
         Form {
             Section {
-                TextField("Landing branch", text: $model.settings.landingBranch)
-                LabeledContent("Push / open pull requests", value: "Never")
+                LabeledContent("Requirement branch", value: "agentos/<ticket key>")
+                PushPullRequestsToggle(settings: $model.settings)
             } footer: {
-                Text("Proven work lands on this local branch. You review, merge and push it yourself.")
+                Text("Off by default. A repo may switch publishing off, never on. Verified requirements wait In review until you merge them into main.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Limits a repo may lower, never raise") {

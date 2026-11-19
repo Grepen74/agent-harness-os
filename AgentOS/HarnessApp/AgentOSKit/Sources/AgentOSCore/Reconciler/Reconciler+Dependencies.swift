@@ -28,6 +28,7 @@ extension Reconciler {
     /// A dependency is met when the other system delivered it, or when it's another ticket (or node) here and that
     /// is proven. Proven work in another requirement must also be where this node's work starts: it landed on its
     /// own requirement branch, so until it's merged into `main` (and caught up) this node would be built without it.
+    /// With requirement branches, that other requirement must also be Done (verified and merged) as a whole.
     func unresolvedDependencies(of node: NodeState, in state: WorkingState) -> [String] {
         let siblings = (node.spec.after ?? []).compactMap { hash -> String? in
             let parent = node.spec.parent.flatMap { state.nodes[$0] }
@@ -40,10 +41,20 @@ extension Reconciler {
         let there = requirement.flatMap { dependenciesThere[$0] } ?? []
         return siblings + wantedDependencies(of: node, in: state).compactMap { ref in
             if state.resolvedExternal.contains(ref) { return nil }
-            guard let here = state.nodes[ref] ?? state.node(forTicket: ref), here.phase == .proven else { return ref }
+            guard let here = state.nodes[ref] ?? state.node(forTicket: ref) else { return ref }
+            guard let theirs = state.lineage(of: here.id).last, theirs.id != requirement else {
+                return here.phase == .proven ? nil : ref
+            }
+            // With requirement branches, the other requirement as a whole must be done and merged.
+            if requirementBranches != nil || theirs.requirementBranchObservation != nil
+                || theirs.requirementVerificationStarted || theirs.pullRequestNumber != nil {
+                let merged = theirs.requirementMerged || theirs.requirementBranchObservation != nil
+                guard merged, state.status(of: theirs) == "Done" else { return ref }
+            }
+            guard here.phase == .proven else { return ref }
+            // Its work must also be where this node's work starts (e.g. a merged pull request not pulled yet).
             // Proven since the last refresh counts as not there until it's checked.
-            let sameRequirement = state.lineage(of: here.id).last?.id == requirement
-            return sameRequirement || there.contains(here.id) ? nil : "\(ref) to be merged into main"
+            return there.contains(here.id) ? nil : "\(ref) to be merged into main"
         }
     }
 
