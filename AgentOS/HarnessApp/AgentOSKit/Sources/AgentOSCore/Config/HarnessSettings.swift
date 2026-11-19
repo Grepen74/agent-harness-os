@@ -106,6 +106,7 @@ public struct EffectiveSetting: Sendable, Identifiable, Equatable {
 
 /// What actually applies to one repo: the harness's limits combined with the repo config.
 public struct EffectivePolicy: Sendable, Equatable {
+    public var githubAccount: String? { overrideHarness.githubAccount }
     public var settings: [EffectiveSetting] = []
     /// For the reconciler.
     public var policy = Policy()

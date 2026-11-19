@@ -1,0 +1,10 @@
+{
+  "afterScreenshot" : ".agentos-ui-evidence\/after-publication-failure.png",
+  "beforeScreenshot" : ".agentos-ui-evidence\/before-publication-failure.png",
+  "snapshotPaths" : [
+    ".agentos-ui-evidence\/before-publication-failure.png",
+    ".agentos-ui-evidence\/after-publication-failure.png"
+  ],
+  "windowsClosed" : true,
+  "windowsOpened" : true
+}

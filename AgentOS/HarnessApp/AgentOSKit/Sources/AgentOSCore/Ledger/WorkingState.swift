@@ -91,6 +91,12 @@ public struct NodeState: Sendable, Identifiable {
     public var requirementVerification: Evidence?
     public var requirementVerificationRetryPending = false
     public var requirementMerged = false
+    public var pullRequestNumber: Int?
+    public var pullRequestURL: String?
+    public var publishedCommit: String?
+    public var publicationFailure: String?
+    public var publicationRetryPending = false
+    public var acceptanceCriterionProofs: [AcceptanceCriterionProof] = []
     public var catchUpConflict: CatchUpConflict?
     public var lastCatchUpSuccess: CatchUpSuccess?
     /// Other work's tests this node's acceptance tests changed, locked by `updatedOtherTestsDigest`.
@@ -209,6 +215,9 @@ public struct WorkingState: Sendable {
             if node.requirementVerificationStarted && node.requirementVerification?.passed != true {
                 items.append((node, .needsInput,
                               "Final verification needs a person: \(node.requirementVerification?.summary ?? "interrupted"). Fix the problem, then add harness:retry."))
+            }
+            if let failure = node.publicationFailure {
+                items.append((node, .needsInput, failure))
             }
             return items
         }
@@ -364,6 +373,23 @@ public struct WorkingState: Sendable {
             if event.by.isHuman { node.requirementVerificationRetryPending = true }
         case .requirementMerged:
             node.requirementMerged = true
+        case .requirementPullRequestOpened(let number, let url):
+            node.pullRequestNumber = number
+            node.pullRequestURL = url
+        case .requirementPublicationStarted:
+            node.publicationFailure = "Publication was interrupted. Check origin and the pull request, then add harness:retry to push and update the same pull request."
+            node.publicationRetryPending = false
+        case .requirementPublicationFinished(let commit):
+            node.publishedCommit = commit
+            node.publicationFailure = nil
+            node.publicationRetryPending = false
+        case .requirementPublicationFailed(let error):
+            node.publicationFailure = error
+            node.publicationRetryPending = false
+        case .requirementPublicationRetryRequested:
+            if event.by.isHuman { node.publicationRetryPending = true }
+        case .acceptanceCriterionProofsRecorded(let proofs):
+            node.acceptanceCriterionProofs = proofs
         case .requirementBranchObserved(let branch, let tip, let main, let contained):
             node.requirementBranch = branch
             node.requirementBranchObservation = RequirementBranchObservation(

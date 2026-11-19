@@ -155,6 +155,7 @@ public struct Evidence: Codable, Sendable, Hashable {
     public var failureClassification: FailureClassification? = nil
     /// More than the one-line summary, for the agent that has to fix it. Older evidence has none.
     public var details: String? = nil
+    public var checks: [CheckResult]? = nil
     /// When the ledger recorded it. Set when the working state is derived, never in the recorded event.
     public var recordedAt: Date? = nil
 }

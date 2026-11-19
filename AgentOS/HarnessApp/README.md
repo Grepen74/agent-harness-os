@@ -92,6 +92,12 @@ A failure waits for a person without agent rework or automatic retries: fix the 
 `harness:retry`. With publishing off, a passing requirement stays local and **In review** until a person
 merges its branch into `main`; the harness detects the merge and shows **Done**.
 
+With publishing on, the harness pushes only the requirement's `agentos/<ticket key>` branch to `origin`
+and opens one pull request into `main`, updating it after later catch-ups and landings. It never force-pushes,
+pushes tags or leaf branches, or merges pull requests. The description includes the breakdown, criterion/test
+mapping, checks and local artifact names with SHA-256 hashes; no evidence is uploaded. Publication errors
+appear on the ticket and under **Needs attention**; only a human `harness:retry` resumes publication.
+
 Use **Override in repo config…** in the Policy pane to choose a permitted value and copy its full-path
 JSON fragment. Use exact config tokens: **assume and report** is `assume-and-report`. Merge the fragment
 into the existing config, preserving sibling fields; model choices come from harness Settings, and

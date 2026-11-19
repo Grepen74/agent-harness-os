@@ -93,6 +93,19 @@ and add `harness:retry` to the requirement ticket to run final verification agai
 requests** off, passing verification leaves the branch local and the requirement **In review**, until a
 person merges its tip into `main`. The harness detects that merge and marks it **Done**.
 
+With publishing on, passing final verification pushes `agentos/<ticket key>` to `origin` and opens one
+pull request into `main`. Later catch-ups and landings push new tips and update that same pull request,
+including across restarts. Only requirement branches are pushed, never with force; the harness does not
+push tags or leaf branches and never merges a pull request.
+
+The description carries the requirement and breakdown, acceptance criteria with their reported proving
+tests, and each check's result, commit, summary and failing tests. Evidence stays local: artifact file names
+and SHA-256 hashes identify it, with nothing uploaded. GitHub Issues tickets also get `Closes #<number>`.
+Each push and the pull request number and URL are recorded in the ledger. A push or publication error
+waits without automatic retries or agent rework: its error appears in a ticket comment and **Needs
+attention**. Fix it and add `harness:retry` to push again and open or update the same pull request, including
+when GitHub created it but its response was lost.
+
 The optional boolean `pullRequests` repo key inherits the saved harness setting when absent. `false`
 switches publishing off for the repo. `true` while the harness setting is off has no effect and adds a
 `config.policy` readiness blocker; remove the key, set it to `false`, or enable publishing in Settings.

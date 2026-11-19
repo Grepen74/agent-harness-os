@@ -175,6 +175,7 @@ extension WorkingState {
     public func status(of node: NodeState) -> String {
         if node.ticketClosed && node.phase != .proven { return "Closed" }
         if node.catchUpConflict != nil { return "Needs human" }
+        if node.publicationFailure != nil { return "Needs input" }
         if node.flags[.escalated] != nil { return "Needs human" }
         if node.awaitingHumanReview { return "In review" }
         if node.flags[.needsInput] != nil { return "Needs input" }

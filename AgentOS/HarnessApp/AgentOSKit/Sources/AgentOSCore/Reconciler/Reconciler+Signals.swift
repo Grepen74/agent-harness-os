@@ -200,6 +200,10 @@ extension Reconciler {
                 try await write(node.id, by: .human(person), [.requirementVerificationRetryRequested])
                 return "final verification will run again on the requirement branch; no agent rework is started"
             }
+            if let node, node.spec.parent == nil, node.publicationFailure != nil {
+                try await write(node.id, by: .human(person), [.requirementPublicationRetryRequested])
+                return "publication will push and open or update the same pull request again; no agent rework is started"
+            }
             if let node, node.flags[.needsInput] != nil {
                 return try await resume(node, answeredOn: ticket, by: person)
             }

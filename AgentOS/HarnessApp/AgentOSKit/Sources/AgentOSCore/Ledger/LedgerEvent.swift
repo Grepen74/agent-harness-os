@@ -86,6 +86,13 @@ public enum EventKind: Codable, Sendable {
     case requirementVerificationFinished(Evidence)
     case requirementVerificationRetryRequested
     case requirementMerged(commit: String)
+    case requirementPushed(branch: String, commit: String)
+    case requirementPublicationStarted
+    case requirementPullRequestOpened(number: Int, url: String)
+    case requirementPublicationFinished(commit: String)
+    case requirementPublicationFailed(error: String)
+    case requirementPublicationRetryRequested
+    case acceptanceCriterionProofsRecorded([AcceptanceCriterionProof])
     /// Fingerprint of the node's acceptance tests; nobody may change them afterwards.
     case testsFixed(digest: String)
     /// Other work's tests the acceptance tests changed (written after `testsFixed`), with their fingerprint: they
@@ -247,6 +254,13 @@ extension EventKind {
             "overlap hold ended: waited for \(waitingFor); " +
                 (paths.isEmpty ? "components \(components.joined(separator: ", "))" : "paths \(paths.joined(separator: ", "))")
         case .testsFixed(let digest): "acceptance tests fixed (\(digest.prefix(8)))"
+        case .requirementPushed(let branch, let commit): "pushed \(branch) at \(commit)"
+        case .requirementPublicationStarted: "requirement publication started"
+        case .requirementPullRequestOpened(let number, let url): "opened pull request #\(number): \(url)"
+        case .requirementPublicationFinished(let commit): "pull request updated at \(commit)"
+        case .requirementPublicationFailed(let error): "publication needs a person: \(error)"
+        case .requirementPublicationRetryRequested: "human requested pull request publication retry"
+        case .acceptanceCriterionProofsRecorded(let proofs): "recorded \(proofs.count) acceptance criterion proofs"
         case .requirementBranchCreated(let branch, let from): "created \(branch) from \(from)"
         case .requirementBranchObserved(let branch, let tip, let main, let contained):
             "observed \(branch) at \(tip), \(contained ? "contained" : "not contained") in main \(main)"

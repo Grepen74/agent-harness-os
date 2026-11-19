@@ -140,6 +140,7 @@ public struct AgentReport: Codable, Sendable, Hashable {
     /// Other work's test files the test author changed because this item's criteria deliberately change what they
     /// check. Only these are kept besides its own tests; the reviewer checks each change.
     public var updatedTests: [String]
+    public var acceptanceCriterionProofs: [AcceptanceCriterionProof]
 
     public init(
         questions: [AgentQuestion] = [],
@@ -147,7 +148,8 @@ public struct AgentReport: Codable, Sendable, Hashable {
         expectedAPI: [String] = [],
         brokenTest: BrokenTestReport? = nil,
         alreadySatisfied: Bool = false,
-        updatedTests: [String] = []
+        updatedTests: [String] = [],
+        acceptanceCriterionProofs: [AcceptanceCriterionProof] = []
     ) {
         self.questions = questions
         self.assumptions = assumptions
@@ -155,6 +157,7 @@ public struct AgentReport: Codable, Sendable, Hashable {
         self.brokenTest = brokenTest
         self.alreadySatisfied = alreadySatisfied
         self.updatedTests = updatedTests
+        self.acceptanceCriterionProofs = acceptanceCriterionProofs
     }
 
     public init(from decoder: any Decoder) throws {
@@ -165,6 +168,8 @@ public struct AgentReport: Codable, Sendable, Hashable {
         brokenTest = try container.decodeIfPresent(BrokenTestReport.self, forKey: .brokenTest)
         alreadySatisfied = try container.decodeIfPresent(Bool.self, forKey: .alreadySatisfied) ?? false
         updatedTests = try container.decodeIfPresent([String].self, forKey: .updatedTests) ?? []
+        acceptanceCriterionProofs = try container.decodeIfPresent(
+            [AcceptanceCriterionProof].self, forKey: .acceptanceCriterionProofs) ?? []
     }
 }
 

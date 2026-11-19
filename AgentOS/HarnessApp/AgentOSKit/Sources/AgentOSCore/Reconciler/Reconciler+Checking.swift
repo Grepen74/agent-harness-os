@@ -139,7 +139,9 @@ extension Reconciler {
         let artifact = try artifacts.put(named: "\(node.id)-\(checkedBy).log", contents: Data(output.log.utf8))
         return Evidence(check: check, passed: output.passed, summary: output.summary, specHash: node.spec.specHash,
                         builtBy: builtBy, checkedBy: checkedBy, artifactPath: artifact.path, artifactSHA256: artifact.sha256,
-                        commit: commit, failureClassification: failureClassification)
+                        commit: commit, failureClassification: failureClassification,
+                        details: output.failingTests.isEmpty ? nil : output.failingTests.sorted().joined(separator: "\n"),
+                        checks: output.checks.isEmpty ? nil : output.checks)
     }
 }
 

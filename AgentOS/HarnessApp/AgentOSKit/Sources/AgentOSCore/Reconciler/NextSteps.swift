@@ -19,7 +19,9 @@ extension Reconciler {
         }
 
         var steps: [String?] = []
-        if node.spec.parent == nil, node.requirementVerificationStarted {
+        if node.publicationFailure != nil {
+            steps.append(step(.retry, "Fix the publication error, then harness:retry to push and update the same pull request (no agent rework)"))
+        } else if node.spec.parent == nil, node.requirementVerificationStarted {
             if node.requirementVerification?.passed != true {
                 steps.append(step(.retry, "Fix the final verification failure, then harness:retry to run the full checks again (no agent rework)"))
             } else if state.status(of: node) == "Done" {

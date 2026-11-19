@@ -72,6 +72,7 @@ public struct CommandCheckRunner: CheckRunner {
 
     public func runChecks(in directory: URL, only suite: String?) async -> CheckOutput {
         var log = ""
+        var completed: [CheckResult] = []
         var cleaned = false
         var pending = steps(only: suite)
         while !pending.isEmpty {
@@ -92,14 +93,17 @@ public struct CommandCheckRunner: CheckRunner {
             } catch {
                 log += "$ \(step.command)\n"
                 log += "\(error)\n"
-                return CheckOutput(passed: false, summary: "\(step.name): could not run: \(error)", log: log)
+                let summary = "\(step.name): could not run: \(error)"
+                return CheckOutput(passed: false, summary: summary, log: log,
+                                   checks: completed + [CheckResult(name: step.name, passed: false, summary: summary)])
             }
             log += result.output
             if !result.output.hasSuffix("\n") && !result.output.isEmpty { log += "\n" }
             if result.idleTimedOut {
                 let summary = "\(step.name) hung: no output for \(idleTimeout)"
                 log += summary + "\n"
-                return CheckOutput(passed: false, summary: summary, log: log, failureKind: .runnerCrash(signal: SIGKILL))
+                return CheckOutput(passed: false, summary: summary, log: log, failureKind: .runnerCrash(signal: SIGKILL),
+                                   checks: completed + [CheckResult(name: step.name, passed: false, summary: summary)])
             }
             guard result.status == 0 else {
                 log += "exit status \(result.status)\n"
@@ -111,14 +115,21 @@ public struct CommandCheckRunner: CheckRunner {
                     continue
                 }
                 let trimmed = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
+                let summary = "\(step.name) failed: "
+                    + (trimmed.isEmpty ? "exit status \(result.status)" : SwiftPMCheckRunner.summarize(trimmed))
+                let failingTests = CheckOutput(passed: false, summary: summary, log: result.output).failingTests.sorted()
                 return CheckOutput(passed: false,
-                                   summary: "\(step.name) failed: "
-                                       + (trimmed.isEmpty ? "exit status \(result.status)" : SwiftPMCheckRunner.summarize(trimmed)),
+                                   summary: summary,
                                    log: log, failingTargets: SwiftPMCheckRunner.failingTargets(in: result.output),
-                                   failureKind: result.crashSignal.map { .runnerCrash(signal: $0) } ?? .reportedFailure)
+                                   failureKind: result.crashSignal.map { .runnerCrash(signal: $0) } ?? .reportedFailure,
+                                   checks: completed + [CheckResult(name: step.name, passed: false,
+                                                                    summary: summary, failingTests: failingTests)])
             }
+            completed.append(CheckResult(name: step.name, passed: true,
+                                         summary: "\(step.name) passed (exit status 0)"))
         }
-        return CheckOutput(passed: true, summary: steps(only: suite).map(\.name).joined(separator: ", ") + " passed", log: log)
+        return CheckOutput(passed: true, summary: steps(only: suite).map(\.name).joined(separator: ", ") + " passed",
+                           log: log, checks: completed)
     }
 }
 
