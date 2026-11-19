@@ -59,6 +59,11 @@ public actor Reconciler {
     var quietLandings = 0
     /// Nodes waiting in landing until the workspace lets the landing branch move (`Workspace.whyLandingMustWait`).
     var landingWaits: Set<NodeID> = []
+    /// Per requirement, other requirements' proven work found on its branch (or on `main`, before it has one).
+    /// Work there that depends on other proven work not (yet) found waits. Refreshed every round.
+    var dependenciesThere: [NodeID: Set<NodeID>] = [:]
+    /// Landed commits a requirement's starting point was found to have, as "requirement commit": they stay there.
+    var dependencyCommitsThere: Set<String> = []
     /// Awaited after a node step is reserved and before it runs or records its claim (a test seam).
     private let beforeStep: (@Sendable (NodeID) async -> Void)?
     /// The time, for waits measured in minutes (a test seam).
@@ -140,6 +145,7 @@ public actor Reconciler {
         guard shutdownReason == nil, !Task.isCancelled else { return finish(report) }
 
         await intakeSignals(&report, waitingForPreviews: waitForAgents)
+        await refreshDependenciesThere()
         await intakeExternal(&report)
 
         do {

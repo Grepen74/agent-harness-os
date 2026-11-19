@@ -96,6 +96,10 @@ public protocol Workspace: Sendable {
     /// checkout has it checked out); nil when it can. Nothing lands meanwhile, and nothing fails: landing goes on
     /// once this is nil.
     func whyLandingMustWait(for id: NodeID) async throws -> String?
+    /// Whether `branch` (nil: `main`) has everything `commit` has, merged, squashed or rebased. Another requirement's
+    /// landed work counts as done for work that depends on it only once it's where that work starts, since
+    /// requirement branches don't share commits.
+    func branch(_ branch: String?, hasEverythingIn commit: String) async throws -> Bool
 
     /// Components that exist on `main` (for the decomposer's catalog).
     func existingComponents() -> [String]
@@ -146,6 +150,9 @@ extension Workspace {
     public func createSnapshot() async throws -> URL? { nil }
     public func removeSnapshot(_ directory: URL) async {}
     public func whyLandingMustWait(for id: NodeID) async throws -> String? { nil }
+    /// Always true for simulation and test fakes: nobody merges their requirement branches into `main`, so
+    /// checking would hold dependent work forever.
+    public func branch(_ branch: String?, hasEverythingIn commit: String) async throws -> Bool { true }
 
     /// Moves active leaves onto the latest `main`, independently putting conflicting leaves into rework.
     public func catchUpActiveLeaves(_ ids: [NodeID]) async throws -> ActiveLeavesCatchUpResult {

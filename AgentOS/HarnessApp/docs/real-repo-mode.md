@@ -573,7 +573,8 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
   branch. This is checked before the landing checks start and again right before the fast-forward; a
   checkout made in between finishes the landing run and the node waits the same way.
 - **Requirement isolation.** Each requirement branch contains only its own landed changes and catch-up
-  work from `main`. Catch-up updates that branch and rebases only its idle active leaves. Bindings are
+  work from `main`, so work depending on another requirement waits until that one is merged into `main`
+  (see Dependencies between tickets). Catch-up updates that branch and rebases only its idle active leaves. Bindings are
   restored from the ledger after restarting, including leaves already in progress before upgrading.
   The retired `agentos/main` is never used for building, landing or catch-up. Work already landed there
   stays only there: the readiness scan warns while it has commits absent from `main`. Merge
@@ -873,7 +874,15 @@ Each phase is usable on its own.
      shows the same statuses as the tickets; the ledger's phase is in the node's details.
    - **Dependencies between tickets.** `Blocked by: #12` on a ticket waits until `GH-12` is proven here. On
      a ticket that's broken down, it holds every leaf unless the breakdown gave that dependency to particular
-     leaves.
+     leaves. When `GH-12` belongs to another requirement, being proven isn't enough: its work landed on
+     `agentos/GH-12`, so it also waits until `GH-12`'s latest landing (which has its earlier ones) is in the
+     waiting ticket's requirement branch (or `main`, before that branch exists). Merged, squashed and rebased
+     merges all count, also after later commits changed the same lines; so does a landed commit that's gone
+     from the repository (nothing left to merge). It's checked at the start of each round: work proven
+     since then waits until the next one.
+     Until then the ticket shows *Blocked* with "Waiting for GH-12 to be merged into main"; merge it (and let
+     catch-up bring it into the requirement branch) and it unblocks by itself. Within one requirement, proven
+     is enough: the work is already on that requirement's branch.
    - **Projects board (opt-in).** With `tracker.project` (owner, number, optional `statusField` and
      `statusMap`), the board's Status field follows the harness: Specifying, Breaking down, Replanned (waits for
      preview, breakdown or go) and Paused (a replanned ticket's children) → Backlog,

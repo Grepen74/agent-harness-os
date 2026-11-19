@@ -1,5 +1,6 @@
 import AgentOSCore
 import Foundation
+import Synchronization
 
 /// The workspace on an existing repo (real-repo mode, phase 4). Your checkout and default branch are never
 /// touched; everything happens in harness-owned worktrees outside the repo folder:
@@ -25,6 +26,8 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
     /// errors when leaves start side by side. Agents and checks still run in parallel.
     let worktreeLock = AsyncSemaphore(1)
     private let requirementBranches = RequirementBranchBindings()
+    /// "branchTip commit" pairs found not contained: the same until the branch moves.
+    private let notContained = SeenPairs()
 
     public struct NotConfigured: Error, CustomStringConvertible {
         public let description = "\(RepoConfig.path) has no leafTests: leaves have nowhere to put their acceptance tests."
@@ -531,6 +534,32 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
         try await revision(defaultBranch)
     }
 
+    /// Also true for a commit that's gone from the repository (its branch deleted and cleaned up): there's nothing
+    /// left to check or to merge. Squashed or rebased work counts once any commit on the branch since it forked had
+    /// it, so later changes to the same lines don't hide it again.
+    public func branch(_ branch: String?, hasEverythingIn commit: String) async throws -> Bool {
+        let target = try await revision(branch ?? defaultBranch)
+        let exists = try await ProcessRunner.run("/usr/bin/env", ["git", "cat-file", "-e", commit + "^{commit}"], in: root)
+        guard exists.status == 0 else { return true }
+        let ancestor = try await ProcessRunner.run("/usr/bin/env", ["git", "merge-base", "--is-ancestor", commit, target],
+                                                   in: root)
+        if ancestor.status == 0 { return true }
+        if notContained.contains("\(target) \(commit)") { return false }
+        let base = try await ProcessRunner.run("/usr/bin/env", ["git", "merge-base", target, commit], in: root)
+        guard base.status == 0 else { return false }
+        let since = base.output.trimmingCharacters(in: .whitespacesAndNewlines) + ".." + target
+        for line in try await git(["log", "--first-parent", "--format=%H %T", since], in: root).split(separator: "\n") {
+            let parts = line.split(separator: " ")
+            guard parts.count == 2 else { continue }
+            // Merging it there would change nothing.
+            let merged = try await ProcessRunner.run(
+                "/usr/bin/env", ["git", "merge-tree", "--write-tree", String(parts[0]), commit], in: root)
+            if merged.status == 0, merged.output.split(whereSeparator: \.isNewline).first == parts[1] { return true }
+        }
+        notContained.insert("\(target) \(commit)")
+        return false
+    }
+
     /// Nothing to do: the check runner runs the config's `build.prepare` before building.
     public func prepareBuild(in directory: URL) async throws {}
 
@@ -620,4 +649,10 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
 public struct NoExternalSystem: ExternalDependencySource {
     public init() {}
     public func deliveredKeys() async -> Set<String> { [] }
+}
+
+private final class SeenPairs: Sendable {
+    private let pairs = Mutex<Set<String>>([])
+    func contains(_ pair: String) -> Bool { pairs.withLock { $0.contains(pair) } }
+    func insert(_ pair: String) { _ = pairs.withLock { $0.insert(pair) } }
 }

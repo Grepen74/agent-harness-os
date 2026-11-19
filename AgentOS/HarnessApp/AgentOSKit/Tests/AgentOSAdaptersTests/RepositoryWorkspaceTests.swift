@@ -1704,6 +1704,42 @@ struct RepositoryWorkspaceTests {
         #expect(diagnosis.nextStep == "Split it.")
     }
 
+    @Test
+    func aBranchHasACommitOnceItIsMergedSquashedOrFastForwarded() async throws {
+        let repo = try await makeRepo()
+        let storage = FileManager.default.temporaryDirectory.appending(path: "agentos-storage-\(UUID().uuidString)")
+        let workspace = try RepositoryWorkspace(root: repo, storage: storage, config: Self.config,
+                                                landingBranch: "agentos/main", defaultBranch: "main")
+        let commit = ["-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-q"]
+        func change(_ file: String, to text: String) async throws {
+            try text.write(to: repo.appending(path: file), atomically: true, encoding: .utf8)
+            try await git(["add", "."], in: repo)
+            try await git(commit + ["-m", "\(file): \(text)"], in: repo)
+        }
+        try await git(["switch", "-q", "-c", "agentos/GH-5"], in: repo)
+        try await change("app.txt", to: "one\n")
+        try await change("app.txt", to: "two\n")
+        let landed = try await git(["rev-parse", "HEAD"], in: repo)
+        try await git(["switch", "-q", "main"], in: repo)
+        try await git(["branch", "agentos/GH-7"], in: repo)
+
+        #expect(try await workspace.branch(nil, hasEverythingIn: landed) == false)
+        #expect(try await workspace.branch("agentos/GH-5", hasEverythingIn: landed))
+
+        try await git(["merge", "-q", "--squash", "agentos/GH-5"], in: repo)
+        try await git(commit + ["-m", "Squashed GH-5"], in: repo)
+        #expect(try await workspace.branch(nil, hasEverythingIn: landed))
+        #expect(try await workspace.branch("agentos/GH-7", hasEverythingIn: landed) == false)
+
+        try await change("app.txt", to: "three\n")
+        #expect(try await workspace.branch(nil, hasEverythingIn: landed), "Later changes to the same line")
+
+        try await git(["switch", "-q", "agentos/GH-7"], in: repo)
+        try await git(["merge", "-q", "--ff-only", "agentos/GH-5"], in: repo)
+        #expect(try await workspace.branch("agentos/GH-7", hasEverythingIn: landed))
+        #expect(try await workspace.branch(nil, hasEverythingIn: String(repeating: "0", count: 40)), "Gone")
+    }
+
     private func makeRepo() async throws -> URL {
         let repo = FileManager.default.temporaryDirectory.appending(path: "agentos-repo-\(UUID().uuidString)")
         let files = ["app.txt": "hi\n", "run-tests.sh": Self.runner, "AGENTS.md": "# Rules\n", "Tests/AppTests/Existing/check.sh": "true\n"]

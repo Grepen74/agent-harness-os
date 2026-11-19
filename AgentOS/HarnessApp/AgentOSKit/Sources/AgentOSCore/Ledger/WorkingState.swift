@@ -119,6 +119,8 @@ public struct NodeState: Sendable, Identifiable {
     /// Position in the landing queue (when it entered `landing`).
     public var queuedAt: Int?
     public var landedCommit: String?
+    /// Ledger position of the latest landing: a requirement branch's later landings contain its earlier ones.
+    public var landedAt: Int?
     /// What an agent asked and nobody answered yet (with the `needsInput` flag).
     public var openQuestions: [AgentQuestion] = []
     /// Choices agents made themselves, per role (the decomposer's for a breakdown, the test author's for tests).
@@ -410,6 +412,7 @@ public struct WorkingState: Sendable {
             node.actualChangedFiles = nil
         case .landed(let commit):
             node.landedCommit = commit
+            node.landedAt = record.position
             node.landingReworkPending = false
             node.landingRerunPending = false
         case .questionsRaised(let role, let questions):
