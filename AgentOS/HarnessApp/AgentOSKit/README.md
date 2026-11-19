@@ -21,11 +21,14 @@ swift run agentos tree|verify --dir <path>
 swift run agentos scan <repo path>   # readiness scan of a real repo; exits 1 while there are blockers
 swift run agentos baseline <repo path> [--config <file>]   # the repo's checks on main; --config tries one, unrecorded
 swift run agentos work <repo path> [--ticket <title> --criterion <text> --go]   # Copilot agents on the local tracker; lands on agentos/main
-swift test
+swift test --build-system native
 ```
 
 The demo exits with 0 only if the epic is proven, a merge conflict was reworked, the contradicting
 requirement was escalated and the ledger chain is intact. It uses a temporary folder unless you pass `--dir`.
+
+Tests use the native build system for now: with Xcode 27.2's default build system, timing-sensitive tests
+fail at random.
 
 If `swift test` crashes with a signal right after a change to a Core type, the test build is stale:
 `rm -rf .build` and run it again.

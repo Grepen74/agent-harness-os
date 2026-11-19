@@ -195,7 +195,7 @@ import Vision
         let image = try await Self.detailImage(paths: [], links: ["GH-75-alpha", "GH-75-beta"])
         let touches = try Self.rowText("Touches", in: image)
         #expect(RenderedUI.shows("Storage", in: touches))
-        Self.expectDash(in: try Self.rowText("Landed at", in: image))
+        try Self.expectDash(row: "Landed at", in: image)
         let links = try Self.rowText("Links", in: image)
         #expect(RenderedUI.shows("GH-75-alpha", in: links))
         #expect(RenderedUI.shows("GH-75-beta", in: links),
@@ -213,7 +213,7 @@ import Vision
     @MainActor @Test
     func workPanePathsRowShowsADashForALeafWithNoPredictions() async throws {
         let image = try await Self.detailImage(paths: [])
-        Self.expectDash(in: try Self.rowText("Paths", in: image))
+        try Self.expectDash(row: "Paths", in: image)
     }
 }
 
@@ -290,22 +290,15 @@ extension GH_75Tests {
 
     @MainActor
     private static func rowImage(_ label: String, in image: CGImage) throws -> CGImage {
-        let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.recognitionLanguages = ["en-US"]
-        request.usesLanguageCorrection = false
-        try VNImageRequestHandler(cgImage: image).perform([request])
-        let recognized = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
+        let lines = try RenderedUI.lines(in: image)
+        let recognized = lines.map(\.text).joined(separator: "\n")
         let labels = ["Ticket", "Phase", "Gates", "Links", "Touches", "Paths", "Test target",
                       "Attempts failed", "Reworks", "Landed at", "Tests fingerprint", "Spec hash"]
         var boxes: [String: CGRect] = [:]
-        for observation in request.results ?? [] {
-            guard let candidate = observation.topCandidates(1).first else { continue }
-            for title in labels {
-                if let range = candidate.string.range(of: title, options: [.anchored, .caseInsensitive]),
-                   let box = try candidate.boundingBox(for: range) {
-                    boxes[title] = box.boundingBox
-                }
+        // A label can share a recognised line with its value; the line's height is the row's either way.
+        for line in lines {
+            for title in labels where line.text.range(of: title, options: [.anchored, .caseInsensitive]) != nil {
+                boxes[title] = line.box
             }
         }
         let box = try #require(boxes[label], "Missing \(label) row in:\n\(recognized)")
@@ -317,7 +310,24 @@ extension GH_75Tests {
         return try #require(image.cropping(to: rect))
     }
 
-    private static func expectDash(in text: String) {
-        #expect(text.contains { "–—-".contains($0) }, "Show an empty-value dash, not a blank row:\n\(text)")
+    /// Since macOS 27.2 text recognition no longer reads a lone "–", so when it reads only the label, this looks
+    /// for the dash itself: one short, flat mark to the right of the label.
+    @MainActor
+    private static func expectDash(row label: String, in image: CGImage) throws {
+        let row = try rowImage(label, in: image)
+        let lines = try RenderedUI.lines(in: row)
+        let text = lines.map(\.text).joined(separator: "\n")
+        if text.contains(where: { "–—-".contains($0) }) { return }
+        let labelLine = try #require(lines.first { RenderedUI.shows(label, in: $0.text) }, "Missing \(label) in:\n\(text)")
+        #expect(lines.allSatisfy { RenderedUI.shows($0.text, in: label) }, "Show only a dash, not other text:\n\(text)")
+        let width = CGFloat(row.width), height = CGFloat(row.height)
+        // Beside the label, at the label's height: taller values would show as recognised text.
+        let labelHeight = labelLine.box.height * height
+        let valueX = (labelLine.box.maxX * width).rounded(.up) + 8
+        let area = CGRect(x: valueX, y: (1 - labelLine.box.maxY) * height, width: width - valueX, height: labelHeight)
+        let value = try #require(row.cropping(to: area.integral))
+        let mark = try #require(RenderedUI.inkRect(of: value), "Show an empty-value dash, not a blank row:\n\(text)")
+        #expect(mark.width > 1.5 * mark.height && mark.height < 0.5 * labelHeight,
+                "The mark right of \(label) isn't a dash: \(mark.size)")
     }
 }

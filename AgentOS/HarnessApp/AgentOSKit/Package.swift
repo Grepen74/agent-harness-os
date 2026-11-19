@@ -29,7 +29,7 @@ let package = Package(
         .testTarget(name: "AgentOSCoreTests", dependencies: ["AgentOSCore"]),
         .testTarget(
             name: "AgentOSAdaptersLegacyTests",
-            dependencies: ["AgentOSAdapters", "AgentOSUI", "AgentOSTestSupport"],
+            dependencies: ["AgentOSAdapters", "AgentOSSimulation", "AgentOSUI", "AgentOSTestSupport"],
             path: "Tests/AgentOSAdaptersTests",
             exclude: ["GH_15_1Tests", "GH_29_1Tests", "GH_29_4Tests", "GH_30_4Tests", "GH_68Tests", "Shared"],
             swiftSettings: [.unsafeFlags(["-Xfrontend", "-disable-access-control"])]

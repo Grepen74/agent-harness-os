@@ -48,14 +48,58 @@ public enum RenderedUI {
         return try onWhite(drawn)
     }
 
-    /// The text recognised in `image`, one entry per line, top to bottom.
+    /// A recognised line of text.
+    public struct Line: Sendable {
+        public let text: String
+        /// Normalised to the whole image, with the origin at the bottom left, like Vision's boxes.
+        public let box: CGRect
+
+        /// Whether `other` covers most of this line or this line most of `other`: the same text read twice.
+        func overlaps(_ other: Line) -> Bool {
+            let shared = box.intersection(other.box)
+            guard !shared.isNull else { return false }
+            let smaller = min(box.width * box.height, other.box.width * other.box.height)
+            return shared.width * shared.height > 0.5 * smaller
+        }
+    }
+
+    /// The text recognised in `image`, one entry per line, in the order of `lines(in:)`.
     public static func text(in image: CGImage) throws -> [String] {
+        try lines(in: image).map(\.text)
+    }
+
+    /// The lines recognised in `image`, top to bottom, then any lines only a second reading found.
+    /// Since macOS 27.2 accurate recognition skips text unpredictably: most small text in a large, mostly empty
+    /// image (for example every value in a detail grid), and now and then a short word. So this reads the part of
+    /// `image` that isn't blank, which finds nearly everything, and then the whole image for words the first
+    /// reading skipped.
+    public static func lines(in image: CGImage) throws -> [Line] {
+        let whole = CGRect(x: 0, y: 0, width: image.width, height: image.height)
+        guard let content = inkRect(of: image, margin: 16), content != whole else { return try read(image, area: whole) }
+        var lines = try read(image, area: content)
+        for line in try read(image, area: whole) where !lines.contains(where: { $0.overlaps(line) }) {
+            lines.append(line)
+        }
+        return lines
+    }
+
+    private static func read(_ image: CGImage, area: CGRect) throws -> [Line] {
+        guard let cropped = image.cropping(to: area) else { throw Failure(description: "Couldn't crop to \(area)") }
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.recognitionLanguages = ["en-US"]
         request.usesLanguageCorrection = false
-        try VNImageRequestHandler(cgImage: image).perform([request])
-        return (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }
+        try VNImageRequestHandler(cgImage: cropped).perform([request])
+        let width = CGFloat(image.width), height = CGFloat(image.height)
+        return (request.results ?? []).compactMap { observation in
+            guard let text = observation.topCandidates(1).first?.string else { return nil }
+            let box = observation.boundingBox
+            return Line(text: text, box: CGRect(
+                x: (area.minX + box.minX * area.width) / width,
+                y: (height - area.maxY + box.minY * area.height) / height,
+                width: box.width * area.width / width,
+                height: box.height * area.height / height))
+        }
     }
 
     /// The text `view` shows at `size`, one line per recognised line.
@@ -76,6 +120,35 @@ public enum RenderedUI {
             throw Failure(description: "Couldn't encode the image as PNG")
         }
         return data
+    }
+
+    /// The part of `image` that isn't (nearly) white, plus `margin`, in pixels from the top left; nil when blank.
+    /// Also finds marks text recognition skips, such as a lone "–": since macOS 27.2 it no longer reads one.
+    public static func inkRect(of image: CGImage, margin: Int = 0) -> CGRect? {
+        let width = image.width, height = image.height
+        let whole = CGRect(x: 0, y: 0, width: width, height: height)
+        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+                                      bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
+              let data = context.data else { return nil }
+        context.draw(image, in: whole)
+        let pixels = UnsafeBufferPointer(start: data.assumingMemoryBound(to: UInt8.self), count: width * height * 4)
+        var minX = width, minY = height, maxX = -1, maxY = -1
+        for y in 0..<height {
+            let row = y * width * 4
+            for x in 0..<width {
+                let i = row + x * 4
+                if pixels[i] < 245 || pixels[i + 1] < 245 || pixels[i + 2] < 245 {
+                    minX = min(minX, x)
+                    maxX = max(maxX, x)
+                    minY = min(minY, y)
+                    maxY = max(maxY, y)
+                }
+            }
+        }
+        guard maxX >= 0 else { return nil }
+        return CGRect(x: minX - margin, y: minY - margin, width: maxX - minX + 1 + 2 * margin,
+                      height: maxY - minY + 1 + 2 * margin).intersection(whole)
     }
 
     private static func onWhite(_ image: CGImage) throws -> CGImage {

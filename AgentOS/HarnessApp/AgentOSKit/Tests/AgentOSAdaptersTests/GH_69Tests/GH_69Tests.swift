@@ -479,11 +479,12 @@ import Testing
         var pressed = false
         for await _ in presses { pressed = true; break }
         #expect(pressed)
-        try Self.select("GH-69", filter: "All tickets", in: hosted.view)
-        try await Self.waitForPage(HarnessViewModel()) { probe.ticket == "GH-69" }
+        // Tests pick filter values through the model (see `selectTicket`); the picker must show the pick.
+        #expect(RenderedUI.shows("All tickets", in: try Self.visibleText(hosted.view)))
+        probe.ticket = "GH-69"
+        hosted.view.layoutSubtreeIfNeeded()
         #expect(RenderedUI.shows("GH-69", in: try Self.visibleText(hosted.view)))
-        try Self.select("All tickets", filter: "All tickets", in: hosted.view)
-        try await Self.waitForPage(HarnessViewModel()) { probe.ticket == "All tickets" }
+        probe.ticket = "All tickets"
         try await Self.scrollToLastRow(of: 400, in: hosted.view, until: "Independent paging row 399") {
             RenderedUI.shows("Independent paging row 399", in: $0)
         }
@@ -518,16 +519,11 @@ import Testing
         #expect(RenderedUI.shows("Show older", in: initialText))
         #expect(!RenderedUI.shows("Stale legacy sentinel", in: initialText))
 
-        let tickets = try #require(Self.descendants(hosted.view, as: NSPopUpButton.self)
-            .first { $0.itemTitles.contains("All tickets") })
-        let kinds = try #require(Self.descendants(hosted.view, as: NSPopUpButton.self)
-            .first { $0.itemTitles.contains("All event kinds") })
-        #expect(Set(tickets.itemTitles) == Set(["All tickets", "GH-69", "other"]))
-        #expect(tickets.itemTitles.count == 3)
-        #expect(Set(kinds.itemTitles) == Set(["All event kinds"] + LedgerEventKind.allCases.map(\.rawValue)))
-        #expect(kinds.itemTitles.count == LedgerEventKind.allCases.count + 1)
-        #expect(tickets.itemArray.allSatisfy { $0.isEnabled })
-        #expect(kinds.itemArray.allSatisfy { $0.isEnabled })
+        // The filter pickers list "All …" plus these; their menus can't be opened in a test (see `selectTicket`).
+        let tickets = model.ledgerPage.nodeIDs.map { model.ledgerNodeLabel($0) }
+        #expect(Set(tickets) == Set(["GH-69", "other"]))
+        #expect(tickets.count == 2)
+        #expect(model.ledgerPage.eventKinds == LedgerEventKind.allCases)
         #expect(model.ledgerPage.canShowOlder)
         #expect(model.ledgerPage.limit == 200)
         #expect(!model.ledgerPage.records.contains { $0.event.id == all[333].event.id })
@@ -537,11 +533,11 @@ import Testing
         try await Self.scrollToLastRow(of: 400, in: hosted.view, until: "Row #\(all[333].position)") {
             Self.showsRow(all[333], in: $0)
         }
-        try Self.select("GH-69", filter: "All tickets", in: hosted.view)
+        try await Self.selectTicket("GH-69", in: model)
         try await Self.waitForPage(model) {
             model.ledgerPage.limit == 200 && model.ledgerPage.records.map(\.event.id) == [all[732].event.id, all[0].event.id]
         }
-        try Self.select("attemptFailed", filter: "All event kinds", in: hosted.view)
+        try await Self.selectKind("attemptFailed", in: model)
         try await Self.waitForPage(model) { model.ledgerPage.records.map(\.event.id) == [all[732].event.id] }
         let filteredText = try Self.visibleText(hosted.view)
         let last = try #require(all.last)
@@ -552,13 +548,13 @@ import Testing
         #expect(RenderedUI.shows("#\(last.position)", in: filteredText))
         #expect(RenderedUI.shows(String(last.hash.prefix(10)), in: filteredText))
         #expect(!RenderedUI.shows("Show older", in: filteredText))
-        try Self.select("other", filter: "All tickets", in: hosted.view)
+        try await Self.selectTicket("other", in: model)
         try await Self.waitForPage(model) { model.ledgerPage.records.isEmpty }
         let emptyText = try Self.visibleText(hosted.view)
         #expect(RenderedUI.shows("733 records", in: emptyText))
         #expect(!RenderedUI.shows("Visible filtered failure", in: emptyText))
         #expect(!RenderedUI.shows("Stale legacy sentinel", in: emptyText))
-        try Self.select("All event kinds", filter: "All event kinds", in: hosted.view)
+        try await Self.selectKind("All event kinds", in: model)
         try await Self.waitForPage(model) { model.ledgerPage.records.count == 200 }
         hosted.view.layoutSubtreeIfNeeded()
         #expect(RenderedUI.shows("Show older", in: try Self.visibleText(hosted.view)))
@@ -571,7 +567,7 @@ import Testing
         try await Self.scrollToLastRow(of: 400, in: hosted.view, until: "Row #\(all[332].position)") {
             Self.showsRow(all[332], in: $0)
         }
-        try Self.select("All tickets", filter: "All tickets", in: hosted.view)
+        try await Self.selectTicket("All tickets", in: model)
         try await Self.waitForPage(model) {
             model.ledgerPage.limit == 200 && model.ledgerPage.records.first?.event.id == last.event.id
         }

@@ -37,24 +37,22 @@ extension GH_69Tests {
             + view.subviews.flatMap { Self.descendants($0, as: type) }
     }
 
-    static func select(_ title: String, in popup: NSPopUpButton) throws {
-        let item = try #require(popup.item(withTitle: title))
-        #expect(item.isEnabled)
-        let menu = try #require(popup.menu)
-        if item.action != nil {
-            menu.performActionForItem(at: menu.index(of: item))
-        } else {
-            popup.select(item)
-            let action = try #require(popup.action)
-            #expect(popup.sendAction(action, to: popup.target))
-        }
+    /// Picks `title` in the ledger pane's ticket filter through the call its picker makes.
+    /// Since macOS 27.2 a SwiftUI menu picker draws itself instead of hosting an `NSPopUpButton`, and hidden
+    /// windows expose no accessibility for it, so a test can no longer open its menu.
+    @MainActor
+    static func selectTicket(_ title: String, in model: HarnessViewModel) async throws {
+        let node = title == "All tickets" ? nil : try #require(
+            model.ledgerPage.nodeIDs.first { model.ledgerNodeLabel($0) == title }, "No ticket \(title) to pick")
+        await model.ledgerPage.selectNode(node)
     }
 
-    static func select(_ title: String, filter: String, in view: NSView) throws {
-        view.layoutSubtreeIfNeeded()
-        let popup = try #require(Self.descendants(view, as: NSPopUpButton.self)
-            .first { $0.itemTitles.contains(filter) })
-        try Self.select(title, in: popup)
+    /// Picks `title` in the ledger pane's event-kind filter, like `selectTicket`.
+    @MainActor
+    static func selectKind(_ title: String, in model: HarnessViewModel) async throws {
+        let kind = title == "All event kinds" ? nil
+            : try #require(LedgerEventKind(rawValue: title), "No event kind \(title) to pick")
+        await model.ledgerPage.selectKind(kind)
     }
 
     private static func accessibilityElements(

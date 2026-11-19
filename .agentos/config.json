@@ -21,7 +21,7 @@
     "updatable" : ["AgentOS/HarnessApp/AgentOSKit/Tests"]
   },
   "test" : {
-    "command" : "cd AgentOS/HarnessApp/AgentOSKit && swift test",
+    "command" : "cd AgentOS/HarnessApp/AgentOSKit && swift test --build-system native",
     "only" : "--filter {suite}"
   },
   "tracker": {
