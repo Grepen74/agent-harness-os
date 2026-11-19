@@ -61,8 +61,17 @@ public struct LedgerPane: View {
                         Text("#\(record.position)").monospaced().foregroundStyle(.secondary).frame(width: 48, alignment: .trailing)
                         Image(systemName: record.event.by.icon).frame(width: 14)
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(record.event.kind.summary)
-                                .lineLimit(record.event.kind.landingBatchCheck == nil ? 2 : nil)
+                            if let batch = record.event.kind.landingBatchCheck {
+                                Text("\(batch.name): \(batch.passed ? "passed" : "failed")\n"
+                                     + "Branch: \(batch.branch)\n"
+                                     + "Nodes (queue order): \(batch.nodes.joined(separator: ", "))\n"
+                                     + "Candidate: \(batch.candidateCommit.prefix(8))")
+                                    .font(.body)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            } else {
+                                Text(record.event.kind.summary)
+                                    .lineLimit(2)
+                            }
                             let nodeName = record.event.node.map { model.ledgerNodeLabel($0) } ?? "–"
                             Text("\(record.event.by.label) · \(nodeName) · \(record.hash.prefix(10)) · \(record.event.at.ledgerStamp)")
                                 .font(.caption2).foregroundStyle(.secondary)
