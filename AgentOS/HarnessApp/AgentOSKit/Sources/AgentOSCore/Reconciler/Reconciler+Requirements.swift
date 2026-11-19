@@ -10,13 +10,26 @@ extension Reconciler {
                     (!$0.ticketClosed && !wantsDiagnosis($0) && canAdvance($0, in: state))
             }
             guard requirement.requirementBranch != nil || started else { continue }
-            if let from = try await workspace.prepareRequirementBranch(
-                for: requirement.identity, leaves: leaves.map(\.id)
-            ), requirement.requirementBranch == nil {
-                try await write(requirement.id, by: .reconciler, [
-                    .requirementBranchCreated(branch: "agentos/\(requirement.ticket)", from: from),
-                ])
-            }
+            try await prepareRequirementBranch(of: requirement, in: state)
+        }
+    }
+
+    /// Binds a leaf about to start to its requirement branch. It may be newer than the round's restore: a breakdown
+    /// that finished meanwhile made it.
+    func prepareRequirementBranch(forStarting node: NodeState, in state: WorkingState) async throws {
+        guard node.spec.kind == .leaf, let requirement = state.lineage(of: node.id).last,
+              !requirement.ticketClosed, !requirement.requirementMerged else { return }
+        try await prepareRequirementBranch(of: requirement, in: state)
+    }
+
+    /// Binds the requirement's leaves to its branch, which is created from `main` the first time.
+    private func prepareRequirementBranch(of requirement: NodeState, in state: WorkingState) async throws {
+        let leaves = state.requirementLeaves(for: requirement.id)
+        if let from = try await workspace.prepareRequirementBranch(for: requirement.identity, leaves: leaves.map(\.id)),
+           requirement.requirementBranch == nil {
+            try await write(requirement.id, by: .reconciler, [
+                .requirementBranchCreated(branch: "agentos/\(requirement.ticket)", from: from),
+            ])
         }
     }
 

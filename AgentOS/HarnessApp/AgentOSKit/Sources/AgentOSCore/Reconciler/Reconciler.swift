@@ -323,6 +323,9 @@ public actor Reconciler {
             // Updating the hold awaits, so a landing may have asked for quiet meanwhile.
             guard try await updateOverlapHold(node, to: hold, in: state), hold == nil, quietLandings == 0,
                   tasks[id] == nil, slotsInUse < limit, shutdownReason == nil, !Task.isCancelled else { continue }
+            try await prepareRequirementBranch(forStarting: node, in: state)
+            guard quietLandings == 0, !isCatchingUpRequirements, tasks[id] == nil, slotsInUse < limit,
+                  shutdownReason == nil, !Task.isCancelled else { continue }
             started.append((id, startStep(id, reportCompletion: reportCompletion)))
         }
         return started

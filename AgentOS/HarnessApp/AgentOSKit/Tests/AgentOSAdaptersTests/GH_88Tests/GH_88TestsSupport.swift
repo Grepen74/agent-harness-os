@@ -1,4 +1,5 @@
 import AgentOSCore
+import AgentOSTestSupport
 import Foundation
 import Testing
 
@@ -66,7 +67,8 @@ extension GH_88Tests {
         }
 
         func until(_ predicate: (WorkingState) -> Bool) async throws -> WorkingState {
-            let deadline = ContinuousClock.now.advanced(by: .seconds(15))
+            // Only turns a hang into a failure: under a loaded full suite these rounds can take many seconds.
+            let deadline = ContinuousClock.now.advanced(by: HangGuard.timeout)
             repeat {
                 let report = try await round()
                 let state = await ledger.workingState()
@@ -119,7 +121,13 @@ extension GH_88Tests {
         private(set) var preparations: [Preparation] = []
         private(set) var removedSnapshots: [URL] = []
 
-        init(root: URL) { self.root = root }
+        /// A breakdown reads `main` through an unscoped snapshot; nothing else may.
+        private let allowsBreakdowns: Bool
+
+        init(root: URL, allowsBreakdowns: Bool = false) {
+            self.root = root
+            self.allowsBreakdowns = allowsBreakdowns
+        }
         func moveMain(to commit: String) { main = commit }
         func seedBranch(_ name: String, commits: [String]) { branches[name] = commits }
         func seedLeaf(_ id: NodeID) { heads[id] = "candidate-\(id)" }
@@ -203,6 +211,7 @@ extension GH_88Tests {
             try makeSnapshot(for: id, branch: base(for: id))
         }
         func createSnapshot() async throws -> URL? {
+            if allowsBreakdowns { return nil }
             Issue.record("Landing diagnosis must request its leaf's requirement snapshot, not an unscoped snapshot")
             throw AgentFailure("Unscoped snapshots have no requirement binding")
         }
