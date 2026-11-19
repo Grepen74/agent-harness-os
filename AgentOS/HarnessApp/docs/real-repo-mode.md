@@ -612,6 +612,18 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
   to land" comment naming the checkout, and landing goes on by itself once that checkout is on another
   branch. This is checked before the landing checks start and again right before the fast-forward; a
   checkout made in between finishes the landing run and the node waits the same way.
+- **Batch landing.** Landing batch size defaults to 4; `limits.landingBatchSize` may lower it, never raise
+  it. Size 1 keeps the individual landing path, including review and failure diagnosis. With a larger
+  size, waiting nodes for the same requirement branch are taken oldest first, up to the configured
+  size. Review-required candidates still land individually. A separate detached working copy starts
+  at the latest requirement tip, applies each node's commits in queue order, and runs the full check
+  suite once on the combined candidate. Branches are never mixed, and only one batch or individual
+  landing runs at once, taking one agent slot. On a pass the branch moves by compare-and-swap only if
+  its tip is unchanged and it is still not checked out. Every member becomes Proven with its own last
+  commit and evidence pointing to the shared batch check. Commits remain separate, not squashed, and
+  UI evidence is excluded from every replayed commit. Landed comments name the batch; ledger rows
+  record its name, branch, ordered members, candidate commit and passed or failed result. Failed
+  candidates currently fall back to individual landing for attribution and diagnosis.
 - **Requirement isolation.** Each requirement branch contains only its own landed changes and catch-up
   work from `main`, so work depending on another requirement waits until that one is merged into `main`
   (see Dependencies between tickets). Catch-up updates that branch and rebases only its idle active leaves. Bindings are
@@ -661,7 +673,8 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
   round (the ledger records each preview's start and end: `previewStarted`, `previewFinished`). An approved
   breakdown is decomposed by a scheduled step, across rounds like other agents.
 
-  Landing is the one kind of work that still holds its round open. It is synchronous and one at a time: the round that lands waits for the rebase, the landing checks
+  Landing is the one kind of work that still holds its round open. It is synchronous, one batch or single
+  change at a time: the round that lands waits for candidate preparation, the landing checks
   and the merge, and a round requested meanwhile doesn't start a second landing; agents from earlier
   rounds keep running meanwhile. A landing takes a slot, and while a change waits to land, scheduling
   keeps a slot free for it so new work can't starve the queue.

@@ -131,7 +131,7 @@ extension Reconciler {
         // node, including one that hasn't recorded its claim yet. A diagnosis only advises a person, and this
         // person is acting now: it's stopped rather than waited for.
         if [.retry, .retest, .replan].contains(signal.command), let current = node {
-            let busy = state.subtree(of: current.id).filter { tasks[$0.id] != nil || $0.activeRun != nil }
+            let busy = state.subtree(of: current.id).filter { busyNodes.contains($0.id) || $0.activeRun != nil }
             if let working = busy.first(where: { $0.activeRun?.role != .diagnoser }) {
                 throw Rejection(reason: "An agent is working on \(workLink(working)) right now. Wait for it to finish, " +
                     "then add \(signal.command.label) again if it's still needed.")

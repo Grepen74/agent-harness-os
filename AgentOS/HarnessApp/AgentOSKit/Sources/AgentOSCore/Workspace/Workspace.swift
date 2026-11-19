@@ -23,6 +23,9 @@ public struct ActiveLeavesCatchUpResult: Sendable, Equatable {
 /// Adapters: `SimulationWorkspace` (a git monorepo the simulator creates) and `RepositoryWorkspace` (an
 /// existing repo, with worktrees outside it and landing on a local branch).
 public protocol Workspace: Sendable {
+    var supportsLandingBatches: Bool { get }
+    func createLandingBatch(for nodes: [NodeID]) async throws -> LandingBatchWorkspace
+    func landBatch(_ batch: LandingBatchWorkspace) async throws -> LandingBatchMove
     /// Makes sure the repository exists and is usable. Called at the start of every round.
     func prepare() async throws
     /// Binds every descendant leaf to its requirement, creating its branch from current main once.
@@ -123,6 +126,13 @@ public protocol Workspace: Sendable {
 }
 
 public extension Workspace {
+    var supportsLandingBatches: Bool { false }
+    func createLandingBatch(for nodes: [NodeID]) async throws -> LandingBatchWorkspace {
+        throw AgentFailure("This workspace does not support batch landing.")
+    }
+    func landBatch(_ batch: LandingBatchWorkspace) async throws -> LandingBatchMove {
+        throw AgentFailure("This workspace does not support batch landing.")
+    }
     func requirementWorktree(for requirement: NodeIdentity) async throws -> URL {
         throw AgentFailure("This workspace does not support final requirement verification.")
     }

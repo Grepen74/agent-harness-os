@@ -47,17 +47,18 @@ public actor Reconciler {
     var clock = 0
     var tasks: [NodeID: Task<String?, Never>] = [:]
     /// Nodes with a step reserved or running, including steps that haven't recorded their claim yet.
-    public var busyNodes: Set<NodeID> { Set(tasks.keys) }
+    public var busyNodes: Set<NodeID> { Set(tasks.keys).union(landingBatchNodes) }
+    var landingBatchNodes: Set<NodeID> = []
     var completedActions: [String] = []
     var ownedRuns: [NodeID: RunID] = [:]
-    private(set) var stopReasons: [RunID: String] = [:]
+    var stopReasons: [RunID: String] = [:]
     /// Previews running in the background, by ticket. Each takes one of the `maxParallelAgents` slots.
     var previewRuns: [String: (run: RunID, task: Task<Void, Never>)] = [:]
     var previewStops: [RunID: String] = [:]
     private(set) var shutdownReason: String?
     /// Agent slots taken: node steps (reserved or running) and previews.
     var slotsInUse: Int { tasks.count + previewRuns.count }
-    private var lifecycleFailure: String?
+    var lifecycleFailure: String?
     /// Set while a round works through the landing queue; another round meanwhile skips landing.
     private var isLanding = false
     /// Above zero while a landing check is rerun and diagnosed with no other work on the machine: no step or
@@ -114,7 +115,9 @@ public actor Reconciler {
             return
         }
         guard let node = await ledger.workingState().running.first(where: { $0.activeRun?.run == run }),
-              ownedRuns[node.id] == run, let task = tasks[node.id] else { return }
+              ownedRuns[node.id] == run,
+              let task = tasks[node.id] ?? (landingBatchNodes.contains(node.id) ? landingBatchNodes.compactMap { tasks[$0] }.first : nil)
+        else { return }
         if stopReasons[run] == nil { stopReasons[run] = "stopped by \(person)" }
         task.cancel()
         _ = await task.value
@@ -194,11 +197,8 @@ public actor Reconciler {
             // Landing is serial, takes an agent slot, and never lands a reserved or running step.
             if !isLanding {
                 isLanding = true
-                for node in await ledger.workingState().landingQueue {
-                    guard shutdownReason == nil, !Task.isCancelled,
-                          slotsInUse < max(1, policy.maxParallelAgents) else { break }
-                    if let action = await step(node.id, landing: true) { report.actions.append(action) }
-                }
+                defer { isLanding = false }
+                try await drainLandingQueue(&report)
                 isLanding = false
                 if !waitForAgents { try await scheduleAvailableSteps(in: await ledger.workingState()) }
             }
@@ -237,7 +237,7 @@ public actor Reconciler {
     func waitForOtherWork(than id: NodeID) async {
         var awaitedPreviews: Set<RunID> = []
         while true {
-            if let task = tasks.first(where: { $0.key != id })?.value {
+            if let task = tasks.first(where: { $0.key != id && !landingBatchNodes.contains($0.key) })?.value {
                 _ = await task.value
             } else if let preview = previewRuns.values.first(where: { !awaitedPreviews.contains($0.run) }) {
                 awaitedPreviews.insert(preview.run)
@@ -250,7 +250,9 @@ public actor Reconciler {
 
     /// Like `waitForAgents()`, for the given nodes' steps only.
     public func waitForAgents(for nodes: Set<NodeID>) async {
-        while let task = tasks.first(where: { nodes.contains($0.key) })?.value {
+        while let task = tasks.first(where: {
+            nodes.contains($0.key) || (!nodes.isDisjoint(with: landingBatchNodes) && landingBatchNodes.contains($0.key))
+        })?.value {
             _ = await task.value
         }
     }
@@ -345,7 +347,7 @@ public actor Reconciler {
         return task
     }
 
-    private func step(_ id: NodeID, landing: Bool = false) async -> String? {
+    func step(_ id: NodeID, landing: Bool = false) async -> String? {
         guard shutdownReason == nil, !Task.isCancelled, tasks[id] == nil else { return nil }
         return await startStep(id, landing: landing).value
     }

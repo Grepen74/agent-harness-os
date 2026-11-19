@@ -305,7 +305,7 @@ extension Reconciler {
 
     /// The node stays in landing, with no run and nothing counted against it, and lands once the reason is gone; the
     /// ticket hears about it once.
-    private func waitToLand(_ node: NodeState, because reason: String) async -> String? {
+    func waitToLand(_ node: NodeState, because reason: String) async -> String? {
         guard landingWaits.insert(node.id).inserted else { return nil }
         await tracker.comment(on: node.ticket, "⏸ Waiting to land: \(reason). Landing continues by itself after that.")
         return "\(node.displayName) waits to land: \(reason)"

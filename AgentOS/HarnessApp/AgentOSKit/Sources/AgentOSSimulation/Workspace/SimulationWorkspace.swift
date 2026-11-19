@@ -44,7 +44,7 @@ public struct SimulationWorkspace: Workspace, MainTipRepository {
         return from
     }
 
-    private func landingBranch(for id: NodeID) throws -> String {
+    func landingBranch(for id: NodeID) throws -> String {
         try requirementBranches.branch(for: id)
     }
 
@@ -107,7 +107,7 @@ public struct SimulationWorkspace: Workspace, MainTipRepository {
         return try await isAncestor(commit, of: main)
     }
 
-    private func createSnapshot(at branch: String) async throws -> URL {
+    func createSnapshot(at branch: String) async throws -> URL {
         let directory = root.appending(path: "snapshots/\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory.deletingLastPathComponent(), withIntermediateDirectories: true)
         try await git(["worktree", "add", "-q", "--detach", directory.path, branch], in: repoDirectory)

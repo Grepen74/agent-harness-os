@@ -53,8 +53,19 @@ their cleanup, and a rescan waits for them before it replaces the session.
 
 Two things still hold their own round open: a `harness:preview` waits for the decomposer before the round
 returns (an approved breakdown runs like any other agent, across rounds), and landing runs synchronously in
-the round that lands, one change at a time, while agents started by earlier rounds keep running. A landing
+the round that lands, one batch (or single change) at a time, while agents started by earlier rounds keep running. A landing
 takes one of the *max parallel agents* slots, and while a change waits to land, rounds keep a slot free for it.
+
+**Landing batch size** defaults to 4; set it to 1 for the existing one-at-a-time landing, review and
+failure diagnosis. A repo can lower the setting with `limits.landingBatchSize`, but cannot raise it.
+Waiting changes on the same requirement branch are taken oldest first, up to that size, and checked
+together once in a separate working copy based on the latest requirement tip. Different requirements
+never share a batch. Review-required changes continue through individual landing.
+On a pass, a compare-and-swap moves the branch to the checked tip, preserving each node's separate
+commits in queue order without UI evidence in their history. Each node becomes Proven with its own
+landed commit, shared batch-check evidence, and a landed comment naming the batch. The ledger records
+the batch name, branch, ordered nodes, candidate and result. A checked-out requirement waits without
+starting a run; that wait is checked again before the batch moves the branch.
 
 ## Open a real repo
 
