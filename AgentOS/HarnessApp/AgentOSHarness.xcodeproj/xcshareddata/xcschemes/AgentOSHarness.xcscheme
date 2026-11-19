@@ -16,7 +16,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "29F75AEC8714A15AD9B7C160"
-               BuildableName = "AgentOSHarness.app"
+               BuildableName = "AgentOS Harness.app"
                BlueprintName = "AgentOSHarness"
                ReferencedContainer = "container:AgentOSHarness.xcodeproj">
             </BuildableReference>
@@ -33,7 +33,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "29F75AEC8714A15AD9B7C160"
-            BuildableName = "AgentOSHarness.app"
+            BuildableName = "AgentOS Harness.app"
             BlueprintName = "AgentOSHarness"
             ReferencedContainer = "container:AgentOSHarness.xcodeproj">
          </BuildableReference>
@@ -58,7 +58,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "29F75AEC8714A15AD9B7C160"
-            BuildableName = "AgentOSHarness.app"
+            BuildableName = "AgentOS Harness.app"
             BlueprintName = "AgentOSHarness"
             ReferencedContainer = "container:AgentOSHarness.xcodeproj">
          </BuildableReference>
@@ -77,7 +77,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "29F75AEC8714A15AD9B7C160"
-            BuildableName = "AgentOSHarness.app"
+            BuildableName = "AgentOS Harness.app"
             BlueprintName = "AgentOSHarness"
             ReferencedContainer = "container:AgentOSHarness.xcodeproj">
          </BuildableReference>

@@ -22,6 +22,9 @@ targets:
   AgentOSHarness:
     type: application
     platform: macOS
+    # Must match PRODUCT_NAME below. Otherwise the scheme names a product that doesn't exist, and Xcode
+    # rewrites the committed scheme every time it opens the project.
+    productName: AgentOS Harness
     sources: [App]
     # Generates the shared AgentOSHarness scheme (Debug to run, Release to profile and archive). Without
     # this, `xcodegen generate` deletes the committed scheme.

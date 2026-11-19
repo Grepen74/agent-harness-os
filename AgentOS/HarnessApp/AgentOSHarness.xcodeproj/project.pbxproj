@@ -26,8 +26,8 @@
 /* Begin PBXFileReference section */
 		0F381171DA2FE4E2FC283F1E /* RepositoryModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepositoryModel.swift; sourceTree = "<group>"; };
 		10D7D42085200B9D5A861A54 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		137002C5BA00F7CA0979FD24 /* AgentOS Harness.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "AgentOS Harness.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		1B1CFA16C7B2BFC73F303A0C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
-		25669D2A3883E58C5E8779F4 /* AgentOSHarness.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AgentOSHarness.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		26E7E7D1CAF1A8D3FED6EA07 /* ExternalSystemView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalSystemView.swift; sourceTree = "<group>"; };
 		351CF1E367C7D9F6A7700A72 /* AgentOSKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = AgentOSKit; path = AgentOSKit; sourceTree = SOURCE_ROOT; };
 		3B4FA498FE96FF5FB2A74D78 /* App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App.swift; sourceTree = "<group>"; };
@@ -98,7 +98,7 @@
 		8D6361B8F58BC1181F6D72F3 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				25669D2A3883E58C5E8779F4 /* AgentOSHarness.app */,
+				137002C5BA00F7CA0979FD24 /* AgentOS Harness.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -134,7 +134,7 @@
 				2DF16EF0B38E44188D54C793 /* AgentOSUI */,
 			);
 			productName = AgentOSHarness;
-			productReference = 25669D2A3883E58C5E8779F4 /* AgentOSHarness.app */;
+			productReference = 137002C5BA00F7CA0979FD24 /* AgentOS Harness.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
