@@ -186,6 +186,9 @@ extension WorkingState {
         if node.flags[.blocked] != nil { return "Blocked" }
         if node.spec.parent == nil, node.pullRequestState == .open { return "In review" }
         if node.spec.parent == nil, node.requirementVerificationStarted || node.requirementMerged {
+            if node.requirementVerificationStarted && node.requirementVerification == nil && node.activeRun != nil {
+                return "In progress"
+            }
             if node.requirementVerification?.passed != true && !node.requirementMerged { return "Needs input" }
             return node.requirementMerged || node.requirementBranchObservation?.containedInMain == true ? "Done" : "In review"
         }

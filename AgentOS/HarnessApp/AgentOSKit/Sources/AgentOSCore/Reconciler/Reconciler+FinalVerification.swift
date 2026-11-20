@@ -31,8 +31,7 @@ extension Reconciler {
                 unverifiedTip = tip != verified.commit
             }
             if !root.requirementVerificationStarted || root.requirementVerificationRetryPending || unverifiedTip {
-                try await verifyRequirement(root)
-                report.actions.append("\(root.displayName): final verification completed")
+                report.actions.append("\(root.displayName): \(try await verifyRequirement(root))")
             }
             let current = await ledger.workingState().nodes[root.id]
             if let current, let verification = current.requirementVerification, verification.passed,
@@ -49,9 +48,43 @@ extension Reconciler {
         if slotsInUse == 0 { try await publishRequirements() }
     }
 
-    private func verifyRequirement(_ root: NodeState) async throws {
-        try await write(root.id, by: .reconciler, [.requirementVerificationStarted])
+    /// Runs as the root's owned task, like a leaf's step, so Stop and shutdown can cancel it. Returns the action.
+    private func verifyRequirement(_ root: NodeState) async throws -> String {
         let run = Self.newRunID()
+        // A run, so the work pane lists the check as running, and a restart closes it as abandoned.
+        try await write(root.id, by: .reconciler, [.requirementVerificationStarted, .runStarted(run: run, role: .verifier)])
+        let task = Task<String?, Never> {
+            var failure: String?
+            do { try await self.checkRequirement(root, run: run) } catch { failure = "\(error)" }
+            return await self.finishUnfinishedVerification(of: root.id, run: run, failure: failure)
+        }
+        tasks[root.id] = task
+        let result = await task.value
+        tasks[root.id] = nil
+        return result ?? "final verification completed"
+    }
+
+    /// Every exit after the start, whether a stop, a shutdown or an error, closes the run, so it never shows as running
+    /// until a restart. Written directly: the task may be cancelled. Without a result, the requirement shows as
+    /// interrupted and waits for harness:retry.
+    private func finishUnfinishedVerification(of id: NodeID, run: RunID, failure: String?) async -> String? {
+        defer {
+            if ownedRuns[id] == run { ownedRuns[id] = nil }
+            stopReasons[run] = nil
+        }
+        guard await ledger.workingState().nodes[id]?.activeRun?.run == run else { return nil }
+        let outcome = stopReasons[run] ?? shutdownReason.map { "stopped: \($0)" }
+            ?? "failed: \(failure ?? "ended without recording a finish")"
+        do {
+            try await ledger.append([LedgerEvent(node: id, by: .reconciler, kind: .runFinished(run: run, outcome: outcome))])
+            await projectStatus(of: id)
+            return "final verification \(outcome)"
+        } catch {
+            return "⚠️ couldn't finish final verification \(run): \(error)"
+        }
+    }
+
+    private func checkRequirement(_ root: NodeState, run: RunID) async throws {
         var directory: URL?
         var commit = root.requirementBranchObservation?.tip ?? root.landedCommit ?? "unavailable"
         let output: CheckOutput
@@ -71,6 +104,7 @@ extension Reconciler {
             builtBy: root.lastSubmission?.run ?? "requirement", checkedBy: run, commit: commit)
         try await write(root.id, by: .agent(run: run, role: .verifier), [
             .requirementVerificationFinished(evidence), .evidenceRecorded(evidence),
+            .runFinished(run: run, outcome: output.passed ? "passed" : "failed"),
         ])
         if output.passed {
             await tracker.comment(on: root.ticket,

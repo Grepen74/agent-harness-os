@@ -22,7 +22,9 @@ extension Reconciler {
         if node.publicationFailure != nil {
             steps.append(step(.retry, "Fix the publication error, then harness:retry to push and update the same pull request (no agent rework)"))
         } else if node.spec.parent == nil, node.requirementVerificationStarted || node.requirementMerged {
-            if node.requirementVerification?.passed != true && !node.requirementMerged {
+            if node.requirementVerificationStarted && node.requirementVerification == nil && node.activeRun != nil {
+                steps.append(step(nil, "Nothing yet: final verification is running"))
+            } else if node.requirementVerification?.passed != true && !node.requirementMerged {
                 steps.append(step(.retry, "Fix the final verification failure, then harness:retry to run the full checks again (no agent rework)"))
             } else if state.status(of: node) == "Done" {
                 steps.append(step(nil, "Nothing: the requirement is merged into main"))

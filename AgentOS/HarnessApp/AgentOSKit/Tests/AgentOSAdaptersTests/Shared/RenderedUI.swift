@@ -118,26 +118,33 @@ public enum RenderedUI {
     /// Whether recognised `text` shows `expected`. Ignores case and whitespace: recognition sometimes drops or
     /// adds a space, for example reading a picker value "All kinds" as "Allkinds". Also allows the misreads it
     /// makes in text that differs every run, such as run ids and times: "0" and "O" count as the same, as do
-    /// "1", "l" and "I", and in 8 or more characters one letter may be read as another ("Ledger" as "Ledder").
-    /// Digits and punctuation must match, so "GH-68" never shows "GH-69".
+    /// "1", "l" and "I", and in 8 or more characters one letter inside a word may be read as another ("Ledger" as
+    /// "Ledder"). Digits, punctuation and letters next to them must match, so "GH-68" never shows "GH-69" and
+    /// "Control-A" never shows "Control-B".
     public static func shows(_ expected: String, in text: String) -> Bool {
-        func folded(_ string: String) -> [Character] {
-            string.filter { !$0.isWhitespace }.lowercased().map { character in
-                switch character {
-                case "o": "0"
-                case "l", "i", "|": "1"
-                default: character
-                }
+        func folded(_ character: Character) -> Character {
+            switch Character(character.lowercased()) {
+            case "o": "0"
+            case "l", "i", "|": "1"
+            case let lower: lower
             }
         }
-        let wanted = folded(expected), read = folded(text)
+        let read = text.filter { !$0.isWhitespace }.map(folded)
+        // Decided on the original text: removing spaces and folding letters into digits would move word edges.
+        // Names that differ by a letter of their own ("Control-A", "Reviewer B") stay distinct.
+        let original = Array(expected)
+        let wanted = original.indices.filter { !original[$0].isWhitespace }.map { index in
+            (character: folded(original[index]),
+             insideWord: original[index].isLetter && index > 0 && index < original.count - 1
+                 && original[index - 1].isLetter && original[index + 1].isLetter)
+        }
         guard !wanted.isEmpty else { return true }
         guard read.count >= wanted.count else { return false }
         let allowedMisreads = wanted.count >= 8 ? 1 : 0
         return (0...(read.count - wanted.count)).contains { start in
             var misreads = 0
-            for (offset, character) in wanted.enumerated() where read[start + offset] != character {
-                guard character.isLetter, misreads < allowedMisreads else { return false }
+            for (offset, letter) in wanted.enumerated() where read[start + offset] != letter.character {
+                guard letter.insideWord, misreads < allowedMisreads else { return false }
                 misreads += 1
             }
             return true
