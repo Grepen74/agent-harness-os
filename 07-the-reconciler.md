@@ -233,6 +233,7 @@ The **engine is the same**; only the setup differs.
 | Engine as its own repo, ledger, working state, deployment | [doc 04](04-where-the-harness-lives.md) |
 | Gates and signals that start, pause and resume work | [doc 05](05-starting-and-steering-work.md) |
 | Seeing what the reconciler and agents are doing | [doc 06](06-seeing-what-the-harness-is-doing.md) |
+| Handing work to runners on other machines; claims and heartbeats across a network | [doc 09](09-runners-and-clients.md) |
 
 ---
 

@@ -965,6 +965,55 @@ Each phase is usable on its own.
    across them, such as contract or end-to-end tests, once their children have landed in their own repos.
    With phase 9, one requirement can become pull requests in several repos. Also covers the reverse case:
    several apps in one repo, as separate systems.
+11. **Runners and clients** (concept doc 09). The harness, the machines doing the work and the people using
+   it become separate parts, so an always-on Mac can do the work while laptops follow and steer it. Target
+   setup: a Mac mini runs the harness and one runner (3 agent slots, 1 UI-test slot); a MacBook Air is a
+   client with the manager role; more runners and viewers join later. Today everything is one process: the
+   reconciler awaits agent and check `Task`s (`tasks`, `ownedRuns`), the `Workspace` makes local worktrees,
+   agent output goes to `ArtifactStore.liveFile`, and the panes read a `HarnessViewModel` filled in-process and
+   act through `HarnessActions`. In steps:
+   - **11a. Jobs and requests in one process.** A `Job` value (doc 09 §2) and a runner protocol in
+     `AgentOSCore`. Today's worktree, Copilot agents and check runners become the **local runner**. The
+     reconciler hands out jobs under claims and records results in a later round. The local runner's jobs still
+     end with the app, so a restart keeps abandoning them as today; picking runs up again only applies to remote
+     runners (11d). Every harness action (the `HarnessActions` calls that change the harness, such as stop, the
+     Run switch, rescan, baseline, verify chain, and settings changes) becomes a **request** value with an ID and
+     the person's name, checked and recorded by the harness. Tracker actions, queries and file opening stay as
+     they are. Settings changes are recorded in the ledger with old and new value. Nothing you can see changes.
+     Do this together with the
+     AgentRuntime seam (#101); the runner and its tool versions go into the run configuration fingerprint (#93).
+   - **11b. Viewers on the local network.** The harness serves current state, the event stream from a ledger
+     position, live agent output and evidence files over HTTP with WebSocket (Network.framework, no extra
+     dependencies). It announces `_agentos._tcp` with Bonjour. The app gets File → **Connect to Harness…**,
+     which opens the usual panes read-only, except for GitHub: labels, comments and tickets go straight to
+     GitHub with the `gh` login on the viewer's own Mac, so GitHub's repo permissions decide, as on github.com.
+     With the local tracker they need the manager role (11c). Off by default: Settings → *Let others on this
+     network view*. Only this read-only view may be unencrypted, on the local network. The app declares
+     `NSLocalNetworkUsageDescription` and `NSBonjourServices`, so macOS asks once for local network access; that
+     needs stable code signing (today the app is signed ad hoc, which macOS may not remember, TN3179).
+   - **11c. Paired managers.** Pairing exchanges keys: from here on, every manager and runner connection is
+     authenticated and encrypted (TLS with the key pinned at pairing). A device paired for a named person with
+     the manager role sends the requests from 11a over that connection, so a connected window can do
+     everything the local one can: Stop, the Run
+     switch, rescan, baseline, verify chain, and the Settings pane, with model detection run on the harness's Mac.
+     Machine-bound buttons change meaning: *Open in Xcode* and *Reveal in Finder* fetch the run's branch into your
+     own clone of the repo and open it there; *Open config* opens it in your own clone.
+     Managers can remove pairings; a new pairing shows up on the attention list.
+   - **11d. Remote runners.** `agentos runner` runs headless, as a LaunchAgent in a logged-in user session,
+     because simulators and UI tests need one and a LaunchDaemon has none. It is paired once with a code shown
+     by the harness, over the encrypted connection from 11c. The app installs it with `SMAppService`, so macOS
+     attributes its local network access to the signed app. It opens the one connection, asks for jobs, renews
+     claims with heartbeats and streams output.
+     It keeps a cached clone and gets starting commits and returns results as git bundles over that connection,
+     so no separate git server is needed. It needs its own Copilot CLI login. Denied tools stay as they are.
+     Landing stays on the harness: merge there, landing tests as a job.
+   - **11e. Runner pool.** Settings: maximum runners, slots per runner and kind. Providers later: wake a sleeping
+     Mac (Wake-on-LAN), start macOS virtual machines (Virtualization framework; Apple's licence allows up to two
+     extra macOS VMs per Mac; check the licence), rent cloud Macs (often rented for at least a day, so start
+     only when work queues up).
+   - **11f. Signed-in people.** Sign in with GitHub (device flow) instead of device pairing, so a person's
+     requests and tracker labels carry the same identity. Roles per system (doc 09); which repos a person may
+     change stays with GitHub.
 
 ## Pilot: this repo
 

@@ -341,6 +341,7 @@ on themselves, so extra care is needed:
 | Work Nodes, lifecycle, spec versions, reconciler | [doc 02](02-recursive-v-model.md) |
 | Routing tables and tracker connections | [doc 03](03-tracker-adapters.md) (content), this doc (where it's stored) |
 | Event stream, monitoring store, read-only views | [doc 06](06-seeing-what-the-harness-is-doing.md) |
+| The harness apart from the machines doing the work (runners) and the people using it (clients) | [doc 09](09-runners-and-clients.md) |
 
 ## 11. Open questions
 - Should each system run its own copy of the engine, or should one shared service serve all systems?

@@ -20,6 +20,7 @@ Everything here is conceptual. YAML snippets and tables are illustrations, not f
 | [06-seeing-what-the-harness-is-doing](06-seeing-what-the-harness-is-doing.md) | Observability: viewing the work tree and progress at any stage; plug-in views |
 | [07-the-reconciler](07-the-reconciler.md) | The reconciler (harness loop): what it does, why it isn't AI, how to start and stop it |
 | [08-leaves-and-parallel-work](08-leaves-and-parallel-work.md) | Where leaves are cut (vertical slices), and parallel agents with a landing queue instead of locks |
+| [09-runners-and-clients](09-runners-and-clients.md) | Separating the harness from the machines doing the work (runners) and the people watching and steering it (clients: viewers and managers) |
 
 ## Try it: the simulator
 
