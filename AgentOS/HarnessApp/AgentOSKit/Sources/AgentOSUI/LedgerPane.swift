@@ -69,6 +69,10 @@ public struct LedgerPane: View {
                                      + (batch.detail.map { "\n\($0)" } ?? ""))
                                     .font(.body)
                                     .fixedSize(horizontal: false, vertical: true)
+                            } else if record.event.kind.isLandingBatchPartition {
+                                Text(record.event.kind.summary)
+                                    .font(.body)
+                                    .fixedSize(horizontal: false, vertical: true)
                             } else if case .evidenceRecorded(let evidence) = record.event.kind,
                                       evidence.check.hasPrefix("Landing batch ") {
                                 Text(record.event.kind.summary)
@@ -102,6 +106,15 @@ public struct LedgerPane: View {
                 }
             }
             .frame(minHeight: 140)
+        }
+    }
+}
+
+private extension EventKind {
+    var isLandingBatchPartition: Bool {
+        switch self {
+        case .landingBatchSplit, .landingBatchOwnersRemoved: true
+        default: false
         }
     }
 }

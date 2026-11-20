@@ -223,8 +223,8 @@ extension Reconciler {
         }
 
         // Which node's behaviour broke? Someone else's → two requirements may contradict (doc 08 §5).
-        let broken = output.failingTargets.subtracting([node.spec.testTarget])
-            .compactMap { target in state.nodes.values.first { $0.spec.testTarget == target && $0.phase == .proven } }
+        let broken = Self.testOwners(of: output.failingTargets.subtracting([node.spec.testTarget]),
+                                     among: state.nodes.values.filter { $0.phase == .proven })
         if let diagnosis, let failingOnlyUnderLoad {
             let reason = """
                 Unreliable tests or interference under load (not a requirements conflict): \

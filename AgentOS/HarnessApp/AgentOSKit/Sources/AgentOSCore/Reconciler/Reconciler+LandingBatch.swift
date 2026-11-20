@@ -66,7 +66,7 @@ extension Reconciler {
             !requirementIsHeld(node, in: state) && node.lastSubmission != nil
     }
 
-    private func performLandingBatch(_ queued: [NodeState]) async -> String? {
+    func performLandingBatch(_ queued: [NodeState]) async -> String? {
         var nodes = queued
         let run = Self.newRunID()
         let name = "Landing batch \(run)"
@@ -107,11 +107,11 @@ extension Reconciler {
                 }
             case .escalated:
                 break
-            case .needsSplit(let diagnosis):
+            case .needsSplit(let diagnosis, let failingTargets):
                 try await finishBatchRuns(nodes, run: run, outcome: diagnosis)
                 await workspace.removeSnapshot(batch.directory)
                 candidate = nil
-                return try await landIndividually(nodes)
+                return try await resolveLandingBatchFailure(nodes, name: name, failingTargets: failingTargets)
             }
             await workspace.removeSnapshot(batch.directory)
             for node in nodes { ownedRuns[node.id] = nil }
@@ -152,16 +152,5 @@ extension Reconciler {
             try await write(node.id, by: .agent(run: run, role: .verifier), [.runFinished(run: run, outcome: outcome)])
             ownedRuns[node.id] = nil
         }
-    }
-
-    private func landIndividually(_ nodes: [NodeState]) async throws -> String? {
-        var actions: [String] = []
-        for node in nodes {
-            if let current = await ledger.workingState().nodes[node.id], let action = try await land(current) {
-                actions.append(action)
-            }
-            ownedRuns[node.id] = nil
-        }
-        return actions.isEmpty ? nil : actions.joined(separator: "\n")
     }
 }

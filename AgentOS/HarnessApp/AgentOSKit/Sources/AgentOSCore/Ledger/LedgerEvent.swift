@@ -141,6 +141,8 @@ public enum EventKind: Codable, Sendable {
     case landed(commit: String)
     case landingBatchChecked(LandingBatchCheck)
     case landingBatchMemberRemoved(name: String, branch: String, node: NodeID, reason: String)
+    case landingBatchSplit(batch: String, first: [NodeID], second: [NodeID])
+    case landingBatchOwnersRemoved(batch: String, removed: [NodeID], remaining: [NodeID])
 
     // Clarifying questions (doc 05: open questions and assumptions)
     /// An agent can't go on without a person's answer; replaces the node's open questions.
@@ -326,6 +328,10 @@ extension EventKind {
                 + (check.detail.map { " — \($0)" } ?? "")
         case .landingBatchMemberRemoved(let name, let branch, let node, let reason):
             "\(name) on \(branch): removed \(node) — \(reason)"
+        case .landingBatchSplit(let batch, let first, let second):
+            "\(batch): split\nFirst half: \(first.joined(separator: ", "))\nSecond half: \(second.joined(separator: ", "))"
+        case .landingBatchOwnersRemoved(let batch, let removed, let remaining):
+            "\(batch): failing test owners removed\nRemoved: \(removed.joined(separator: ", "))\nRemaining: \(remaining.joined(separator: ", "))"
         case .questionsRaised(let role, let questions):
             "\(role.rawValue) asks: \(questions.map(\.question).joined(separator: " · "))"
         case .assumptionsReported(let role, let assumptions):

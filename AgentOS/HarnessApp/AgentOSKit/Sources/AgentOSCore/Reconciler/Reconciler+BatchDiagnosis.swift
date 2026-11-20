@@ -4,7 +4,7 @@ extension Reconciler {
     enum BatchCheckResult {
         case passed(CheckOutput, unreliable: Bool)
         case escalated
-        case needsSplit(String)
+        case needsSplit(String, failingTargets: Set<String>)
     }
 
     static let unreliableBatchNotice = "Unreliable test: the landing check failed, then passed when run again in full with no other work running."
@@ -76,7 +76,8 @@ extension Reconciler {
                 problem: "These tests fail on latest \(batch.branch) without the batch too.",
                 diagnosis: diagnosis, log: log)
         }
-        return .needsSplit("Batch diagnosis: \(batch.id) needs split.\n\(diagnosis)")
+        return .needsSplit("Batch diagnosis: \(batch.id) needs split.\n\(diagnosis)",
+                           failingTargets: candidate.output.passed ? [] : candidate.output.failingTargets)
     }
 
     private func batchCheck(_ batch: LandingBatch, in directory: URL, only selection: String?,

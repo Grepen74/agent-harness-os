@@ -648,9 +648,20 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
   also escalate because isolated diagnosis cannot safely select tests. These batches are not split or
   landed, and no member has a failed attempt counted. Fix the requirement branch or runner, then add
   `harness:retry` to the affected tickets; use the same signal after fixing a repeated runner crash.
-  Only after diagnosis rules out infrastructure problems do members fall back to individual landing
-  for attribution. Each full check has a ledger row; diagnosis evidence and run outcomes retain the
-  reruns' results and final decision, displayed without truncation in the ledger pane.
+  After diagnosis rules out infrastructure problems, failing tests are matched to nodes by test target,
+  using the same ownership rule as single landing's requirements-conflict diagnosis. If the batch still
+  fails in isolation and every target failing in that run belongs to a member of this batch, those owners
+  are taken out together and the remainder is rebuilt and checked without them, landing if it passes.
+  Only then are the removed owners checked alone.
+  Otherwise the batch is split in half, including failures that appear only under load or disturb other
+  tests. The first half is checked on the latest requirement branch and lands if it passes; the second
+  half is then built on that updated branch. Splitting repeats as needed, so passing smaller groups
+  become Proven and get their landed comments before the failing singleton is handled.
+  A singleton uses ordinary single landing, retaining its diagnosis, comments, attempt counts, rework,
+  rerun and escalation rules. Each split (`landingBatchSplit`) and owner removal
+  (`landingBatchOwnersRemoved`) records the batch name and both ordered parts. The ledger pane shows
+  labeled First/Second half and Removed/Remaining lists without truncation. Each full check has a ledger
+  row; diagnosis evidence and run outcomes retain the reruns' results and final decision.
 - **Requirement isolation.** Each requirement branch contains only its own landed changes and catch-up
   work from `main`, so work depending on another requirement waits until that one is merged into `main`
   (see Dependencies between tickets). Catch-up updates that branch and rebases only its idle active leaves. Bindings are
