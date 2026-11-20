@@ -215,7 +215,7 @@ public struct WorkingState: Sendable {
                 items.append((node, .needsInput,
                               "\(node.requirementBranch ?? node.ticket) catch-up needs a person: \(conflict.files.joined(separator: ", "))"))
             }
-            if node.requirementVerificationStarted && node.requirementVerification?.passed != true {
+            if node.requirementVerificationStarted && node.requirementVerification?.passed != true && !node.requirementMerged {
                 items.append((node, .needsInput,
                               "Final verification needs a person: \(node.requirementVerification?.summary ?? "interrupted"). Fix the problem, then add harness:retry."))
             }
