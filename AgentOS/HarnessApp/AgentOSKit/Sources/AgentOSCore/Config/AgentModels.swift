@@ -88,7 +88,10 @@ public final class AgentRunRecording: @unchecked Sendable {
         lock.withLock { self.credits = (self.credits ?? 0) + credits }
     }
 
-    var recordedCredits: Double? { lock.withLock { credits } }
+    /// Total CLI-reported usage across attempts, including nested reviews; nil when none was reported.
+    public var aiCredits: Double? { lock.withLock { credits } }
+
+    var recordedCredits: Double? { aiCredits }
 }
 
 extension AgentRole {

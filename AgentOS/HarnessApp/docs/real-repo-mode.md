@@ -640,6 +640,11 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
   `agentConfigured` with what ran and why. Falling back doesn't extend the run's timeout: all its attempts share
   it. A preview's breakdown is recorded the same way (without a claim, since a preview adopts nothing), keeps its
   log, and its comment names the model; a review records what it ran with in its review result.
+- **AI credits.** Each agent run's AI credits, as reported by the Copilot CLI, are recorded in the ledger.
+  Credits are added across model and reasoning-effort fallback attempts, including unsuccessful attempts
+  that report usage. Nested reviewer attempts count toward the enclosing run's credits, but their fallback
+  settings stay in the review result. Without reported usage (for example after a crash or timeout), credits
+  remain unknown, not zero or an estimate from tokens.
 - **Your git state** is fingerprinted before and compared after each test-author and implementer run: refs
   outside `agentos/` (tags, remote-tracking refs, the stash; for local branches only whether they exist,
   since you may commit while agents work), and the shared git config, hooks and `info/` files. Worktrees
