@@ -103,6 +103,9 @@ push tags or leaf branches and never merges a pull request.
 The description carries the requirement and breakdown, acceptance criteria with their reported proving
 tests, and each check's result, commit, summary and failing tests. Evidence stays local: artifact file names
 and SHA-256 hashes identify it, with nothing uploaded. GitHub Issues tickets also get `Closes #<number>`.
+GitHub limits a description to 65,536 characters: long summaries are cut (the evidence file has all of
+it), and when the checks still don't fit, the oldest attempts are left out first, with a note. Final
+verification and the latest result of each check always stay.
 Each push and the pull request number and URL are recorded in the ledger. A push or publication error
 waits without automatic retries or agent rework: its error appears in a ticket comment and **Needs
 attention**. Fix it and add `harness:retry` to push again and open or update the same pull request, including
