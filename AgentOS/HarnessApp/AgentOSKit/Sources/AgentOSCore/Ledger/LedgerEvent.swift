@@ -229,6 +229,11 @@ public struct RecordedEvent: Codable, Sendable, Identifiable {
 }
 
 extension EventKind {
+    /// Records a cost while preserving the existing ledger encoding's `aiCredits` label.
+    public static func runCostRecorded(run: RunID, credits: Double) -> EventKind {
+        .runCostRecorded(run: run, aiCredits: credits)
+    }
+
     /// One line for humans (ledger views, logs).
     public var summary: String {
         switch self {

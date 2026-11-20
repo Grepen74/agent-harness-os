@@ -91,6 +91,12 @@ run credits. **Breakdown** sums recorded credits on that composite and all neste
 nodes count; nodes removed by replanning do not. Later rounds and ledger replay do not repost the
 comment, but a new transition to proven after replanning posts a fresh summary.
 
+If a leaf has runs without reported usage, its credits end with `(N runs without a reported cost)`
+(or `(1 run without a reported cost)`). **Breakdown** uses the same marker for unreported runs on
+the composite and its nested composites. When any row has missing costs, the total is a lower bound,
+for example `Total: at least 4.5 AI credits`. Explicitly reported zero counts as a known cost;
+when every run reports a cost, neither the markers nor `at least` appear.
+
 After the last leaf is proven, the harness checks a disposable checkout of the requirement branch tip:
 the full test command (no leaf-suite filter) and all configured checks, including build preparation.
 The requirement's ledger records the result, commit, full log artifact and SHA-256. A prior leaf landing
