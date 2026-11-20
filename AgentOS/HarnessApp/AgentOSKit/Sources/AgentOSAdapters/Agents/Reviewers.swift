@@ -39,9 +39,14 @@ public struct CopilotReviewer: Reviewer {
         + "only the JSON object described above, nothing else."
 
     private func run(_ prompt: String, for request: ReviewRequest, log: URL?) async throws -> CopilotCLI.Run {
+        let enclosing = AgentRunRecording.current
+        let recording = AgentRunRecording()
+        defer {
+            if let credits = recording.aiCredits { enclosing?.record(credits: credits) }
+        }
         do {
             // Reviews run within other roles' runs, so what this one ran with goes in its result, not their record.
-            return try await AgentRunRecording.$current.withValue(nil) {
+            return try await AgentRunRecording.$current.withValue(recording) {
                 try await cli.runFallingBack(prompt, in: request.directory, log: log)
             }
         } catch let failure as AgentFailure {

@@ -67,13 +67,14 @@ public struct AgentRunSettings: Codable, Sendable, Equatable {
     }
 }
 
-/// Where an agent adapter reports the settings a run fell back to, for the harness to record (see `AgentRunSettings`).
+/// Where an agent adapter reports credit usage and settings a run fell back to, for the harness to record.
 /// The harness sets one around each agent run it records.
 public final class AgentRunRecording: @unchecked Sendable {
     @TaskLocal public static var current: AgentRunRecording?
 
     private let lock = NSLock()
     private var settings: AgentRunSettings?
+    private var credits: Double?
 
     public init() {}
 
@@ -81,6 +82,16 @@ public final class AgentRunRecording: @unchecked Sendable {
     public var fellBack: AgentRunSettings? { lock.withLock { settings } }
 
     public func record(fallback settings: AgentRunSettings) { lock.withLock { self.settings = settings } }
+
+    /// Incremental usage for this run; an explicit zero still reports a known cost.
+    public func record(credits: Double) {
+        lock.withLock { self.credits = (self.credits ?? 0) + credits }
+    }
+
+    /// Total CLI-reported usage across attempts, including nested reviews; nil when none was reported.
+    public var aiCredits: Double? { lock.withLock { credits } }
+
+    var recordedCredits: Double? { aiCredits }
 }
 
 extension AgentRole {

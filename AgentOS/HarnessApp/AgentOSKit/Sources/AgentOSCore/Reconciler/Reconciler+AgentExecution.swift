@@ -126,8 +126,8 @@ extension Reconciler {
             + (team.runSettings?(role).map { [.agentConfigured(run: run, settings: $0)] } ?? [])
     }
 
-    /// Runs an agent and, when it fell back to another model or effort, records what it ran with instead, whether
-    /// it succeeded or not. Written directly: a stopped run's record still says what ran.
+    /// Records reported credits and fallback settings whether the agent succeeds or fails.
+    /// Written directly: a stopped run's record still says what ran and what it cost.
     func recordingFallback<T>(_ node: NodeID?, run: RunID, _ agent: () async throws -> T) async throws -> T {
         try await recordingFallbackSettings(node, run: run, agent).result
     }
@@ -144,6 +144,11 @@ extension Reconciler {
         }
         if let settings = recording.fellBack {
             try? await ledger.append([LedgerEvent(node: node, by: .reconciler, kind: .agentConfigured(run: run, settings: settings))])
+        }
+        if let node, let credits = recording.recordedCredits {
+            try await ledger.append([
+                LedgerEvent(node: node, by: .reconciler, kind: .agentCreditsRecorded(run: run, credits: credits)),
+            ])
         }
         return (try result.get(), recording.fellBack)
     }
