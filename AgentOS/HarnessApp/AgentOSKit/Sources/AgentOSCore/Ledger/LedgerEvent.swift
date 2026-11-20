@@ -112,6 +112,8 @@ public enum EventKind: Codable, Sendable {
     /// The model and reasoning effort an agent run starts with; written with its `runStarted`. Written again with
     /// `settings.fallback` set when the run fell back to others, e.g. a model that doesn't support the effort.
     case agentConfigured(run: RunID, settings: AgentRunSettings)
+    /// The sum of the incremental AI credits reported during an agent run, including failed runs.
+    case agentCreditsRecorded(run: RunID, credits: Double)
     case runFinished(run: RunID, outcome: String)
     case changeSubmitted(run: RunID, commit: String)
     case actualChangedFilesRecorded(files: [String])
@@ -298,6 +300,7 @@ extension EventKind {
             settings.fallback.map { "\(run) ran with \(settings.model), reasoning effort \(settings.effort) instead: \($0)" }
                 ?? "\(run) uses \(settings.model), reasoning effort \(settings.effort)"
         case .runFinished(let run, let outcome): "run \(run) finished: \(outcome)"
+        case .agentCreditsRecorded(let run, let credits): "\(run) used \(credits) AI credits"
         case .changeSubmitted(let run, let commit): "change submitted by \(run) (\(commit.prefix(8)))"
         case .actualChangedFilesRecorded(let files): "actual changed files: \(files.joined(separator: ", "))"
         case .predictedPathsExpanded(let files): "predicted paths expanded: \(files.joined(separator: ", "))"
