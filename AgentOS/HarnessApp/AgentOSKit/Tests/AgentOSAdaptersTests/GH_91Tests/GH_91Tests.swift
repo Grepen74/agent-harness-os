@@ -175,6 +175,30 @@ struct GH_91Tests {
     }
 
     @Test
+    func aLongCheckHistoryStillFitsGitHubsLimitKeepingTheFinalVerificationAndLatestResults() async throws {
+        let fixture = try await Self.fixture()
+        var attempts: [Evidence] = []
+        for attempt in 1...100 {
+            let evidence = Self.evidence(
+                fixture.leaves[0], check: "landing tests", passed: attempt == 100, commit: Self.oldCommit,
+                summary: "Attempt \(attempt): " + String(repeating: "output ", count: 300))
+            try await Self.record(evidence, on: fixture.leaves[0].id, in: fixture.ledger)
+            attempts.append(evidence)
+        }
+        try await fixture.publisher().reconcile([fixture.request()])
+        let body = try #require(Self.single(await fixture.github.pullRequests)).body
+
+        #expect(body.utf16.count <= PullRequestDescription.maximumLength)
+        #expect(body.contains("Closes #91"))
+        let checks = fixture.leafEvidence + fixture.finalEvidence
+        for check in checks { #expect(Self.checkIsDescribed(check, among: checks, in: body)) }
+        #expect(body.components(separatedBy: "### full test command").count == 2, "The final verification is listed once.")
+        #expect(body.contains(attempts[99].artifactSHA256) && body.contains("the full output is in the evidence file"))
+        #expect(!body.contains(attempts[0].artifactSHA256), "The oldest attempts are left out first.")
+        #expect(body.contains("left out to fit GitHub's limit"))
+    }
+
+    @Test
     func aNonGitHubTrackerDoesNotAccidentallyCloseAnIssueWithTheSameNumber() async throws {
         let fixture = try await Self.fixture(githubTracker: false)
         try await fixture.publisher().reconcile([fixture.request()])
