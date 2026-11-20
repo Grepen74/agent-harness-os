@@ -185,8 +185,8 @@ extension WorkingState {
         if node.flags[.needsInput] != nil { return "Needs input" }
         if node.flags[.blocked] != nil { return "Blocked" }
         if node.spec.parent == nil, node.pullRequestState == .open { return "In review" }
-        if node.spec.parent == nil, node.requirementVerificationStarted {
-            if node.requirementVerification?.passed != true { return "Needs input" }
+        if node.spec.parent == nil, node.requirementVerificationStarted || node.requirementMerged {
+            if node.requirementVerification?.passed != true && !node.requirementMerged { return "Needs input" }
             return node.requirementMerged || node.requirementBranchObservation?.containedInMain == true ? "Done" : "In review"
         }
         if node.spec.parent == nil, let observation = node.requirementBranchObservation {

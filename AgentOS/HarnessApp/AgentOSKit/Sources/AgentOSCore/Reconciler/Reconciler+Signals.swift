@@ -207,7 +207,7 @@ extension Reconciler {
                 return "publication will push the branch and reopen the same pull request \(node.pullRequestURL ?? ""); no agent rework is started"
             }
             if let node, node.spec.parent == nil, node.requirementVerificationStarted,
-               node.requirementVerification?.passed != true {
+               node.requirementVerification?.passed != true, !node.requirementMerged {
                 try await write(node.id, by: .human(person), [.requirementVerificationRetryRequested])
                 return "final verification will run again on the requirement branch; no agent rework is started"
             }

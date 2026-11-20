@@ -334,4 +334,42 @@ struct GH_90Tests {
         #expect(await f.publisher.calls.isEmpty)
         #expect(await f.checks.calls.count == 1)
     }
+
+    // WORK-1..3 finished before requirement branches existed; their new branches only ever held main.
+    @Test
+    func aRequirementAlreadyInMainIsMergedWithoutFinalVerification() async throws {
+        let f = try Fixture()
+        defer { f.removeFiles() }
+        _ = try await f.seedCompletedComposite()
+        await f.workspace.personMergesRequirementIntoMain()
+        try await f.settle()
+        let state = await f.ledger.workingState()
+        let root = try #require(state.nodes[f.requirement.nodeID])
+        #expect(await f.checks.calls.isEmpty, "Main's baseline already checks what main contains.")
+        #expect(root.requirementMerged && !root.requirementVerificationStarted)
+        #expect(state.status(of: root) == "Done")
+        #expect(await f.tracker.ticket(f.requirement.ticketKey)?.status == "Done")
+        #expect(await f.publisher.calls.isEmpty)
+    }
+
+    // Nobody can add harness:retry to a requirement whose ticket is no longer on the tracker (WORK-3).
+    @Test
+    func aFailedFinalVerificationStopsNeedingAPersonOnceTheRequirementIsInMain() async throws {
+        let f = try Fixture(failure: .tests)
+        defer { f.removeFiles() }
+        _ = try await f.seedCompletedComposite()
+        try await f.settle()
+        let failed = await f.ledger.workingState()
+        try #require(failed.status(of: try #require(failed.nodes[f.requirement.nodeID])) == "Needs input")
+        try #require(failed.attentionList.contains { $0.node.id == f.requirement.nodeID })
+
+        await f.workspace.personMergesRequirementIntoMain()
+        try await f.settle()
+        let state = await f.ledger.workingState()
+        let root = try #require(state.nodes[f.requirement.nodeID])
+        #expect(root.requirementMerged)
+        #expect(state.status(of: root) == "Done")
+        #expect(!state.attentionList.contains { $0.node.id == f.requirement.nodeID })
+        #expect(await f.checks.calls.count == 1, "No second verification of what main's baseline checks.")
+    }
 }

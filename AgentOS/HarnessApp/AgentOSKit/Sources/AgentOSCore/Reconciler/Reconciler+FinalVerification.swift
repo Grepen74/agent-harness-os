@@ -11,6 +11,18 @@ extension Reconciler {
             let leaves = state.requirementLeaves(for: root.id)
             guard !leaves.isEmpty, leaves.allSatisfy({ $0.phase == .proven }),
                   !requirementIsHeld(root, in: state) else { continue }
+            // Already in main, for example a requirement finished before requirement branches existed: main's
+            // baseline checks it, so final verification would only repeat that and wait for a person on a failure.
+            if root.requirementVerification?.passed != true,
+               (try? await workspace.requirementIsMerged(root.identity)) == true {
+                let branch = root.requirementBranch ?? "agentos/\(root.ticket)"
+                let tip = try await requirementBranches?.tip(of: branch)
+                try await write(root.id, by: .reconciler, [
+                    .requirementMerged(commit: tip ?? root.requirementBranchObservation?.tip ?? root.landedCommit ?? "unknown"),
+                ])
+                report.actions.append("\(root.displayName): already in main, no final verification needed")
+                continue
+            }
             var unverifiedTip = false
             if policy.pullRequests, publisher != nil, root.pullRequestNumber == nil,
                root.publicationFailure == nil || root.publicationRetryPending,

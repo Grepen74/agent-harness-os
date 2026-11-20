@@ -89,7 +89,15 @@ public enum RenderedUI {
         request.recognitionLevel = .accurate
         request.recognitionLanguages = ["en-US"]
         request.usesLanguageCorrection = false
-        try VNImageRequestHandler(cgImage: cropped).perform([request])
+        // Under load the recognition runtime now and then fails a request (`e5rtError`); a new handler reads fine.
+        for attempt in 1... {
+            do {
+                try VNImageRequestHandler(cgImage: cropped).perform([request])
+                break
+            } catch where attempt < 3 {
+                continue
+            }
+        }
         let width = CGFloat(image.width), height = CGFloat(image.height)
         return (request.results ?? []).compactMap { observation in
             guard let text = observation.topCandidates(1).first?.string else { return nil }
@@ -108,10 +116,32 @@ public enum RenderedUI {
     }
 
     /// Whether recognised `text` shows `expected`. Ignores case and whitespace: recognition sometimes drops or
-    /// adds a space, for example reading a picker value "All kinds" as "Allkinds".
+    /// adds a space, for example reading a picker value "All kinds" as "Allkinds". Also allows the misreads it
+    /// makes in text that differs every run, such as run ids and times: "0" and "O" count as the same, as do
+    /// "1", "l" and "I", and in 8 or more characters one letter may be read as another ("Ledger" as "Ledder").
+    /// Digits and punctuation must match, so "GH-68" never shows "GH-69".
     public static func shows(_ expected: String, in text: String) -> Bool {
-        func squeezed(_ string: String) -> String { string.filter { !$0.isWhitespace }.lowercased() }
-        return squeezed(text).contains(squeezed(expected))
+        func folded(_ string: String) -> [Character] {
+            string.filter { !$0.isWhitespace }.lowercased().map { character in
+                switch character {
+                case "o": "0"
+                case "l", "i", "|": "1"
+                default: character
+                }
+            }
+        }
+        let wanted = folded(expected), read = folded(text)
+        guard !wanted.isEmpty else { return true }
+        guard read.count >= wanted.count else { return false }
+        let allowedMisreads = wanted.count >= 8 ? 1 : 0
+        return (0...(read.count - wanted.count)).contains { start in
+            var misreads = 0
+            for (offset, character) in wanted.enumerated() where read[start + offset] != character {
+                guard character.isLetter, misreads < allowedMisreads else { return false }
+                misreads += 1
+            }
+            return true
+        }
     }
 
     /// PNG data to write as UI evidence or a snapshot.
