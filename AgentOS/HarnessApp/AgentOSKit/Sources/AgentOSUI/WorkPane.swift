@@ -17,10 +17,8 @@ public struct WorkPane: View {
                 AttentionList()
                 RunningAgents()
                 List(selection: $selection) {
-                    OutlineGroup(model.state.roots.filter({
-                        guard showDoneNodes == false else { return true }
-                        return $0.phase != .proven && !$0.ticketClosed
-                    }).map { TreeItem($0, in: model.state) }, children: \.children) { item in
+                    OutlineGroup(Self.roots(in: model.state, showingDone: showDoneNodes)
+                        .map { TreeItem($0, in: model.state) }, children: \.children) { item in
                         NodeRow(node: item.node, status: model.state.status(of: item.node)).tag(item.node.id)
                     }
                 }
@@ -38,6 +36,17 @@ public struct WorkPane: View {
             }
             .frame(minHeight: 160, maxHeight: .infinity)
         }
+    }
+
+    /// The tree's top rows. Hiding Done and closed items keeps a row that still needs a person, for example a
+    /// requirement whose leaves are all proven but whose final verification failed.
+    static func roots(in state: WorkingState, showingDone: Bool) -> [NodeState] {
+        guard !showingDone else { return state.roots }
+        let attention = Set(state.attentionList.map(\.node.id))
+        func needsAttention(_ id: NodeID) -> Bool {
+            attention.contains(id) || (state.nodes[id]?.children.contains(where: needsAttention) ?? false)
+        }
+        return state.roots.filter { ($0.phase != .proven && !$0.ticketClosed) || needsAttention($0.id) }
     }
 }
 

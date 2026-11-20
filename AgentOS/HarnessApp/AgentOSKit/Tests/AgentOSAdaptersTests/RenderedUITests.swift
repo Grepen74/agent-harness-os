@@ -21,6 +21,16 @@ struct RenderedUITests {
     }
 
     @Test
+    func showsAllowsMisreadLettersButNotOtherDigits() {
+        #expect(RenderedUI.shows("Landing batch run-0f0303", in: "#0 • Landing batch run-Of0303: passed"))
+        #expect(RenderedUI.shows("Ledger Reviewer", in: "S2 • Ledder Reviewer : GH-69"))
+        #expect(!RenderedUI.shows("GH-69", in: "Ticket GH-68"))
+        #expect(!RenderedUI.shows("run-0f0303", in: "run-0f0304"))
+        #expect(!RenderedUI.shows("Ledgar Reviewar", in: "Ledger Reviewer"), "One misread letter, not two")
+        #expect(!RenderedUI.shows("Show older", in: "Show newer"))
+    }
+
+    @Test
     func readsAKeptViewAgainAfterItChanges() throws {
         let view = NSHostingView(rootView: AnyView(Text("Before the change").font(.title)))
         view.frame = CGRect(x: 0, y: 0, width: 500, height: 120)
