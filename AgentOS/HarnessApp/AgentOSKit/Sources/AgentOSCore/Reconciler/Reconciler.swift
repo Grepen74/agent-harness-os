@@ -440,6 +440,7 @@ public actor Reconciler {
             let branch = await requirementBranch(for: node.id)
             try await write(node.id, by: .reconciler, [.phaseChanged(to: .proven)], expecting: node.version)
             await tracker.comment(on: node.ticket, "✅ Proven: every child has landed with all tests passing on \(branch).")
+            await tracker.comment(on: node.ticket, costComment(for: node, in: state))
             return "\(node.displayName) proven (all children proven)"
 
         case (.leaf, .specified):

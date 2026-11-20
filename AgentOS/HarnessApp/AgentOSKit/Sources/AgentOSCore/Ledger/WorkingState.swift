@@ -487,7 +487,7 @@ public struct WorkingState: Sendable {
             // The new run took the draft over: it keeps its own if it fails too.
             if role == .testAuthor { node.testDraft = nil }
         case .runFinished: node.activeRun = nil
-        case .agentCreditsRecorded(let run, let credits):
+        case .agentCreditsRecorded(let run, let credits), .runCostRecorded(let run, let credits):
             node.recordedAICredits += credits
             node.runsWithRecordedCost.insert(run)
         case .changeSubmitted(let run, let commit):

@@ -83,6 +83,14 @@ Disabling a signal the harness doesn't know is a warning.
 
 ### Final requirement verification
 
+Whenever a composite becomes proven, the harness posts one cost comment on its ticket after
+**✅ Proven**. Linked leaves appear in depth-first current breakdown order, each with its recorded
+run credits. **Breakdown** sums recorded credits on that composite and all nested composites;
+**Total** adds those credits and the leaf rows. Amounts have at most two decimals and no trailing zeros
+(for example `3 AI credits` or `1.5 AI credits`). Failed and retried runs and earlier runs of retained
+nodes count; nodes removed by replanning do not. Later rounds and ledger replay do not repost the
+comment, but a new transition to proven after replanning posts a fresh summary.
+
 After the last leaf is proven, the harness checks a disposable checkout of the requirement branch tip:
 the full test command (no leaf-suite filter) and all configured checks, including build preparation.
 The requirement's ledger records the result, commit, full log artifact and SHA-256. A prior leaf landing

@@ -14,6 +14,7 @@ public enum LedgerEventKind: String, Hashable, CaseIterable, Sendable {
     case requirementPublicationFailed, requirementPublicationRetryRequested, acceptanceCriterionProofsRecorded
     case expectedAPIReported, brokenTestReported, brokenTestRouted, runStarted, agentConfigured, runFinished
     case agentCreditsRecorded
+    case runCostRecorded
     case changeSubmitted, attemptFailed, testDraftKept, diagnosisRecorded, acceptanceTestPreflightFailed, passingCheckRecorded, mainMovedRework
     case actualChangedFilesRecorded, predictedPathsExpanded
     case evidenceRecorded, landingReworkNeeded, landingRerunRequested, reworkNeeded, landed
@@ -70,6 +71,7 @@ public enum LedgerEventKind: String, Hashable, CaseIterable, Sendable {
         case .runStarted: self = .runStarted
         case .agentConfigured: self = .agentConfigured
         case .agentCreditsRecorded: self = .agentCreditsRecorded
+        case .runCostRecorded: self = .runCostRecorded
         case .runFinished: self = .runFinished
         case .changeSubmitted: self = .changeSubmitted
         case .actualChangedFilesRecorded: self = .actualChangedFilesRecorded

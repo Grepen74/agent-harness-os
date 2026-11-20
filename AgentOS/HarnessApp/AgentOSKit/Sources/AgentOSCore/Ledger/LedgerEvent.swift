@@ -114,6 +114,8 @@ public enum EventKind: Codable, Sendable {
     case agentConfigured(run: RunID, settings: AgentRunSettings)
     /// The sum of the incremental AI credits reported during an agent run, including failed runs.
     case agentCreditsRecorded(run: RunID, credits: Double)
+    /// Credits charged to this event's node for a run, including failed or retried work.
+    case runCostRecorded(run: RunID, aiCredits: Double)
     case runFinished(run: RunID, outcome: String)
     case changeSubmitted(run: RunID, commit: String)
     case actualChangedFilesRecorded(files: [String])
@@ -301,6 +303,7 @@ extension EventKind {
                 ?? "\(run) uses \(settings.model), reasoning effort \(settings.effort)"
         case .runFinished(let run, let outcome): "run \(run) finished: \(outcome)"
         case .agentCreditsRecorded(let run, let credits): "\(run) used \(credits) AI credits"
+        case .runCostRecorded(let run, let credits): "\(run) used \(credits) AI credits"
         case .changeSubmitted(let run, let commit): "change submitted by \(run) (\(commit.prefix(8)))"
         case .actualChangedFilesRecorded(let files): "actual changed files: \(files.joined(separator: ", "))"
         case .predictedPathsExpanded(let files): "predicted paths expanded: \(files.joined(separator: ", "))"
