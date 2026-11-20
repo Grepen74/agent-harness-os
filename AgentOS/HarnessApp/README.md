@@ -60,12 +60,20 @@ takes one of the *max parallel agents* slots, and while a change waits to land, 
 failure diagnosis. A repo can lower the setting with `limits.landingBatchSize`, but cannot raise it.
 Waiting changes on the same requirement branch are taken oldest first, up to that size, and checked
 together once in a separate working copy based on the latest requirement tip. Different requirements
-never share a batch. Review-required changes continue through individual landing.
+never share a batch. Agent-reviewed changes are rebased onto the requirement branch and reviewed
+individually before joining; failed reviews return findings and stay out. Only agent-and-human review
+requires individual landing and `harness:build` approval of the exact candidate commit.
+Conflicting nodes are removed for merge-conflict rework without a failed attempt, adding newly
+discovered conflicting files to their predicted paths. After each node is applied, the single-landing
+protected-tests check runs; tampered nodes are removed as failed landing checks with the tampering
+summary. The remaining nodes are still checked together and can land in the same round.
 On a pass, a compare-and-swap moves the branch to the checked tip, preserving each node's separate
 commits in queue order without UI evidence in their history. Each node becomes Proven with its own
 landed commit, shared batch-check evidence, and a landed comment naming the batch. The ledger records
-the batch name, branch, ordered nodes, candidate and result. A checked-out requirement waits without
-starting a run; that wait is checked again before the batch moves the branch.
+the batch name, branch, ordered nodes, candidate and result. Its `landingBatchMemberRemoved` rows name
+each removed node and its own conflict or tampering reason, also shown in the ledger pane.
+A checked-out requirement waits without starting a run; that wait is checked again before the batch
+moves the branch.
 
 ## Open a real repo
 

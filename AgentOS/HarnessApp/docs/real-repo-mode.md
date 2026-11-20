@@ -615,15 +615,25 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
 - **Batch landing.** Landing batch size defaults to 4; `limits.landingBatchSize` may lower it, never raise
   it. Size 1 keeps the individual landing path, including review and failure diagnosis. With a larger
   size, waiting nodes for the same requirement branch are taken oldest first, up to the configured
-  size. Review-required candidates still land individually. A separate detached working copy starts
-  at the latest requirement tip, applies each node's commits in queue order, and runs the full check
-  suite once on the combined candidate. Branches are never mixed, and only one batch or individual
-  landing runs at once, taking one agent slot. On a pass the branch moves by compare-and-swap only if
+  size. Agent-reviewed nodes are rebased onto the requirement branch and reviewed individually before
+  joining a batch; a failed review returns its findings and keeps that node out. Only agent-and-human
+  review requires individual landing, waiting In review for `harness:build` approval of the exact
+  candidate commit. A separate detached working copy starts at the latest requirement tip and applies
+  each node's commits in queue order. A conflicting node is removed and sent to merge-conflict rework
+  without counting a failed attempt; newly discovered conflicting files expand its predicted paths.
+  After each node is applied, the single-landing protected-tests rule checks its acceptance tests and
+  other work's tests. A tampered node is removed and handled as a failed landing check with the tampering
+  summary. Neither kind of removed node falls back to individual landing: the remaining nodes are
+  checked together and can still land in the same round. The full check suite runs once on the combined
+  candidate. Branches are never mixed, and only one batch or individual landing runs at once, taking
+  one agent slot. On a pass the branch moves by compare-and-swap only if
   its tip is unchanged and it is still not checked out. Every member becomes Proven with its own last
   commit and evidence pointing to the shared batch check. Commits remain separate, not squashed, and
   UI evidence is excluded from every replayed commit. Landed comments name the batch; ledger rows
-  record its name, branch, ordered members, candidate commit and passed or failed result. Failed
-  candidates currently fall back to individual landing for attribution and diagnosis.
+  record its name, branch, ordered members, candidate commit and passed or failed result.
+  `landingBatchMemberRemoved` rows name each removed node and its individual reason (conflict or
+  tampered tests), also shown in the ledger pane. If the remaining batch fails the full check suite,
+  its members currently fall back to individual landing for attribution and diagnosis.
 - **Requirement isolation.** Each requirement branch contains only its own landed changes and catch-up
   work from `main`, so work depending on another requirement waits until that one is merged into `main`
   (see Dependencies between tickets). Catch-up updates that branch and rebases only its idle active leaves. Bindings are
