@@ -50,7 +50,7 @@ public actor Reconciler {
     public var busyNodes: Set<NodeID> { Set(tasks.keys) }
     var completedActions: [String] = []
     var ownedRuns: [NodeID: RunID] = [:]
-    private(set) var stopReasons: [RunID: String] = [:]
+    var stopReasons: [RunID: String] = [:]
     /// Previews running in the background, by ticket. Each takes one of the `maxParallelAgents` slots.
     var previewRuns: [String: (run: RunID, task: Task<Void, Never>)] = [:]
     var previewStops: [RunID: String] = [:]

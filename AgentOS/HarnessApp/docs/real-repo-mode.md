@@ -86,7 +86,8 @@ Disabling a signal the harness doesn't know is a warning.
 After the last leaf is proven, the harness checks a disposable checkout of the requirement branch tip:
 the full test command (no leaf-suite filter) and all configured checks, including build preparation.
 The requirement's ledger records the result, commit, full log artifact and SHA-256. A prior leaf landing
-check does not replace this check. Completed verification survives a restart without rerunning.
+check does not replace this check. Completed verification survives a restart without rerunning. While it
+runs, the requirement is **In progress** and the check is listed with the running agents.
 
 Failure or interruption waits for a person; no agent rework or automatic retry starts. Fix the problem
 and add `harness:retry` to the requirement ticket to run final verification again. With **Push / open pull

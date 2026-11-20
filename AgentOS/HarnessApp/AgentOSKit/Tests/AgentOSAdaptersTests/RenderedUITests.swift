@@ -28,6 +28,10 @@ struct RenderedUITests {
         #expect(!RenderedUI.shows("run-0f0303", in: "run-0f0304"))
         #expect(!RenderedUI.shows("Ledgar Reviewar", in: "Ledger Reviewer"), "One misread letter, not two")
         #expect(!RenderedUI.shows("Show older", in: "Show newer"))
+        #expect(!RenderedUI.shows("Control-A", in: "half:control-b;"), "A letter after a separator names something else")
+        #expect(!RenderedUI.shows("Reviewer A", in: "Reviewer B"))
+        #expect(!RenderedUI.shows("Reviewer A done", in: "Reviewer B done"), "Removing spaces doesn't join it to a word")
+        #expect(RenderedUI.shows("All kinds", in: "All kibds"), "Next to a letter that folds into a digit")
     }
 
     @Test

@@ -9,6 +9,7 @@
 // Reviewer-only: SettingsView embeds the editable control and its existing SettingsModel
 // saves it with the other settings. App-window wiring is outside the package test target.
 import AgentOSCore
+import AgentOSTestSupport
 import Foundation
 import Testing
 @testable import AgentOSAdapters
@@ -371,5 +372,63 @@ struct GH_90Tests {
         #expect(state.status(of: root) == "Done")
         #expect(!state.attentionList.contains { $0.node.id == f.requirement.nodeID })
         #expect(await f.checks.calls.count == 1, "No second verification of what main's baseline checks.")
+    }
+
+    @Test
+    func finalVerificationShowsAsARunningCheckAndAsInterruptedOnlyAfterARestart() async throws {
+        let f = try Fixture(failure: .tests)
+        defer { f.removeFiles() }
+        _ = try await f.seedCompletedComposite()
+        try await f.settle()
+        let records = await f.ledger.allRecords()
+        let startIndex = try #require(records.firstIndex {
+            if case .runStarted(_, .verifier) = $0.event.kind { $0.event.node == f.requirement.nodeID } else { false }
+        })
+        guard case .runStarted(let run, _) = records[startIndex].event.kind else { return }
+        #expect(records.contains {
+            if case .runFinished(run, "failed") = $0.event.kind { true } else { false }
+        })
+
+        let running = try Ledger()
+        try await running.append(records[...startIndex].map(\.event))
+        let during = await running.workingState()
+        let root = try #require(during.nodes[f.requirement.nodeID])
+        #expect(during.status(of: root) == "In progress")
+        #expect(during.running.map(\.id) == [root.id], "The work pane lists the check with the running agents.")
+        #expect(!during.attentionList.contains { $0.node.id == root.id }, "Running is not interrupted.")
+
+        _ = await f.makeReconciler(ledger: running).recoverAfterRestart()
+        let restarted = await running.workingState()
+        #expect(restarted.attentionList.contains { $0.node.id == root.id && $0.reason.contains("interrupted") })
+        #expect(restarted.status(of: try #require(restarted.nodes[root.id])) == "Needs input")
+    }
+
+    @Test
+    func stoppingARunningFinalVerificationFinishesItsRunAndLeavesItInterrupted() async throws {
+        let f = try Fixture()
+        defer { f.removeFiles() }
+        _ = try await f.seedCompletedComposite()
+        let hold = f.requirementDirectory.appending(path: "hold")
+        try Data().write(to: hold)
+        let round = Task { await f.reconciler.runRound(waitForAgents: true) }
+        let run = try await withHangGuard("final verification starting") {
+            while true {
+                if let active = await f.ledger.workingState().nodes[f.requirement.nodeID]?.activeRun { return active.run }
+                try await Task.sleep(for: .milliseconds(20))
+            }
+        }
+        try await f.reconciler.stopRun(run, by: "Jane")
+        try FileManager.default.removeItem(at: hold) // Without a working stop, the check then finishes: no hang.
+        _ = await round.value
+
+        let state = await f.ledger.workingState()
+        let root = try #require(state.nodes[f.requirement.nodeID])
+        #expect(root.activeRun == nil && root.requirementVerification == nil)
+        #expect(await f.ledger.records(for: root.id).contains {
+            if case .runFinished(run, "stopped by Jane") = $0.event.kind { true } else { false }
+        })
+        #expect(state.attentionList.contains { $0.node.id == root.id && $0.reason.contains("interrupted") })
+        #expect(state.status(of: root) == "Needs input")
+        #expect(await f.reconciler.busyNodes.isEmpty)
     }
 }

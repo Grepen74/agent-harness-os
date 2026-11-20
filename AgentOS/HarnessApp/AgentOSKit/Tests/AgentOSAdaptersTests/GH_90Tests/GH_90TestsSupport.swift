@@ -94,6 +94,7 @@ extension GH_90Tests {
             workspace = MemoryWorkspace(root: directory, requirementDirectory: requirementDirectory)
             self.policy = policy
             let test = """
+                while test -f hold; do sleep 0.05; done
                 printf 'tests\\n' >> verification.trace
                 printf 'FULL-TESTS '; cat branch-tip
                 if test -f fail-tests; then printf 'FinalAcceptance.testCheckout FAILED tip-90\\n'; exit 1; fi
