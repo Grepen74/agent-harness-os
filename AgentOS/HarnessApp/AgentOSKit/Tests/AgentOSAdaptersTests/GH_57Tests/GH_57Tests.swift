@@ -424,7 +424,7 @@ import Testing
       "pullRequests": false,
       "landing": {"branch": "agentos/main"},
       "signals": {"disable": ["go"]},
-      "limits": {"maxAttempts": 2, "maxReworks": 2, "maxAgentRuns": 8, "maxParallelAgents": 1, "avoidOverlappingWork": true},
+      "limits": {"maxAttempts": 2, "maxReworks": 2, "maxAgentRuns": 8, "maxParallelAgents": 1, "landingBatchSize": 1, "avoidOverlappingWork": true},
       "agents": {
         "deny": ["custom-tool"],
         "models": {"decomposer": "model-a", "testAuthor": "model-b", "implementer": "model-c"},

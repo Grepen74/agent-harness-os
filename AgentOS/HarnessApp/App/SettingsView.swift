@@ -44,6 +44,7 @@ struct SettingsView: View {
                 Stepper("Max reworks per leaf: \(model.settings.maxReworks)", value: $model.settings.maxReworks, in: 1...10)
                 Stepper("Max agent runs per ticket: \(model.settings.maxAgentRuns)", value: $model.settings.maxAgentRuns, in: 2...50)
                 Stepper("Max parallel agents: \(model.settings.maxParallelAgents)", value: $model.settings.maxParallelAgents, in: 1...8)
+                LandingBatchSizeStepper(settings: $model.settings)
                 Picker("Guesswork", selection: $model.settings.guesswork) {
                     ForEach(Guesswork.allCases, id: \.self) { Text($0.title).tag($0) }
                 }

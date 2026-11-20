@@ -70,6 +70,7 @@ read from `main` only.
 | Agent timeouts | Per role: 20 minutes, 10 for the diagnoser; the longest a repo may choose: 1 hour (at most 4) | Choose per role, longer or shorter, up to the longest allowed |
 | Max attempts / reworks per leaf | 3 / 3 | Lower |
 | Max parallel agents | 2 | Lower |
+| Landing batch size | 4; 1 lands one at a time | Choose from 1 through the current harness setting |
 | Avoid building overlapping work at the same time | On | Turn on, but not off |
 | Guesswork | `assume and report`: carry on and post assumptions; a leaf whose work rests on assumptions waits for a person to see its acceptance tests before build, even under `harness:go`. Guesses about what users observe (what to check, which screen, which behaviour) always stop the node; guesses about implementation don't. Other levels: `ask` (assumptions are questions too), `autonomous` (assumptions are posted, nothing waits) | Choose a stricter level (`agents.guesswork`) |
 | Signals people may use (doc 05 §3) | All, including `harness:go` | Switch some off, e.g. `go` to force a breakdown review |
@@ -234,6 +235,7 @@ is configured, Copilot CLI chooses its own default. Display titles are not confi
 | `limits.maxReworks` | Integer: maximum reworks per leaf | Inherit harness setting; built-in 3 | At least 1 and at most the current harness setting |
 | `limits.maxAgentRuns` | Integer: test-author and implementer runs per ticket since a person last acted on it | Inherit harness setting; built-in 12 | At least 1 and at most the current harness setting; any human action on the ticket starts a new budget |
 | `limits.maxParallelAgents` | Integer: maximum concurrent harness-started agents | Inherit harness setting; built-in 2 | At least 1 and at most the current harness setting; does not count agents' sub-agents |
+| `limits.landingBatchSize` | Integer: maximum nodes checked together in a landing batch | Inherit harness setting; built-in 4 | At least 1 and at most the current harness setting; 1 lands one at a time. Invalid or larger values are `config.policy` blockers; the harness value applies |
 | `limits.avoidOverlappingWork` | Boolean: avoid building overlapping work at the same time | Inherit harness setting; built-in `true` | A repo may turn it on, not off; `false` is refused when the harness has it on |
 | `agents` | Object containing agent policy and context options | Inherit harness agent policy and default context | May only tighten policy; provider remains Copilot CLI |
 | `agents.deny` | Array of strings naming additional denied tools or commands | No additions to the harness deny list | Additive union with harness denials; cannot remove them |
@@ -614,6 +616,56 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
   to land" comment naming the checkout, and landing goes on by itself once that checkout is on another
   branch. This is checked before the landing checks start and again right before the fast-forward; a
   checkout made in between finishes the landing run and the node waits the same way.
+- **Batch landing.** Landing batch size defaults to 4; `limits.landingBatchSize` may lower it, never raise
+  it. Size 1 keeps the individual landing path, including review and failure diagnosis. With a larger
+  size, waiting nodes for the same requirement branch are taken oldest first, up to the configured
+  size. Agent-reviewed nodes are rebased onto the requirement branch and reviewed individually before
+  joining a batch; a failed review returns its findings and keeps that node out. Only agent-and-human
+  review requires individual landing, waiting In review for `harness:build` approval of the exact
+  candidate commit. A separate detached working copy starts at the latest requirement tip and applies
+  each node's commits in queue order. A conflicting node is removed and sent to merge-conflict rework
+  without counting a failed attempt; newly discovered conflicting files expand its predicted paths.
+  After each node is applied, the single-landing protected-tests rule checks its acceptance tests and
+  other work's tests. A tampered node is removed and handled as a failed landing check with the tampering
+  summary. Neither kind of removed node falls back to individual landing: the remaining nodes are
+  checked together and can still land in the same round. The full check suite runs once on the combined
+  candidate. Branches are never mixed, and only one batch or individual landing runs at once, taking
+  one agent slot. On a pass the branch moves by compare-and-swap only if
+  its tip is unchanged and it is still not checked out. Every member becomes Proven with its own last
+  commit and evidence pointing to the shared batch check. Commits remain separate, not squashed, and
+  UI evidence is excluded from every replayed commit. Landed comments name the batch; ledger rows
+  record its name, branch, ordered members, candidate commit and passed or failed result.
+  `landingBatchMemberRemoved` rows name each removed node and its individual reason (conflict or
+  tampered tests), also shown in the ledger pane.
+  A runner crash on the batch check is retried once unchanged. A second crash escalates every member
+  with "Runner crash repeated after one retry", runner-crash evidence and no failed attempt counted.
+  When the full check reports failing tests, the batch gets one quiet diagnosis before any attribution
+  or splitting: existing agents and previews finish, and no new ones start until diagnosis ends.
+  First the whole check runs again on the unchanged batch tip. If it passes, the batch can land normally;
+  every member also gets an "Unreliable test: the landing check failed, then passed when run again in full
+  with no other work running." comment.
+  If it fails again, the union of failing suites runs alone on the batch tip and on the latest requirement
+  branch without the batch. Without suite selection support, these are full checks instead.
+  A runner that still cannot finish after one retry, a selection that runs no tests, or tests failing
+  without the batch escalates every member with landing-infrastructure evidence and a
+  "Landing infrastructure problem: … Batch … No failed attempt counted." comment. Unknown failing suites
+  also escalate because isolated diagnosis cannot safely select tests. These batches are not split or
+  landed, and no member has a failed attempt counted. Fix the requirement branch or runner, then add
+  `harness:retry` to the affected tickets; use the same signal after fixing a repeated runner crash.
+  After diagnosis rules out infrastructure problems, failing tests are matched to nodes by test target,
+  using the same ownership rule as single landing's requirements-conflict diagnosis. If the batch still
+  fails in isolation and every target failing in that run belongs to a member of this batch, those owners
+  are taken out together and the remainder is rebuilt and checked without them, landing if it passes.
+  Only then are the removed owners checked alone.
+  Otherwise the batch is split in half, including failures that appear only under load or disturb other
+  tests. The first half is checked on the latest requirement branch and lands if it passes; the second
+  half is then built on that updated branch. Splitting repeats as needed, so passing smaller groups
+  become Proven and get their landed comments before the failing singleton is handled.
+  A singleton uses ordinary single landing, retaining its diagnosis, comments, attempt counts, rework,
+  rerun and escalation rules. Each split (`landingBatchSplit`) and owner removal
+  (`landingBatchOwnersRemoved`) records the batch name and both ordered parts. The ledger pane shows
+  labeled First/Second half and Removed/Remaining lists without truncation. Each full check has a ledger
+  row; diagnosis evidence and run outcomes retain the reruns' results and final decision.
 - **Requirement isolation.** Each requirement branch contains only its own landed changes and catch-up
   work from `main`, so work depending on another requirement waits until that one is merged into `main`
   (see Dependencies between tickets). Catch-up updates that branch and rebases only its idle active leaves. Bindings are
@@ -663,7 +715,8 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
   round (the ledger records each preview's start and end: `previewStarted`, `previewFinished`). An approved
   breakdown is decomposed by a scheduled step, across rounds like other agents.
 
-  Landing is the one kind of work that still holds its round open. It is synchronous and one at a time: the round that lands waits for the rebase, the landing checks
+  Landing is the one kind of work that still holds its round open. It is synchronous, one batch or single
+  change at a time: the round that lands waits for candidate preparation, the landing checks
   and the merge, and a round requested meanwhile doesn't start a second landing; agents from earlier
   rounds keep running meanwhile. A landing takes a slot, and while a change waits to land, scheduling
   keeps a slot free for it so new work can't starve the queue.
