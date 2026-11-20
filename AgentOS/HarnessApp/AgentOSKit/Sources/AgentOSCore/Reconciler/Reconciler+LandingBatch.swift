@@ -2,10 +2,11 @@ import Foundation
 
 extension Reconciler {
     func drainLandingQueue(_ report: inout RoundReport) async throws {
+        guard quietLandings == 0 else { return }
         let queue = await ledger.workingState().landingQueue
         var considered: Set<NodeID> = []
         for queued in queue {
-            guard shutdownReason == nil, !Task.isCancelled,
+            guard quietLandings == 0, shutdownReason == nil, !Task.isCancelled,
                   slotsInUse < max(1, policy.maxParallelAgents) else { break }
             guard !considered.contains(queued.id) else { continue }
             if policy.landingBatchSize <= 1 || !workspace.supportsLandingBatches {
@@ -89,50 +90,32 @@ extension Reconciler {
             }
             candidate = batch
             try await workspace.prepareBuild(in: batch.directory)
-            let output = await checks.runChecks(in: batch.directory, only: nil)
-            try await write(nil, by: .agent(run: run, role: .verifier), [
-                .landingBatchChecked(LandingBatchCheck(name: name, branch: batch.branch, nodes: nodes.map(\.id),
-                    candidateCommit: batch.candidateCommit, passed: output.passed, run: run)),
-            ])
-            if output.passed {
-                var events: [LedgerEvent] = []
-                for member in batch.members {
-                    guard let node = nodes.first(where: { $0.id == member.node }),
-                          let submission = node.lastSubmission else {
-                        throw AgentFailure("The batch member \(member.node) has no submitted change.")
-                    }
-                    let evidence = try makeEvidence(node, check: name, output: output, builtBy: submission.run,
-                                                    checkedBy: run, commit: batch.candidateCommit)
-                    events += [.evidenceRecorded(evidence), .landed(commit: member.commit),
-                               .runFinished(run: run, outcome: "landed"), .phaseChanged(to: .proven)]
-                        .map { LedgerEvent(node: node.id, by: .agent(run: run, role: .verifier), kind: $0, at: now()) }
-                }
+            let diagnosisBatch = LandingBatch(id: name, workspace: batch)
+            switch try await checkLandingBatch(diagnosisBatch, nodes: nodes, run: run) {
+            case .passed(let output, let unreliable):
+                let events = try batchLandingEvents(diagnosisBatch, nodes: nodes, output: output, run: run)
                 try Task.checkCancellation()
                 switch try await workspace.landBatch(batch) {
                 case .landed:
-                    try await ledger.append(events)
-                    for member in batch.members {
-                        guard let node = nodes.first(where: { $0.id == member.node }) else { continue }
-                        try? await workspace.removeWorktree(for: node.id)
-                        await tracker.comment(on: node.ticket,
-                            "🛬 Landed on \(batch.branch) at \(member.commit.prefix(8)) with all tests passing. \(name).")
-                    }
+                    try await recordBatchLanded(diagnosisBatch, nodes: nodes, events: events,
+                                                unreliable: unreliable)
                 case .waiting(let reason):
                     try await finishBatchRuns(nodes, run: run, outcome: "waiting to land")
                     for node in nodes { _ = await waitToLand(node, because: reason) }
                 case .branchMoved:
                     try await finishBatchRuns(nodes, run: run, outcome: "requirement branch moved; batch must be checked again")
                 }
-            } else {
-                // Attribution remains on the established singleton path until batch diagnosis can identify an owner.
-                try await finishBatchRuns(nodes, run: run, outcome: "batch failed; checking members individually")
+            case .escalated:
+                break
+            case .needsSplit(let diagnosis):
+                try await finishBatchRuns(nodes, run: run, outcome: diagnosis)
                 await workspace.removeSnapshot(batch.directory)
                 candidate = nil
                 return try await landIndividually(nodes)
             }
             await workspace.removeSnapshot(batch.directory)
             for node in nodes { ownedRuns[node.id] = nil }
-            return "\(name) on \(batch.branch): \(output.passed ? "checked" : "failed")"
+            return "\(name) on \(batch.branch): checked"
         } catch {
             if let candidate { await workspace.removeSnapshot(candidate.directory) }
             return await failLandingBatch(nodes, name: name, error: error)

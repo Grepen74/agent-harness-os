@@ -65,7 +65,18 @@ public struct LedgerPane: View {
                                 Text("\(batch.name): \(batch.passed ? "passed" : "failed")\n"
                                      + "Branch: \(batch.branch)\n"
                                      + "Nodes (queue order): \(batch.nodes.joined(separator: ", "))\n"
-                                     + "Candidate: \(batch.candidateCommit.prefix(8))")
+                                     + "Candidate: \(batch.candidateCommit.prefix(8))"
+                                     + (batch.detail.map { "\n\($0)" } ?? ""))
+                                    .font(.body)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            } else if case .evidenceRecorded(let evidence) = record.event.kind,
+                                      evidence.check.hasPrefix("Landing batch ") {
+                                Text(record.event.kind.summary)
+                                    .font(.body)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            } else if case .runFinished(_, let outcome) = record.event.kind,
+                                      outcome.hasPrefix("Batch diagnosis:") {
+                                Text(record.event.kind.summary)
                                     .font(.body)
                                     .fixedSize(horizontal: false, vertical: true)
                             } else {

@@ -323,6 +323,7 @@ extension EventKind {
         case .landed(let commit): "landed on main at \(commit.prefix(8))"
         case .landingBatchChecked(let check):
             "\(check.name) on \(check.branch): \(check.nodes.joined(separator: ", ")) at \(check.candidateCommit.prefix(8)) — \(check.passed ? "passed" : "failed")"
+                + (check.detail.map { " — \($0)" } ?? "")
         case .landingBatchMemberRemoved(let name, let branch, let node, let reason):
             "\(name) on \(branch): removed \(node) — \(reason)"
         case .questionsRaised(let role, let questions):

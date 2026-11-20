@@ -74,6 +74,14 @@ the batch name, branch, ordered nodes, candidate and result. Its `landingBatchMe
 each removed node and its own conflict or tampering reason, also shown in the ledger pane.
 A checked-out requirement waits without starting a run; that wait is checked again before the batch
 moves the branch.
+Runner crashes get one unchanged retry; a second crash escalates every member without a failed attempt.
+A failed batch first gets a quiet full rerun, waiting for existing agents and previews and blocking new
+ones throughout diagnosis. A passing rerun lands normally with an "Unreliable test" comment on each
+ticket. Otherwise the failing suites run alone on the batch tip and the latest requirement branch
+without it. A runner problem, an empty selection, tests failing without the batch, or unknown failing
+suites escalates every member with "Landing infrastructure problem" evidence and no failed attempt,
+without splitting. Fix the branch or runner, then add `harness:retry`. The ledger pane shows the reruns,
+results and outcome; see [real-repo mode](docs/real-repo-mode.md) for the full diagnosis flow.
 
 ## Open a real repo
 

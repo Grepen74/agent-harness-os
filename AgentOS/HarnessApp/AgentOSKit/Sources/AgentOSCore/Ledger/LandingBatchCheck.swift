@@ -6,14 +6,17 @@ public struct LandingBatchCheck: Codable, Sendable, Equatable {
     public let candidateCommit: String
     public let passed: Bool
     public let run: RunID
+    public let detail: String?
 
-    public init(name: String, branch: String, nodes: [NodeID], candidateCommit: String, passed: Bool, run: RunID) {
+    public init(name: String, branch: String, nodes: [NodeID], candidateCommit: String, passed: Bool, run: RunID,
+                detail: String? = nil) {
         self.name = name
         self.branch = branch
         self.nodes = nodes
         self.candidateCommit = candidateCommit
         self.passed = passed
         self.run = run
+        self.detail = detail
     }
 }
 

@@ -632,8 +632,25 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
   UI evidence is excluded from every replayed commit. Landed comments name the batch; ledger rows
   record its name, branch, ordered members, candidate commit and passed or failed result.
   `landingBatchMemberRemoved` rows name each removed node and its individual reason (conflict or
-  tampered tests), also shown in the ledger pane. If the remaining batch fails the full check suite,
-  its members currently fall back to individual landing for attribution and diagnosis.
+  tampered tests), also shown in the ledger pane.
+  A runner crash on the batch check is retried once unchanged. A second crash escalates every member
+  with "Runner crash repeated after one retry", runner-crash evidence and no failed attempt counted.
+  When the full check reports failing tests, the batch gets one quiet diagnosis before any attribution
+  or splitting: existing agents and previews finish, and no new ones start until diagnosis ends.
+  First the whole check runs again on the unchanged batch tip. If it passes, the batch can land normally;
+  every member also gets an "Unreliable test: the landing check failed, then passed when run again in full
+  with no other work running." comment.
+  If it fails again, the union of failing suites runs alone on the batch tip and on the latest requirement
+  branch without the batch. Without suite selection support, these are full checks instead.
+  A runner that still cannot finish after one retry, a selection that runs no tests, or tests failing
+  without the batch escalates every member with landing-infrastructure evidence and a
+  "Landing infrastructure problem: … Batch … No failed attempt counted." comment. Unknown failing suites
+  also escalate because isolated diagnosis cannot safely select tests. These batches are not split or
+  landed, and no member has a failed attempt counted. Fix the requirement branch or runner, then add
+  `harness:retry` to the affected tickets; use the same signal after fixing a repeated runner crash.
+  Only after diagnosis rules out infrastructure problems do members fall back to individual landing
+  for attribution. Each full check has a ledger row; diagnosis evidence and run outcomes retain the
+  reruns' results and final decision, displayed without truncation in the ledger pane.
 - **Requirement isolation.** Each requirement branch contains only its own landed changes and catch-up
   work from `main`, so work depending on another requirement waits until that one is merged into `main`
   (see Dependencies between tickets). Catch-up updates that branch and rebases only its idle active leaves. Bindings are
