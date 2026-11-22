@@ -283,6 +283,9 @@ extension GH_91Tests {
             let components = try #require(URLComponents(string: path))
             let resource = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             let collection = "repos/\(GH_91Tests.repository)/pulls"
+            if method == "POST", resource.hasPrefix("repos/\(GH_91Tests.repository)/statuses/") {
+                return try JSONSerialization.data(withJSONObject: Self.object(body))
+            }
             if method == "GET", resource == collection {
                 operations.append("list")
                 let query = components.queryItems ?? []
