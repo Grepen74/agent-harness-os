@@ -84,7 +84,7 @@ Disabling a signal the harness doesn't know is a warning.
 
 ### Final requirement verification
 
-After the last leaf is proven, the harness checks a disposable checkout of the requirement branch tip:
+After the last leaf is proven, and once the step that marked the requirement proven has finished, the harness checks a disposable checkout of the requirement branch tip:
 the full test command (no leaf-suite filter) and all configured checks, including build preparation.
 The requirement's ledger records the result, commit, full log artifact and SHA-256. A prior leaf landing
 check does not replace this check. Completed verification survives a restart without rerunning. While it

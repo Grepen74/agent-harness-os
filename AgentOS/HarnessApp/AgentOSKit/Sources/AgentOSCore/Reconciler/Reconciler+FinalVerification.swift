@@ -30,7 +30,10 @@ extension Reconciler {
                let tip = try await requirementBranches.tip(of: root.requirementBranch ?? "agentos/\(root.ticket)") {
                 unverifiedTip = tip != verified.commit
             }
-            if !root.requirementVerificationStarted || root.requirementVerificationRetryPending || unverifiedTip {
+            // The root's own step (the one that marked it proven, still posting its comment) must end first: its
+            // finish closes whatever run the root has open, and would close this verification's.
+            if tasks[root.id] == nil,
+               !root.requirementVerificationStarted || root.requirementVerificationRetryPending || unverifiedTip {
                 report.actions.append("\(root.displayName): \(try await verifyRequirement(root))")
             }
             let current = await ledger.workingState().nodes[root.id]
