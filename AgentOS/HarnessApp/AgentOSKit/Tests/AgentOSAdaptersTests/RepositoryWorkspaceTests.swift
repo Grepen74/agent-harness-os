@@ -461,6 +461,22 @@ struct RepositoryWorkspaceTests {
         #expect(try await git(["rev-parse", "agentos/\(key)"], in: repo) == git(["rev-parse", "main"], in: repo))
     }
 
+    @Test("Git's own housekeeping while an agent runs (gc rewriting info/refs) isn't a change to your repo", arguments: [
+        ["update-server-info"],
+        ["gc", "-q"],
+    ])
+    func gitHousekeepingIsNotYourGitState(command: [String]) async throws {
+        let repo = try await makeRepo()
+        let session = try await session(repo, team: team(runsGit: command))
+        let key = await ticket(session)
+
+        await session.runUntilFinished()
+
+        let node = try #require(await session.ledger.workingState().node(forTicket: key))
+        #expect(node.flags[.escalated] == nil, "\(node.flags)")
+        #expect(node.phase == .proven)
+    }
+
     /// Counts implementers at work. Each one waits until as many are at work as the harness may run at once (or
     /// as are left), so the peak doesn't depend on how long agents take or how rounds are scheduled. If that
     /// never happens it gives up after a while, so the test fails instead of hanging.

@@ -642,8 +642,8 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
   log, and its comment names the model; a review records what it ran with in its review result.
 - **Your git state** is fingerprinted before and compared after each test-author and implementer run: refs
   outside `agentos/` (tags, remote-tracking refs, the stash; for local branches only whether they exist,
-  since you may commit while agents work), and the shared git config, hooks and `info/` files. Worktrees
-  share all of these with your repo. Any change escalates the leaf instead of retrying it, naming what
+  since you may commit while agents work), and the shared git config, hooks and `info/` files (not `info/refs`, which git's own housekeeping —
+  `gc --auto` after a commit — rewrites). Worktrees share all of these with your repo. Any change escalates the leaf instead of retrying it, naming what
   changed; if it was you (e.g. you fetched meanwhile), add `harness:retry`. When agents ran side by side,
   the change can't be pinned on one: each of them is escalated and names the others it ran with.
 - **Parallel work.** Up to *max parallel agents* nodes take their step at the same time (breakdown,
