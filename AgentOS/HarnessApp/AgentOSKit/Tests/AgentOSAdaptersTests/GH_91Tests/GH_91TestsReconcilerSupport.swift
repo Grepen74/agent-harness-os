@@ -48,12 +48,12 @@ extension GH_91Tests {
         let agents = RoundAgents()
         var identity: NodeIdentity { NodeIdentity(ticketKey: "GH-91", nodeID: base.root.id) }
 
-        func makeReconciler(ledger replacement: Ledger? = nil) -> Reconciler {
+        func makeReconciler(ledger replacement: Ledger? = nil, tracker: (any TrackerAdapter)? = nil) -> Reconciler {
             let ledger = replacement ?? base.ledger
             let recorder = replacement == nil ? publisher
                 : PublicationRecorder(ledger: ledger, forwarding: base.publisher(ledger: ledger))
             return Reconciler(
-                ledger: ledger, tracker: base.tracker, external: RoundExternal(),
+                ledger: ledger, tracker: tracker ?? base.tracker, external: RoundExternal(),
                 workspace: workspace, artifacts: FileArtifactStore(directory: directory.appending(path: "artifacts")),
                 checks: checks,
                 team: AgentTeam(name: "GH-91 no agent rework", decomposer: agents, testAuthor: agents, implementer: agents),
