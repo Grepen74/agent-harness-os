@@ -88,7 +88,8 @@ After the last leaf is proven, the harness checks a disposable checkout of the r
 the full test command (no leaf-suite filter) and all configured checks, including build preparation.
 The requirement's ledger records the result, commit, full log artifact and SHA-256. A prior leaf landing
 check does not replace this check. Completed verification survives a restart without rerunning. While it
-runs, the requirement is **In progress** and the check is listed with the running agents.
+runs before a pull request is opened, the requirement is **In progress** and the check is listed with
+the running agents. An open pull request keeps the ticket **In review** during verification.
 
 Failure or interruption waits for a person; no agent rework or automatic retry starts. Fix the problem
 and add `harness:retry` to the requirement ticket to run final verification again. With **Push / open pull
@@ -167,6 +168,27 @@ A close posts the pull request link and waits for a person: `harness:retry` push
 reopens that same pull request, never a replacement. Opening, closing, reopening and merging are durable
 ledger events. After a merge, `harness:retry` and other build signals are refused with the merged pull
 request link and instructions to open a follow-up ticket.
+
+In the app, the **work tree** row and **Tracker pane** add the open pull request number and its
+verification state: `In review · #110 verified`, `In review · #110 waiting for verification (2nd)`,
+`In review · #110 verifying`, or `In review · #110 verification failed`. Verified and failed results
+describe the current requirement branch tip; a new tip waits for verification. Waiting positions
+count only eligible waiting open pull requests, in ascending pull request number, with the next shown
+as `1st`. Closed tickets, unfinished requirements, catch-up conflicts and old pull requests without a
+published commit are not in that queue until eligible for verification (an explicit verification
+retry can recover an old pull request).
+The suffix is app-only: ticket labels and the Projects board stay **In review** through verification.
+Other blockers retain their usual status, such as **Needs human** for a catch-up conflict or
+**Needs input** for failed publication; verification detail never hides those statuses or counts
+these rows in the displayed queue. This app display does not change the reconciler's verification
+schedule: flags and publication failures do not themselves prevent an initial verification or an
+explicit verification retry.
+Merged and closed pull requests show plain **Done** and **Needs input**, without a pull request suffix.
+
+Turning off **Show Done and closed items** in the work tree keeps requirements with open pull requests
+visible even when all their leaves are proven. It hides merged and closed requirements, and any
+requirement whose status is **Done**, even if it still has attention entries. Other unfinished
+requirements needing a person remain visible. Turning the toggle on shows all requirements.
 
 The optional boolean `pullRequests` repo key inherits the saved harness setting when absent. `false`
 switches publishing off for the repo. `true` while the harness setting is off has no effect and adds a
