@@ -46,9 +46,9 @@ extension Reconciler {
                 report.actions.append("\(root.displayName): merged into main")
             }
         }
-        // A push changes origin's tracking ref. Do not make an agent's git-state watch
-        // attribute that harness-owned change to the agent.
-        if slotsInUse == 0 { try await publishRequirements() }
+        // Doesn't wait for other agents: the push moves only origin's tracking ref for the harness's own branch,
+        // which their git-state watch ignores.
+        try await publishRequirements()
     }
 
     /// Runs as the root's owned task, like a leaf's step, so Stop and shutdown can cancel it. Returns the action.
