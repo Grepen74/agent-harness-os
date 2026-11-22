@@ -236,6 +236,7 @@ Step 1 is cheap and covers most needs. Each step only adds views; the data contr
 | Simplified statuses shown in trackers; tracker capabilities | [doc 03](03-tracker-adapters.md) |
 | The ledger, its history and artifact storage | [doc 04](04-where-the-harness-lives.md) |
 | Signals for acting on what you see; previews | [doc 05](05-starting-and-steering-work.md) |
+| Watching and steering from other machines (viewers and managers), and who may connect | [doc 09](09-runners-and-clients.md) |
 
 ## 10. Open questions
 - Who sees what? Should views follow the tracker's permissions, the repo's permissions, or their own?

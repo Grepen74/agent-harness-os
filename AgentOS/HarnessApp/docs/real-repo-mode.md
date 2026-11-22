@@ -70,6 +70,7 @@ read from `main` only.
 | Agent timeouts | Per role: 20 minutes, 10 for the diagnoser; the longest a repo may choose: 1 hour (at most 4) | Choose per role, longer or shorter, up to the longest allowed |
 | Max attempts / reworks per leaf | 3 / 3 | Lower |
 | Max parallel agents | 2 | Lower |
+| Landing batch size | 4; 1 lands one at a time | Choose from 1 through the current harness setting |
 | Avoid building overlapping work at the same time | On | Turn on, but not off |
 | Guesswork | `assume and report`: carry on and post assumptions; a leaf whose work rests on assumptions waits for a person to see its acceptance tests before build, even under `harness:go`. Guesses about what users observe (what to check, which screen, which behaviour) always stop the node; guesses about implementation don't. Other levels: `ask` (assumptions are questions too), `autonomous` (assumptions are posted, nothing waits) | Choose a stricter level (`agents.guesswork`) |
 | Signals people may use (doc 05 §3) | All, including `harness:go` | Switch some off, e.g. `go` to force a breakdown review |
@@ -248,6 +249,7 @@ is configured, Copilot CLI chooses its own default. Display titles are not confi
 | `limits.maxReworks` | Integer: maximum reworks per leaf | Inherit harness setting; built-in 3 | At least 1 and at most the current harness setting |
 | `limits.maxAgentRuns` | Integer: test-author and implementer runs per ticket since a person last acted on it | Inherit harness setting; built-in 12 | At least 1 and at most the current harness setting; any human action on the ticket starts a new budget |
 | `limits.maxParallelAgents` | Integer: maximum concurrent harness-started agents | Inherit harness setting; built-in 2 | At least 1 and at most the current harness setting; does not count agents' sub-agents |
+| `limits.landingBatchSize` | Integer: maximum nodes checked together in a landing batch | Inherit harness setting; built-in 4 | At least 1 and at most the current harness setting; 1 lands one at a time. Invalid or larger values are `config.policy` blockers; the harness value applies |
 | `limits.avoidOverlappingWork` | Boolean: avoid building overlapping work at the same time | Inherit harness setting; built-in `true` | A repo may turn it on, not off; `false` is refused when the harness has it on |
 | `agents` | Object containing agent policy and context options | Inherit harness agent policy and default context | May only tighten policy; provider remains Copilot CLI |
 | `agents.deny` | Array of strings naming additional denied tools or commands | No additions to the harness deny list | Additive union with harness denials; cannot remove them |
@@ -628,6 +630,56 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
   to land" comment naming the checkout, and landing goes on by itself once that checkout is on another
   branch. This is checked before the landing checks start and again right before the fast-forward; a
   checkout made in between finishes the landing run and the node waits the same way.
+- **Batch landing.** Landing batch size defaults to 4; `limits.landingBatchSize` may lower it, never raise
+  it. Size 1 keeps the individual landing path, including review and failure diagnosis. With a larger
+  size, waiting nodes for the same requirement branch are taken oldest first, up to the configured
+  size. Agent-reviewed nodes are rebased onto the requirement branch and reviewed individually before
+  joining a batch; a failed review returns its findings and keeps that node out. Only agent-and-human
+  review requires individual landing, waiting In review for `harness:build` approval of the exact
+  candidate commit. A separate detached working copy starts at the latest requirement tip and applies
+  each node's commits in queue order. A conflicting node is removed and sent to merge-conflict rework
+  without counting a failed attempt; newly discovered conflicting files expand its predicted paths.
+  After each node is applied, the single-landing protected-tests rule checks its acceptance tests and
+  other work's tests. A tampered node is removed and handled as a failed landing check with the tampering
+  summary. Neither kind of removed node falls back to individual landing: the remaining nodes are
+  checked together and can still land in the same round. The full check suite runs once on the combined
+  candidate. Branches are never mixed, and only one batch or individual landing runs at once, taking
+  one agent slot. On a pass the branch moves by compare-and-swap only if
+  its tip is unchanged and it is still not checked out. Every member becomes Proven with its own last
+  commit and evidence pointing to the shared batch check. Commits remain separate, not squashed, and
+  UI evidence is excluded from every replayed commit. Landed comments name the batch; ledger rows
+  record its name, branch, ordered members, candidate commit and passed or failed result.
+  `landingBatchMemberRemoved` rows name each removed node and its individual reason (conflict or
+  tampered tests), also shown in the ledger pane.
+  A runner crash on the batch check is retried once unchanged. A second crash escalates every member
+  with "Runner crash repeated after one retry", runner-crash evidence and no failed attempt counted.
+  When the full check reports failing tests, the batch gets one quiet diagnosis before any attribution
+  or splitting: existing agents and previews finish, and no new ones start until diagnosis ends.
+  First the whole check runs again on the unchanged batch tip. If it passes, the batch can land normally;
+  every member also gets an "Unreliable test: the landing check failed, then passed when run again in full
+  with no other work running." comment.
+  If it fails again, the union of failing suites runs alone on the batch tip and on the latest requirement
+  branch without the batch. Without suite selection support, these are full checks instead.
+  A runner that still cannot finish after one retry, a selection that runs no tests, or tests failing
+  without the batch escalates every member with landing-infrastructure evidence and a
+  "Landing infrastructure problem: … Batch … No failed attempt counted." comment. Unknown failing suites
+  also escalate because isolated diagnosis cannot safely select tests. These batches are not split or
+  landed, and no member has a failed attempt counted. Fix the requirement branch or runner, then add
+  `harness:retry` to the affected tickets; use the same signal after fixing a repeated runner crash.
+  After diagnosis rules out infrastructure problems, failing tests are matched to nodes by test target,
+  using the same ownership rule as single landing's requirements-conflict diagnosis. If the batch still
+  fails in isolation and every target failing in that run belongs to a member of this batch, those owners
+  are taken out together and the remainder is rebuilt and checked without them, landing if it passes.
+  Only then are the removed owners checked alone.
+  Otherwise the batch is split in half, including failures that appear only under load or disturb other
+  tests. The first half is checked on the latest requirement branch and lands if it passes; the second
+  half is then built on that updated branch. Splitting repeats as needed, so passing smaller groups
+  become Proven and get their landed comments before the failing singleton is handled.
+  A singleton uses ordinary single landing, retaining its diagnosis, comments, attempt counts, rework,
+  rerun and escalation rules. Each split (`landingBatchSplit`) and owner removal
+  (`landingBatchOwnersRemoved`) records the batch name and both ordered parts. The ledger pane shows
+  labeled First/Second half and Removed/Remaining lists without truncation. Each full check has a ledger
+  row; diagnosis evidence and run outcomes retain the reruns' results and final decision.
 - **Requirement isolation.** Each requirement branch contains only its own landed changes and catch-up
   work from `main`, so work depending on another requirement waits until that one is merged into `main`
   (see Dependencies between tickets). Catch-up updates that branch and rebases only its idle active leaves. Bindings are
@@ -661,8 +713,8 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
   remain unknown, not zero or an estimate from tokens.
 - **Your git state** is fingerprinted before and compared after each test-author and implementer run: refs
   outside `agentos/` (tags, remote-tracking refs, the stash; for local branches only whether they exist,
-  since you may commit while agents work), and the shared git config, hooks and `info/` files. Worktrees
-  share all of these with your repo. Any change escalates the leaf instead of retrying it, naming what
+  since you may commit while agents work), and the shared git config, hooks and `info/` files (not `info/refs`, which git's own housekeeping —
+  `gc --auto` after a commit — rewrites). Worktrees share all of these with your repo. Any change escalates the leaf instead of retrying it, naming what
   changed; if it was you (e.g. you fetched meanwhile), add `harness:retry`. When agents ran side by side,
   the change can't be pinned on one: each of them is escalated and names the others it ran with.
 - **Parallel work.** Up to *max parallel agents* nodes take their step at the same time (breakdown,
@@ -682,7 +734,8 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
   round (the ledger records each preview's start and end: `previewStarted`, `previewFinished`). An approved
   breakdown is decomposed by a scheduled step, across rounds like other agents.
 
-  Landing is the one kind of work that still holds its round open. It is synchronous and one at a time: the round that lands waits for the rebase, the landing checks
+  Landing is the one kind of work that still holds its round open. It is synchronous, one batch or single
+  change at a time: the round that lands waits for candidate preparation, the landing checks
   and the merge, and a round requested meanwhile doesn't start a second landing; agents from earlier
   rounds keep running meanwhile. A landing takes a slot, and while a change waits to land, scheduling
   keeps a slot free for it so new work can't starve the queue.
@@ -984,6 +1037,55 @@ Each phase is usable on its own.
    across them, such as contract or end-to-end tests, once their children have landed in their own repos.
    With phase 9, one requirement can become pull requests in several repos. Also covers the reverse case:
    several apps in one repo, as separate systems.
+11. **Runners and clients** (concept doc 09). The harness, the machines doing the work and the people using
+   it become separate parts, so an always-on Mac can do the work while laptops follow and steer it. Target
+   setup: a Mac mini runs the harness and one runner (3 agent slots, 1 UI-test slot); a MacBook Air is a
+   client with the manager role; more runners and viewers join later. Today everything is one process: the
+   reconciler awaits agent and check `Task`s (`tasks`, `ownedRuns`), the `Workspace` makes local worktrees,
+   agent output goes to `ArtifactStore.liveFile`, and the panes read a `HarnessViewModel` filled in-process and
+   act through `HarnessActions`. In steps:
+   - **11a. Jobs and requests in one process.** A `Job` value (doc 09 §2) and a runner protocol in
+     `AgentOSCore`. Today's worktree, Copilot agents and check runners become the **local runner**. The
+     reconciler hands out jobs under claims and records results in a later round. The local runner's jobs still
+     end with the app, so a restart keeps abandoning them as today; picking runs up again only applies to remote
+     runners (11d). Every harness action (the `HarnessActions` calls that change the harness, such as stop, the
+     Run switch, rescan, baseline, verify chain, and settings changes) becomes a **request** value with an ID and
+     the person's name, checked and recorded by the harness. Tracker actions, queries and file opening stay as
+     they are. Settings changes are recorded in the ledger with old and new value. Nothing you can see changes.
+     Do this together with the
+     AgentRuntime seam (#101); the runner and its tool versions go into the run configuration fingerprint (#93).
+   - **11b. Viewers on the local network.** The harness serves current state, the event stream from a ledger
+     position, live agent output and evidence files over HTTP with WebSocket (Network.framework, no extra
+     dependencies). It announces `_agentos._tcp` with Bonjour. The app gets File → **Connect to Harness…**,
+     which opens the usual panes read-only, except for GitHub: labels, comments and tickets go straight to
+     GitHub with the `gh` login on the viewer's own Mac, so GitHub's repo permissions decide, as on github.com.
+     With the local tracker they need the manager role (11c). Off by default: Settings → *Let others on this
+     network view*. Only this read-only view may be unencrypted, on the local network. The app declares
+     `NSLocalNetworkUsageDescription` and `NSBonjourServices`, so macOS asks once for local network access; that
+     needs stable code signing (today the app is signed ad hoc, which macOS may not remember, TN3179).
+   - **11c. Paired managers.** Pairing exchanges keys: from here on, every manager and runner connection is
+     authenticated and encrypted (TLS with the key pinned at pairing). A device paired for a named person with
+     the manager role sends the requests from 11a over that connection, so a connected window can do
+     everything the local one can: Stop, the Run
+     switch, rescan, baseline, verify chain, and the Settings pane, with model detection run on the harness's Mac.
+     Machine-bound buttons change meaning: *Open in Xcode* and *Reveal in Finder* fetch the run's branch into your
+     own clone of the repo and open it there; *Open config* opens it in your own clone.
+     Managers can remove pairings; a new pairing shows up on the attention list.
+   - **11d. Remote runners.** `agentos runner` runs headless, as a LaunchAgent in a logged-in user session,
+     because simulators and UI tests need one and a LaunchDaemon has none. It is paired once with a code shown
+     by the harness, over the encrypted connection from 11c. The app installs it with `SMAppService`, so macOS
+     attributes its local network access to the signed app. It opens the one connection, asks for jobs, renews
+     claims with heartbeats and streams output.
+     It keeps a cached clone and gets starting commits and returns results as git bundles over that connection,
+     so no separate git server is needed. It needs its own Copilot CLI login. Denied tools stay as they are.
+     Landing stays on the harness: merge there, landing tests as a job.
+   - **11e. Runner pool.** Settings: maximum runners, slots per runner and kind. Providers later: wake a sleeping
+     Mac (Wake-on-LAN), start macOS virtual machines (Virtualization framework; Apple's licence allows up to two
+     extra macOS VMs per Mac; check the licence), rent cloud Macs (often rented for at least a day, so start
+     only when work queues up).
+   - **11f. Signed-in people.** Sign in with GitHub (device flow) instead of device pairing, so a person's
+     requests and tracker labels carry the same identity. Roles per system (doc 09); which repos a person may
+     change stays with GitHub.
 
 ## Pilot: this repo
 

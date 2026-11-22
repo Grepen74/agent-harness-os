@@ -20,6 +20,7 @@
 | [06-seeing-what-the-harness-is-doing](06-seeing-what-the-harness-is-doing.md) | How can people see progress, what's happening now, and what needs them, at any stage? |
 | [07-the-reconciler](07-the-reconciler.md) | What exactly is the reconciler, is it an orchestrator, and how is it started and stopped? |
 | [08-leaves-and-parallel-work](08-leaves-and-parallel-work.md) | Where are leaves cut, and how do many agents work in one codebase at once without locks? |
+| [09-runners-and-clients](09-runners-and-clients.md) | How is the harness separated from the machines that do the work, and how do many people watch and steer it from elsewhere? |
 
 ## Why call it an "operating system"?
 
@@ -147,6 +148,7 @@ Real mappings must be designed and signed off by functional-safety and cybersecu
 | **CAL** | Cybersecurity Assurance Level (ISO/SAE 21434), how much security rigor is needed |
 | **Change request** | A formal, approved request to change a requirement that is already being built; includes an impact analysis |
 | **Claim** | A time-limited reservation of one piece of work for one agent, so no two agents work on the same leaf; it expires if not renewed |
+| **Client** | What a person uses to follow and steer the harness (an app window, a dashboard), as a **viewer** (watches the harness) or a **manager** (full control, through requests the harness checks and records); tracker actions such as labels follow the tracker's own permissions; any number at once (doc 09) |
 | **Contract / interface** | The agreed way two separately owned or built parts talk to each other (API, signal, message format). See *Interface level* |
 | **Contract check** | Testing one part against the agreed interface alone, without its real partner |
 | **Controller** | One small part of the reconciler responsible for one job (e.g. "start tests when code is ready") |
@@ -168,6 +170,7 @@ Real mappings must be designed and signed off by functional-safety and cybersecu
 | **Integration node** | A Work Node that builds nothing and only checks that certain parts work together; it can run before the whole system exists |
 | **Interface level** | How far an interface reaches, which decides how strictly it is governed: 0 internal, 1 component, 2 system-internal, 3 system boundary (doc 01) |
 | **Interface paths** | Files that define level 1–3 interfaces (public headers, IDL, schemas); listed in the manifest and protected against unapproved edits |
+| **Job** | One self-contained piece of work the harness hands to a runner (an agent run, a check, a landing check), with everything needed to do it (doc 09) |
 | **Landing / landing queue** | The single point where checked changes, one at a time, are rebased onto the latest code, re-checked with all proven tests, and merged. A leaf is proven only after it lands (doc 08) |
 | **Lease** | A time-limited lock on a scarce resource that can't be shared (test bench, migration, release); code itself is never locked (doc 08) |
 | **Leader** | The one running copy of the reconciler that is allowed to act; standby copies take over if it fails |
@@ -189,6 +192,7 @@ Real mappings must be designed and signed off by functional-safety and cybersecu
 | **Retention lock** | A storage setting that makes files impossible to change or delete until their retention period ends |
 | **Rework** | Redoing a leaf from the latest code after a merge conflict; counted separately from failed attempts |
 | **Run (agent run)** | One agent session working on one node; it has its own run ID so its tool calls can be traced back to the node |
+| **Runner** | A machine that does the harness's heavy work (agent runs, builds, tests) by asking it for jobs; there can be any number, and they never write the ledger (doc 09) |
 | **SAST / SBOM** | Static security scanning of code / a list of all third-party components in the software |
 | **Seal** | Freezing a release's nodes and evidence into a signed, read-only baseline so it can't be changed later |
 | **Signal** | A deliberate action by a person (label, board column, comment command, CLI) that requests a gate |

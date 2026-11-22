@@ -6,7 +6,7 @@ to write code that fits.
 
 ## What's here
 
-- `00-…08-*.md` (repo root): the **concept docs**. They describe the harness in general and stay
+- `00-…09-*.md` (repo root): the **concept docs**. They describe the harness in general and stay
   tool- and repo-agnostic. Don't put details of the Swift app in them.
 - `AgentOS/HarnessApp/`: the Swift harness app.
   - `AgentOSKit/`: Swift package with all the logic.
