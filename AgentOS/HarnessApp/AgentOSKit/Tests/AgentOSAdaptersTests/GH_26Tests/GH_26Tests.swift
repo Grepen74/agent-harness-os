@@ -472,6 +472,7 @@ private extension GH_26Tests {
                 team: AgentTeam(name: "GH-26", decomposer: unused, testAuthor: testAuthor, implementer: unused),
                 policy: {
                     var policy = Policy(maxParallelAgents: maxParallelAgents)
+                    policy.landingBatchSize = 1
                     policy.infrastructureRetryDelays = retryDelays
                     return policy
                 }(),

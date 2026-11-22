@@ -39,6 +39,7 @@ public struct Policy: Sendable, Equatable {
     /// Nodes worked on at the same time in a round: the agents the harness starts, not the sub-agents they use.
     /// Landing is always one at a time.
     public var maxParallelAgents = 1
+    public var landingBatchSize = 4
     public var avoidOverlappingWork = true
     public var pullRequests = false
     /// How long the harness waits before it tries again, by itself, work stopped by an infrastructure problem (a
@@ -56,11 +57,12 @@ public struct Policy: Sendable, Equatable {
     public init(maxAttempts: Int = 3, maxReworks: Int = 3, maxAgentRuns: Int = 12, maxParallelAgents: Int = 1,
                 allowedSignals: Set<HarnessCommand> = Set(HarnessCommand.allCases), protectedPaths: [String] = [],
                 guesswork: Guesswork = .assumeAndReport, avoidOverlappingWork: Bool = true,
-                pullRequests: Bool = false) {
+                pullRequests: Bool = false, landingBatchSize: Int = 4) {
         self.maxAttempts = maxAttempts
         self.maxReworks = maxReworks
         self.maxAgentRuns = maxAgentRuns
         self.maxParallelAgents = maxParallelAgents
+        self.landingBatchSize = landingBatchSize
         self.avoidOverlappingWork = avoidOverlappingWork
         self.pullRequests = pullRequests
         self.allowedSignals = allowedSignals

@@ -24,6 +24,7 @@ extension GH_88Tests {
             checks = RecordingChecks(workspace: workspace, diagnose: diagnose)
             let agents = Agents()
             var policy = Policy(maxParallelAgents: 4, guesswork: .autonomous)
+            policy.landingBatchSize = 1
             policy.avoidOverlappingWork = false
             reconciler = Reconciler(
                 ledger: ledger, tracker: tracker, external: External(),
