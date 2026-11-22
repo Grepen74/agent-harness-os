@@ -10,8 +10,12 @@ extension Reconciler {
     /// With `waitingForPreviews`, a preview started here finishes before the next signal is handled (the
     /// simulator's Step and tests that expect each round to finish its work).
     func intakeSignals(_ report: inout RoundReport, waitingForPreviews: Bool = false) async {
+        await intakeSignals(&report, waitingForPreviews: waitingForPreviews, signals: await tracker.pendingSignals())
+    }
+
+    func intakeSignals(_ report: inout RoundReport, waitingForPreviews: Bool, signals: [Signal]) async {
         await reclaimInterruptedPreviews(&report)
-        for signal in await tracker.pendingSignals() {
+        for signal in signals {
             let node = await ledger.workingState().node(forTicket: signal.ticket)
             do {
                 guard case .human(let person) = signal.setBy else {

@@ -11,17 +11,66 @@ public struct LabelMark: Codable, Sendable, Hashable {
     }
 }
 
+public enum CommentWriteAccess: String, Codable, Sendable, Hashable {
+    case allowed, denied, unknown
+}
+
 public struct Comment: Codable, Sendable, Hashable, Identifiable {
     public var id = UUID()
     public let author: Participant
     public let text: String
     public var at = Date()
-    /// The tracker's permission decision. Nil preserves local comments and older stored tickets.
-    public var authorCanProvideInput: Bool?
+    private var permission: CommentWriteAccess?
+
+    /// Legacy bridge: nil means no permission decision, never a confirmed denial.
+    public var authorCanProvideInput: Bool? {
+        get {
+            switch permission {
+            case .allowed: true
+            case .denied: false
+            case .unknown, nil: nil
+            }
+        }
+        set { permission = newValue.map { $0 ? .allowed : .denied } ?? .unknown }
+    }
+
+    /// Unreadable permissions are untrusted, but are not confirmed denials.
+    public var writeAccess: CommentWriteAccess {
+        get { permission ?? .allowed }
+        set { permission = newValue }
+    }
 
     public init(author: Participant, text: String) {
         self.author = author
         self.text = text
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, author, text, at, authorCanProvideInput, writeAccess
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(UUID.self, forKey: .id)
+        author = try values.decode(Participant.self, forKey: .author)
+        text = try values.decode(String.self, forKey: .text)
+        at = try values.decode(Date.self, forKey: .at)
+        if let access = try values.decodeIfPresent(CommentWriteAccess.self, forKey: .writeAccess) {
+            permission = access
+        } else {
+            permission = try values.decodeIfPresent(Bool.self, forKey: .authorCanProvideInput)
+                .map { $0 ? .allowed : .denied }
+        }
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(id, forKey: .id)
+        try values.encode(author, forKey: .author)
+        try values.encode(text, forKey: .text)
+        try values.encode(at, forKey: .at)
+        try values.encodeIfPresent(authorCanProvideInput, forKey: .authorCanProvideInput)
+        try values.encodeIfPresent(permission, forKey: .writeAccess)
     }
 
     /// A person's note for other people (a diagnosis, a status update): never an answer, a correction or agent context.
@@ -29,7 +78,7 @@ public struct Comment: Codable, Sendable, Hashable, Identifiable {
 
     /// A person's comment that agents and the harness may act on.
     public var isHumanInput: Bool {
-        author.isHuman && authorCanProvideInput != false && !text.contains(Self.agentIgnoreMarker)
+        author.isHuman && writeAccess == .allowed && !text.contains(Self.agentIgnoreMarker)
     }
 }
 

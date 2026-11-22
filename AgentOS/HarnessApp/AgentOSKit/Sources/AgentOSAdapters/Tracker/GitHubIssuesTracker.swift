@@ -150,7 +150,7 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
         let found: Issue?
         if let listed { found = listed } else { found = await attempt("Reading \(key)") { try await self.get(Issue.self, "repos/\(self.repo)/issues/\(number)") } }
         guard let issue = found, issue.pullRequest == nil else { return nil }
-        var permissions: [String: Bool] = [:]
+        var permissions: [String: CommentWriteAccess] = [:]
         return await ticket(from: issue, permissions: &permissions)
     }
 
@@ -254,7 +254,7 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
 
     public func tickets() async -> [Ticket] {
         var result: [Ticket] = []
-        var permissions: [String: Bool] = [:]
+        var permissions: [String: CommentWriteAccess] = [:]
         for issue in await listOpenIssues() {
             result.append(await ticket(from: issue, permissions: &permissions))
         }
@@ -288,7 +288,7 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
             try await self.send(Issue.self, "POST", "repos/\(self.repo)/issues", ["title": title, "body": body])
         }) else { return nil }
         listedAt = nil
-        var permissions: [String: Bool] = [:]
+        var permissions: [String: CommentWriteAccess] = [:]
         return await ticket(from: issue, permissions: &permissions)
     }
 
@@ -434,7 +434,7 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
         return openIssues
     }
 
-    private func ticket(from issue: Issue, permissions: inout [String: Bool]) async -> Ticket {
+    private func ticket(from issue: Issue, permissions: inout [String: CommentWriteAccess]) async -> Ticket {
         let parsed = Self.parse(body: issue.body ?? "")
         var ticket = Ticket(
             key: Self.key(issue.number), title: issue.title, description: parsed.description,
@@ -453,7 +453,7 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
         return ticket
     }
 
-    private func comments(of issue: Issue, permissions: inout [String: Bool]) async -> [Comment] {
+    private func comments(of issue: Issue, permissions: inout [String: CommentWriteAccess]) async -> [Comment] {
         let items: [IssueComment]
         if let cached = commentCache[issue.number], cached.updatedAt == issue.updatedAt {
             items = cached.comments
@@ -469,7 +469,7 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
         for item in items where Self.participant(item.user).isHuman && !(item.body ?? "").contains(Self.marker) {
             guard permissions[item.user.login] == nil else { continue }
             let decision = await commentPermissions.permission(for: item.user.login)
-            permissions[item.user.login] = decision.allowed
+            permissions[item.user.login] = decision.problem != nil ? .unknown : (decision.allowed ? .allowed : .denied)
             if let problem = decision.problem { problems.append(problem) }
         }
         return items.map { item in
@@ -477,7 +477,7 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
             let byHarness = text.contains(Self.marker)
             var comment = Comment(author: byHarness ? .reconciler : Self.participant(item.user),
                                   text: text.replacingOccurrences(of: Self.marker, with: "").trimmingCharacters(in: .whitespacesAndNewlines))
-            if !byHarness { comment.authorCanProvideInput = permissions[item.user.login] ?? false }
+            if !byHarness { comment.writeAccess = permissions[item.user.login] ?? .unknown }
             comment.id = Self.uuid(item.id)
             comment.at = Self.date(item.createdAt) ?? comment.at
             return comment

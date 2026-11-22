@@ -169,7 +169,14 @@ public actor Reconciler {
             report.safeStop = "Couldn't read requirement pull requests: \(error). Check GitHub access, then run again."
             return finish(report)
         }
-        await intakeSignals(&report, waitingForPreviews: waitForAgents)
+        let signals = await tracker.pendingSignals()
+        do {
+            try await observeIgnoredComments(signals: signals)
+        } catch {
+            report.safeStop = "Couldn't record ignored comments: \(error). Check the tracker and ledger, then run again."
+            return finish(report)
+        }
+        await intakeSignals(&report, waitingForPreviews: waitForAgents, signals: signals)
         await refreshDependenciesThere()
         await intakeExternal(&report)
 

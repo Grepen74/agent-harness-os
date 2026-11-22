@@ -46,6 +46,7 @@ public enum EventKind: Codable, Sendable {
     // Signals (doc 05): recorded whether accepted or not, for the audit trail.
     case signalAccepted(ticket: String, command: HarnessCommand, reply: String)
     case signalRejected(ticket: String, command: HarnessCommand, reason: String)
+    case commentIgnored(ticket: String, commentID: UUID, author: Participant)
     /// A dry-run breakdown. Nothing is created; accepting it later creates exactly this.
     case previewRecorded(ticket: String, number: Int, specHash: String, proposal: [NodeSpec])
     /// A preview's decomposer started; it runs in the background and claims nothing. `node` is the ID the
@@ -234,6 +235,8 @@ extension EventKind {
         switch self {
         case .signalAccepted(let ticket, let command, _): "\(command.label) on \(ticket) accepted"
         case .signalRejected(let ticket, let command, let reason): "\(command.label) on \(ticket) rejected: \(reason)"
+        case .commentIgnored(let ticket, _, let author):
+            "\(ticket): ignored comment by \(author.label), from someone without write access"
         case .previewRecorded(let ticket, let number, _, let proposal): "preview #\(number) of \(ticket): \(proposal.count) nodes"
         case .previewStarted(let ticket, _, let run): "preview of \(ticket) started (\(run))"
         case .previewFinished(let ticket, let run, let outcome): "preview of \(ticket) (\(run)) finished: \(outcome)"

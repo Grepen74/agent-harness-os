@@ -1,0 +1,7 @@
+Ledger
+O records. Append-only; the source of truth.
+Verify chain
+Ticket All tickets Event kind
+All event kinds
+Harness activity
+What each reconciler round did.
