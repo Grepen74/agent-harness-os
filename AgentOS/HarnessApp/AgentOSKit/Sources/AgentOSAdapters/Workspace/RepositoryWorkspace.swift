@@ -573,7 +573,7 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
 
     /// Tags, remote-tracking refs, the stash and other refs by commit; which local branches exist (a branch you
     /// commit to while agents work moves, so only creating or deleting one counts); and the content of the shared
-    /// git config, hooks and `info/` files, which affect every checkout of the repo.
+    /// git config, hooks and `info/` files (except `info/refs`), which affect every checkout of the repo.
     public func userGitState() async throws -> [String] {
         var state: [String] = []
         for line in try await watchedRefs().split(separator: "\n") {
@@ -589,6 +589,9 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
             let names = (try? FileManager.default.subpathsOfDirectory(atPath: common.appending(path: folder).path)) ?? []
             files += names.map { "\(folder)/\($0)" }
         }
+        // Written by `git update-server-info`, which git's own housekeeping (`gc --auto`, repack) runs after
+        // any commit: a list of the refs already watched above, not a setting.
+        files.removeAll { $0 == "info/refs" }
         for file in files.sorted() {
             if var data = FileManager.default.contents(atPath: common.appending(path: file).path) {
                 // Harness-owned merge aids may change while another requirement's agent is running.

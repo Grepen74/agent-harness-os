@@ -53,8 +53,35 @@ their cleanup, and a rescan waits for them before it replaces the session.
 
 Two things still hold their own round open: a `harness:preview` waits for the decomposer before the round
 returns (an approved breakdown runs like any other agent, across rounds), and landing runs synchronously in
-the round that lands, one change at a time, while agents started by earlier rounds keep running. A landing
+the round that lands, one batch (or single change) at a time, while agents started by earlier rounds keep running. A landing
 takes one of the *max parallel agents* slots, and while a change waits to land, rounds keep a slot free for it.
+
+**Landing batch size** defaults to 4; set it to 1 for the existing one-at-a-time landing, review and
+failure diagnosis. A repo can lower the setting with `limits.landingBatchSize`, but cannot raise it.
+Waiting changes on the same requirement branch are taken oldest first, up to that size, and checked
+together once in a separate working copy based on the latest requirement tip. Different requirements
+never share a batch. Agent-reviewed changes are rebased onto the requirement branch and reviewed
+individually before joining; failed reviews return findings and stay out. Only agent-and-human review
+requires individual landing and `harness:build` approval of the exact candidate commit.
+Conflicting nodes are removed for merge-conflict rework without a failed attempt, adding newly
+discovered conflicting files to their predicted paths. After each node is applied, the single-landing
+protected-tests check runs; tampered nodes are removed as failed landing checks with the tampering
+summary. The remaining nodes are still checked together and can land in the same round.
+On a pass, a compare-and-swap moves the branch to the checked tip, preserving each node's separate
+commits in queue order without UI evidence in their history. Each node becomes Proven with its own
+landed commit, shared batch-check evidence, and a landed comment naming the batch. The ledger records
+the batch name, branch, ordered nodes, candidate and result. Its `landingBatchMemberRemoved` rows name
+each removed node and its own conflict or tampering reason, also shown in the ledger pane.
+A checked-out requirement waits without starting a run; that wait is checked again before the batch
+moves the branch.
+Runner crashes get one unchanged retry; a second crash escalates every member without a failed attempt.
+A failed batch first gets a quiet full rerun, waiting for existing agents and previews and blocking new
+ones throughout diagnosis. A passing rerun lands normally with an "Unreliable test" comment on each
+ticket. Otherwise the failing suites run alone on the batch tip and the latest requirement branch
+without it. A runner problem, an empty selection, tests failing without the batch, or unknown failing
+suites escalates every member with "Landing infrastructure problem" evidence and no failed attempt,
+without splitting. Fix the branch or runner, then add `harness:retry`. The ledger pane shows the reruns,
+results and outcome; see [real-repo mode](docs/real-repo-mode.md) for the full diagnosis flow.
 
 ## Open a real repo
 

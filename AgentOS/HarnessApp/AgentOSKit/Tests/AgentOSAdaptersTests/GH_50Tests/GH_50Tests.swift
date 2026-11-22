@@ -456,12 +456,14 @@ struct GH_50Tests {
             workspace = InstrumentedWorkspace(root: root, gate: holdLanding ? landingGate : nil)
             author = HeldAuthor(gate: authorGate)
             let reservationGate = reservationGate
+            var policy = Policy(maxParallelAgents: maxParallelAgents)
+            policy.landingBatchSize = 1
             reconciler = Reconciler(
                 ledger: ledger, tracker: tracker, external: NoExternal(),
                 workspace: workspace, artifacts: Artifacts(), checks: Checks(workspace: workspace),
                 team: AgentTeam(name: "GH-50", decomposer: NoDecomposer(),
                                 testAuthor: author, implementer: NoImplementer()),
-                policy: Policy(maxParallelAgents: maxParallelAgents),
+                policy: policy,
                 beforeStep: { id in
                     if id == reserve { await reservationGate.enter() }
                 }

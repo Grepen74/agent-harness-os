@@ -16,6 +16,8 @@ public enum LedgerEventKind: String, Hashable, CaseIterable, Sendable {
     case changeSubmitted, attemptFailed, testDraftKept, diagnosisRecorded, acceptanceTestPreflightFailed, passingCheckRecorded, mainMovedRework
     case actualChangedFilesRecorded, predictedPathsExpanded
     case evidenceRecorded, landingReworkNeeded, landingRerunRequested, reworkNeeded, landed
+    case landingBatchChecked, landingBatchMemberRemoved
+    case landingBatchSplit, landingBatchOwnersRemoved
     case questionsRaised, assumptionsReported, suggestionsReported, questionsAnswered, externalDependencyResolved
     case ticketClosed, ticketReopened, readinessScanned, baselineChecked
     case mainFetchWarningChanged
@@ -84,6 +86,10 @@ public enum LedgerEventKind: String, Hashable, CaseIterable, Sendable {
         case .landingRerunRequested: self = .landingRerunRequested
         case .reworkNeeded: self = .reworkNeeded
         case .landed: self = .landed
+        case .landingBatchChecked: self = .landingBatchChecked
+        case .landingBatchMemberRemoved: self = .landingBatchMemberRemoved
+        case .landingBatchSplit: self = .landingBatchSplit
+        case .landingBatchOwnersRemoved: self = .landingBatchOwnersRemoved
         case .questionsRaised: self = .questionsRaised
         case .assumptionsReported: self = .assumptionsReported
         case .suggestionsReported: self = .suggestionsReported

@@ -115,7 +115,8 @@ extension Reconciler {
     /// any other node's tests (the implementer must never "fix" a conflict by editing someone else's tests),
     /// nor any protected path (e.g. the agents' own instructions). The only exception: other work's tests the
     /// test author updated with the acceptance tests, locked by their own fingerprint.
-    func protectedTestsViolation(_ node: NodeState, in directory: URL) async throws -> String? {
+    func protectedTestsViolation(_ node: NodeState, in directory: URL,
+                                 changedFiles: [String]? = nil) async throws -> String? {
         if testsDigest(node, in: directory) != node.testsDigest {
             return "Acceptance tests were changed after they were fixed (not allowed)"
         }
@@ -124,7 +125,9 @@ extension Reconciler {
             return "Other work's tests the acceptance tests updated were changed afterwards (not allowed): "
                 + node.updatedOtherTests.joined(separator: ", ")
         }
-        let changed = try await workspace.changedFiles(in: directory)
+        let changed: [String]
+        if let changedFiles { changed = changedFiles }
+        else { changed = try await workspace.changedFiles(in: directory) }
         let own = workspace.testFolder(for: node.spec) + "/"
         let others = changed.filter {
             workspace.isInUpdatableTestArea($0) && !$0.hasPrefix(own) && !node.updatedOtherTests.contains($0)
