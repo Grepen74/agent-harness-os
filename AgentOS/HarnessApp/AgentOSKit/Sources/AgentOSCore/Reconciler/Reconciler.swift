@@ -210,6 +210,9 @@ public actor Reconciler {
             }
             try await clearObsoleteOverlapHolds()
             try await verifyCompletedRequirements(&report)
+            if policy.pullRequests {
+                try await publisher?.reconcileVerificationStatuses()
+            }
         } catch {
             report.safeStop = "Couldn't reconcile work: \(error). Check the workspace and ledger, then run again."
         }

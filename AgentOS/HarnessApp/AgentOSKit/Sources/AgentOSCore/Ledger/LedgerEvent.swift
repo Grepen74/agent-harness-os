@@ -87,6 +87,8 @@ public enum EventKind: Codable, Sendable {
     case requirementVerificationRetryRequested
     case requirementMerged(commit: String)
     case requirementPushed(branch: String, commit: String)
+    case requirementVerificationStatusPosted(commit: String, state: RequirementVerificationStatus)
+    case requirementVerificationStatusPostFailed(commit: String, error: String)
     case requirementPublicationStarted
     case requirementPullRequestOpened(number: Int, url: String)
     case requirementPullRequestMerged(number: Int, url: String)
@@ -263,6 +265,10 @@ extension EventKind {
                 (paths.isEmpty ? "components \(components.joined(separator: ", "))" : "paths \(paths.joined(separator: ", "))")
         case .testsFixed(let digest): "acceptance tests fixed (\(digest.prefix(8)))"
         case .requirementPushed(let branch, let commit): "pushed \(branch) at \(commit)"
+        case .requirementVerificationStatusPosted(let commit, let state):
+            "posted agentos/verified \(state.rawValue) at \(commit)"
+        case .requirementVerificationStatusPostFailed(let commit, let error):
+            "agentos/verified status post failed at \(commit): \(error)"
         case .requirementPublicationStarted: "requirement publication started"
         case .requirementPullRequestOpened(let number, let url): "opened pull request #\(number): \(url)"
         case .requirementPullRequestMerged(let number, let url): "merged pull request #\(number): \(url)"

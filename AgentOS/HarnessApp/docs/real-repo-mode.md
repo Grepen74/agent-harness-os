@@ -125,6 +125,27 @@ waits without automatic retries or agent rework: its error appears in a ticket c
 attention**. Fix it and add `harness:retry` to push again and open or update the same pull request, including
 when GitHub created it but its response was lost.
 
+With publishing on, every requirement commit the harness successfully pushes gets the GitHub commit
+status **`agentos/verified`**, posted to `POST repos/{owner}/{repo}/statuses/{sha}`. Its state describes
+final requirement verification of that exact commit, never a leaf check or a different branch tip:
+
+| State | Description |
+|---|---|
+| `pending` | `Waiting for final verification`, when that commit has no recorded final result |
+| `success` | `Final verification passed` |
+| `failure` | The start of the verification summary, at most 140 characters; longer summaries end with `…` |
+
+If the final result already exists at push time, the harness posts that result instead of `pending`.
+A later result updates its own pushed commit even if the branch has moved. No status is posted on a
+commit the harness did not push, or while publishing is off.
+
+Each successful status post records its commit and state in the ledger; recorded commit/state pairs
+are not posted again. After a restart, missing statuses are recovered from pushed commits and recorded
+final results without rerunning verification or repushing the branch. A failed status post shows its
+error in **Needs attention** until posting succeeds and is retried automatically next round, at most
+once per round, without `harness:retry`. It does not block updating the pull request, change the ticket's
+status, or start agent rework. This automatic retry is separate from push/publication failures above.
+
 The requirement's ticket follows its pull request: **In review** while open, **Done** when merged,
 and **Needs input** when closed without merging. These statuses appear in ticket labels and comments,
 and in the board's status field when `tracker.project` is configured, using `tracker.project.statusMap`.

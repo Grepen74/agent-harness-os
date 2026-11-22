@@ -96,6 +96,7 @@ public struct NodeState: Sendable, Identifiable {
     public var pullRequestState: RequirementPullRequest.State?
     public var publishedCommit: String?
     public var publicationFailure: String?
+    public var verificationStatusPostFailures: [String: String] = [:]
     public var publicationRetryPending = false
     public var acceptanceCriterionProofs: [AcceptanceCriterionProof] = []
     public var catchUpConflict: CatchUpConflict?
@@ -223,6 +224,11 @@ public struct WorkingState: Sendable {
             }
             if let failure = node.publicationFailure {
                 items.append((node, .needsInput, failure))
+            }
+            for commit in node.verificationStatusPostFailures.keys.sorted() {
+                if let failure = node.verificationStatusPostFailures[commit] {
+                    items.append((node, .needsInput, failure))
+                }
             }
             return items
         }
@@ -382,6 +388,10 @@ public struct WorkingState: Sendable {
             node.requirementVerification = evidence
         case .requirementVerificationRetryRequested:
             if event.by.isHuman { node.requirementVerificationRetryPending = true }
+        case .requirementVerificationStatusPosted(let commit, _):
+            node.verificationStatusPostFailures[commit] = nil
+        case .requirementVerificationStatusPostFailed(let commit, let error):
+            node.verificationStatusPostFailures[commit] = error
         case .requirementMerged:
             node.requirementMerged = true
         case .requirementPullRequestOpened(let number, let url),
