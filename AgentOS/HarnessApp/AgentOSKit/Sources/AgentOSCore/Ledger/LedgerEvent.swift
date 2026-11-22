@@ -81,6 +81,7 @@ public enum EventKind: Codable, Sendable {
     // Work
     case requirementBranchCreated(branch: String, from: String)
     case requirementBranchObserved(branch: String, tip: String, main: String, containedInMain: Bool)
+    case requirementBranchContainmentObserved(branch: String, tip: String, main: String, containsMain: Bool)
     case requirementCatchUpConflicted(branch: String, main: String, files: [String], tickets: [String])
     case requirementVerificationStarted
     case requirementVerificationFinished(Evidence)
@@ -281,6 +282,8 @@ extension EventKind {
         case .requirementBranchCreated(let branch, let from): "created \(branch) from \(from)"
         case .requirementBranchObserved(let branch, let tip, let main, let contained):
             "observed \(branch) at \(tip), \(contained ? "contained" : "not contained") in main \(main)"
+        case .requirementBranchContainmentObserved(let branch, let tip, let main, let containsMain):
+            "observed \(branch) at \(tip), contains main \(main): \(containsMain)"
         case .requirementCatchUpConflicted(let branch, let main, let files, let tickets):
             "\(branch) catch-up to \(main) conflicted in \(files.joined(separator: ", ")); requirements: \(tickets.joined(separator: ", "))"
         case .requirementVerificationStarted: "final requirement verification started"

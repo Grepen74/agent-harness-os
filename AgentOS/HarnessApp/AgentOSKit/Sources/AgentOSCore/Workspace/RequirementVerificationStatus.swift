@@ -2,3 +2,5 @@
 public enum RequirementVerificationStatus: String, Codable, Hashable, Sendable {
     case pending, success, failure
 }
+
+public typealias VerificationCommitStatus = RequirementVerificationStatus

@@ -127,6 +127,9 @@ struct NodeDetail: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("\(node.spec.id) · \(node.spec.kind.rawValue)").font(.headline)
                 grid
+                if let details = model.pullRequestDetails(for: node.id) {
+                    PullRequestSection(details: details)
+                }
                 if let message = model.state.overlapHoldMessage(for: node) {
                     Label(message, systemImage: "pause.circle")
                         .font(.body)

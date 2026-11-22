@@ -81,11 +81,19 @@ extension Reconciler {
     private func observeRequirement(_ root: NodeState, branch: String, tip: String, main: String,
                                     repository: any RequirementBranchRepository) async throws {
         let contained = try await repository.isAncestor(tip, of: main)
+        let containsMain = try await repository.isAncestor(main, of: tip)
         let previous = root.requirementBranchObservation
-        guard previous?.tip != tip || previous?.main != main || previous?.containedInMain != contained else { return }
-        try await write(root.id, by: .reconciler, [
-            .requirementBranchObserved(branch: branch, tip: tip, main: main, containedInMain: contained),
-        ])
+        let containment = root.requirementBranchContainmentObservation
+        var events: [EventKind] = []
+        if previous?.tip != tip || previous?.main != main || previous?.containedInMain != contained {
+            events.append(.requirementBranchObserved(branch: branch, tip: tip, main: main, containedInMain: contained))
+        }
+        if containment?.branch != branch || containment?.tip != tip || containment?.main != main
+            || containment?.containsMain != containsMain {
+            events.append(.requirementBranchContainmentObserved(
+                branch: branch, tip: tip, main: main, containsMain: containsMain))
+        }
+        if !events.isEmpty { try await write(root.id, by: .reconciler, events) }
     }
 
     private func rebaseRequirementLeaves(_ id: NodeID) async throws {

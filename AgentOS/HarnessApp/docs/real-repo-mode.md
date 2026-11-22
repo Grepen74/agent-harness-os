@@ -190,6 +190,53 @@ visible even when all their leaves are proven. It hides merged and closed requir
 requirement whose status is **Done**, even if it still has attention entries. Other unfinished
 requirements needing a person remain visible. Turning the toggle on shows all requirements.
 
+Select a requirement with a pull request to see its **Pull request** details section. Its **#number**
+is a link to the recorded GitHub URL. Labelled rows show the **Last pushed commit**, that exact commit's
+**agentos/verified** state (**Pending**, **Success**, **Failure**, or **Not posted**), the **Last verified
+commit** with **Passed** or **Failed**, and whether the branch **Contains latest main** (**Yes**, **No**,
+or **Unknown** when no current observation exists). The last completed verification stays visible while
+another runs; it need not describe the last pushed commit. **Last catch-up** shows this requirement's
+latest caught-up main commit and recorded time. **Verification queue** shows its one-based position,
+or **Not waiting**. Requirements without a pull request have no such section.
+
+Below **Running now**, **Running agents** also shows **Waiting for final verification**, even when
+no agent is running. Rows follow the shared verification queue: eligible pull requests in ascending
+number, then unpublished requirements in creation order. Each shows its ticket, its own pull request
+number when present, and numeric position. Completed, currently verifying, closed, merged or blocked
+requirements are not waiting.
+
+### One-time GitHub branch protection setup
+
+A person, not the harness or its agents, must protect the repository's default branch. In GitHub's
+branch protection settings (or an equivalent branch ruleset), require the status check
+**`agentos/verified`** and enable **Require branches to be up to date before merging**. Together these
+prevent merging a pull request until the harness has verified its commit against the latest main.
+No GitHub Actions workflow or GitHub merge queue is needed.
+
+For example, after authenticating `gh` with an account allowed to manage repository protection, run:
+
+```sh
+gh api --method PUT repos/OWNER/REPO/branches/DEFAULT_BRANCH/protection --input - <<'JSON'
+{
+  "required_status_checks": {
+    "strict": true,
+    "contexts": ["agentos/verified"]
+  },
+  "enforce_admins": false,
+  "required_pull_request_reviews": null,
+  "restrictions": null
+}
+JSON
+```
+
+Replace `OWNER`, `REPO` and `DEFAULT_BRANCH` with your repository and default branch (usually `main`).
+This PUT sets branch protection, so first review existing protection and preserve any other required
+checks, review requirements or restrictions rather than replacing them with this minimal example.
+GitHub administrators **can bypass** this configuration because `enforce_admins` is false; rulesets can
+also grant bypass permissions. Do not bypass it for ordinary merges. To apply protection to admins too,
+use `enforce_admins: true` and review any ruleset bypass list. Availability depends on GitHub's plan and
+repository visibility.
+
 The optional boolean `pullRequests` repo key inherits the saved harness setting when absent. `false`
 switches publishing off for the repo. `true` while the harness setting is off has no effect and adds a
 `config.policy` readiness blocker; remove the key, set it to `false`, or enable publishing in Settings.
