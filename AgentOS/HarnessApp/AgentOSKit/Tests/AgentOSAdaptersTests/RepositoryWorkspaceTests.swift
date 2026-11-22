@@ -445,6 +445,7 @@ struct RepositoryWorkspaceTests {
     @Test("An agent that changes your refs or git config is escalated, not retried", arguments: [
         (["tag", "sneaky"], "refs/tags/sneaky"),
         (["update-ref", "refs/remotes/origin/main", "HEAD"], "refs/remotes/origin/main"),
+        (["update-ref", "refs/remotes/agentos/main", "HEAD"], "refs/remotes/agentos/main"),
         (["config", "user.name", "Mallory"], "config"),
     ])
     func agentsMayNotTouchYourGitState(command: [String], named: String) async throws {
@@ -475,6 +476,41 @@ struct RepositoryWorkspaceTests {
         let node = try #require(await session.ledger.workingState().node(forTicket: key))
         #expect(node.flags[.escalated] == nil, "\(node.flags)")
         #expect(node.phase == .proven)
+    }
+
+    @Test("Publishing moves origin's tracking ref for an agentos/ branch, wherever its fetch refspec puts it; that isn't your git state", arguments: [
+        ("refs/remotes/origin/*", "refs/remotes/origin/agentos/GH-7", false),
+        ("refs/remotes/origin/team/*", "refs/remotes/origin/team/agentos/GH-7", false),
+        ("refs/remotes/origin/team/*", "refs/remotes/origin/agentos/GH-7", true),
+    ])
+    func originsTrackingRefsForAgentOSBranchesAreTheHarnesss(tracking: String, moved ref: String, escalates: Bool) async throws {
+        let repo = try await makeRepo()
+        try await git(["config", "remote.origin.url", repo.path], in: repo)
+        try await git(["config", "remote.origin.fetch", "+refs/heads/*:\(tracking)"], in: repo)
+        let session = try await session(repo, team: team(runsGit: ["update-ref", ref, "HEAD"]))
+        let key = await ticket(session)
+
+        await session.runUntilFinished()
+
+        let node = try #require(await session.ledger.workingState().node(forTicket: key))
+        #expect((node.flags[.escalated]?.contains("changed your repo outside agentos/: \(ref)") == true) == escalates,
+                "\(node.flags)")
+    }
+
+    @Test("Another remote's tracking refs are yours, even one named so that they sit under .../agentos/")
+    func anotherRemotesTrackingRefsAreYours() async throws {
+        let repo = try await makeRepo()
+        try await git(["config", "remote.origin.url", repo.path], in: repo)
+        try await git(["config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"], in: repo)
+        try await git(["config", "remote.team/agentos.url", repo.path], in: repo)
+        try await git(["config", "remote.team/agentos.fetch", "+refs/heads/*:refs/remotes/team/agentos/*"], in: repo)
+        let session = try await session(repo, team: team(runsGit: ["update-ref", "refs/remotes/team/agentos/main", "HEAD"]))
+        let key = await ticket(session)
+
+        await session.runUntilFinished()
+
+        let node = try #require(await session.ledger.workingState().node(forTicket: key))
+        #expect(node.flags[.escalated]?.contains("refs/remotes/team/agentos/main") == true, "\(node.flags)")
     }
 
     /// Counts implementers at work. Each one waits until as many are at work as the harness may run at once (or

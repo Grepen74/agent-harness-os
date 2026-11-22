@@ -574,12 +574,16 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
     /// Tags, remote-tracking refs, the stash and other refs by commit; which local branches exist (a branch you
     /// commit to while agents work moves, so only creating or deleting one counts); and the content of the shared
     /// git config, hooks and `info/` files (except `info/refs`), which affect every checkout of the repo.
+    /// The harness's own branches don't count, nor do origin's tracking refs for them (where its fetch refspec puts
+    /// them): publishing a requirement pushes its branch, which moves that ref while other agents may be at work.
     public func userGitState() async throws -> [String] {
         var state: [String] = []
+        let originFetch = ((try? await git(["config", "--get-all", "remote.origin.fetch"], in: root)) ?? "")
+            .split(whereSeparator: \.isNewline).map(String.init)
         for line in try await watchedRefs().split(separator: "\n") {
             guard let space = line.firstIndex(of: " ") else { continue }
             let ref = String(line[line.index(after: space)...])
-            if ref.hasPrefix("refs/heads/agentos/") { continue }
+            if ref.hasPrefix("refs/heads/agentos/") || Self.tracksHarnessBranch(ref, refspecs: originFetch) { continue }
             state.append(ref.hasPrefix("refs/heads/") ? "branch \(ref)" : String(line))
         }
         let common = URL(filePath: try await git(["rev-parse", "--path-format=absolute", "--git-common-dir"], in: root)
@@ -608,6 +612,24 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
             }
         }
         return state
+    }
+
+    /// Whether a fetch refspec (`+refs/heads/*:refs/remotes/origin/*`) maps an `agentos/` branch to `ref`.
+    static func tracksHarnessBranch(_ ref: String, refspecs: [String]) -> Bool {
+        refspecs.contains { refspec in
+            guard !refspec.hasPrefix("^") else { return false }
+            let parts = refspec.drop { $0 == "+" }.split(separator: ":", omittingEmptySubsequences: false)
+            guard parts.count == 2 else { return false }
+            let (source, destination) = (parts[0], parts[1])
+            let sourceParts = source.split(separator: "*", omittingEmptySubsequences: false)
+            let destinationParts = destination.split(separator: "*", omittingEmptySubsequences: false)
+            guard sourceParts.count == destinationParts.count, sourceParts.count <= 2 else { return false }
+            if sourceParts.count == 1 { return destination == ref && source.hasPrefix("refs/heads/agentos/") }
+            let (prefix, suffix) = (destinationParts[0], destinationParts[1])
+            guard ref.count >= prefix.count + suffix.count, ref.hasPrefix(prefix), ref.hasSuffix(suffix) else { return false }
+            let branch = sourceParts[0] + ref.dropFirst(prefix.count).dropLast(suffix.count) + sourceParts[1]
+            return branch.hasPrefix("refs/heads/agentos/")
+        }
     }
 
     // MARK: Helpers
