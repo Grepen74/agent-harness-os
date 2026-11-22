@@ -2,6 +2,14 @@ import AgentOSCore
 import Foundation
 
 extension PullRequestPublicationCoordinator {
+    public func verificationStarted(requirement: NodeIdentity, commit: String) async throws {
+        try await postVerificationStatus(commit: commit, on: requirement.nodeID, running: true)
+    }
+
+    public func verificationFinished(requirement: NodeIdentity, commit: String) async throws {
+        try await postVerificationStatus(commit: commit, on: requirement.nodeID)
+    }
+
     /// Replays every pushed commit, including results that completed after the branch moved.
     public func reconcileVerificationStatuses() async throws {
         guard policy.policy.pullRequests, !reconcilingVerificationStatuses else { return }
@@ -18,7 +26,7 @@ extension PullRequestPublicationCoordinator {
         }
     }
 
-    func postVerificationStatus(commit: String, on node: NodeID) async throws {
+    func postVerificationStatus(commit: String, on node: NodeID, running: Bool = false) async throws {
         guard policy.policy.pullRequests else { return }
         let records = await ledger.records(for: node)
         guard records.contains(where: {
@@ -30,18 +38,32 @@ extension PullRequestPublicationCoordinator {
                   evidence.commit == commit else { return nil }
             return evidence
         }.first
-        let status: RequirementVerificationStatus = result.map { $0.passed ? .success : .failure } ?? .pending
+        let status: RequirementVerificationStatus = running ? .pending :
+            result.map { $0.passed ? .success : .failure } ?? .pending
         let allRecords = await ledger.allRecords()
-        guard !allRecords.contains(where: {
+        let lastPosted = allRecords.last(where: {
             if case .requirementVerificationStatusPosted(let postedCommit, let postedState) = $0.event.kind {
                 return postedCommit == commit && postedState == status
             }
             return false
-        }), attemptedVerificationStatuses.insert(commit).inserted else { return }
+        })
+        let lastTransition = allRecords.last(where: {
+            if case .requirementVerificationStatusPosted(let postedCommit, _) = $0.event.kind {
+                return postedCommit == commit
+            }
+            return false
+        })
+        let started = records.last {
+            if case .requirementVerificationStarted = $0.event.kind { return true }
+            return false
+        }
+        let alreadyPosted = lastPosted != nil && lastPosted?.position == lastTransition?.position &&
+            (!running || (lastPosted?.position ?? 0) > (started?.position ?? 0))
+        guard !alreadyPosted, attemptedVerificationStatuses.insert(commit).inserted else { return }
         let description: String
         switch status {
         case .pending:
-            description = "Waiting for final verification"
+            description = running ? "Final verification running" : "Waiting for final verification"
         case .success:
             description = "Final verification passed"
         case .failure:

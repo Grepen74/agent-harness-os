@@ -5,15 +5,29 @@ extension Reconciler {
         guard !isVerifyingRequirements else { return }
         isVerifyingRequirements = true
         defer { isVerifyingRequirements = false }
+        if slotsInUse == 0 { try await publishRequirements() }
         let state = await ledger.workingState()
-        for root in state.roots where !root.ticketClosed && root.phase == .proven {
-            guard !root.requirementMerged, root.pullRequestNumber == nil else { continue }
+        let roots = state.roots.enumerated().sorted { lhs, rhs in
+            switch (lhs.element.pullRequestNumber, rhs.element.pullRequestNumber) {
+            case let (a?, b?) where a != b: return a < b
+            case (_?, nil): return true
+            case (nil, _?): return false
+            default: return lhs.offset < rhs.offset
+            }
+        }.map(\.element)
+        for root in roots where !root.ticketClosed && root.phase == .proven {
+            guard shutdownReason == nil, !Task.isCancelled else { break }
+            guard !root.requirementMerged, root.pullRequestState != .closed,
+                  root.pullRequestNumber == nil || (policy.pullRequests && publisher != nil) else { continue }
+            // Observed PRs in old ledgers have no harness-owned published tip to reverify.
+            guard root.pullRequestNumber == nil || root.publishedCommit != nil ||
+                  root.requirementVerificationRetryPending else { continue }
             let leaves = state.requirementLeaves(for: root.id)
             guard !leaves.isEmpty, leaves.allSatisfy({ $0.phase == .proven }),
                   !requirementIsHeld(root, in: state) else { continue }
             // Already in main, for example a requirement finished before requirement branches existed: main's
             // baseline checks it, so final verification would only repeat that and wait for a person on a failure.
-            if root.requirementVerification?.passed != true,
+            if root.pullRequestNumber == nil, root.requirementVerification?.passed != true,
                (try? await workspace.requirementIsMerged(root.identity)) == true {
                 let branch = root.requirementBranch ?? "agentos/\(root.ticket)"
                 let tip = try await requirementBranches?.tip(of: branch)
@@ -24,11 +38,17 @@ extension Reconciler {
                 continue
             }
             var unverifiedTip = false
-            if policy.pullRequests, publisher != nil, root.pullRequestNumber == nil,
+            if policy.pullRequests, publisher != nil,
                root.publicationFailure == nil || root.publicationRetryPending,
-               let verified = root.requirementVerification, verified.passed, let requirementBranches,
-               let tip = try await requirementBranches.tip(of: root.requirementBranch ?? "agentos/\(root.ticket)") {
-                unverifiedTip = tip != verified.commit
+               root.requirementVerificationStarted,
+               let tip = try await requirementTip(root) {
+                let records = await ledger.records(for: root.id)
+                unverifiedTip = !records.contains {
+                    if case .requirementVerificationFinished(let evidence) = $0.event.kind {
+                        return evidence.commit == tip
+                    }
+                    return false
+                }
             }
             if !root.requirementVerificationStarted || root.requirementVerificationRetryPending || unverifiedTip {
                 report.actions.append("\(root.displayName): \(try await verifyRequirement(root))")
@@ -92,6 +112,9 @@ extension Reconciler {
             let checkout = try await workspace.requirementWorktree(for: root.identity)
             directory = checkout
             commit = try await workspace.head(of: checkout)
+            if policy.pullRequests {
+                try await publisher?.verificationStarted(requirement: root.identity, commit: commit)
+            }
             try await workspace.prepareBuild(in: checkout)
             output = await checks.runChecks(in: checkout, only: nil)
         } catch {
@@ -106,6 +129,9 @@ extension Reconciler {
             .requirementVerificationFinished(evidence), .evidenceRecorded(evidence),
             .runFinished(run: run, outcome: output.passed ? "passed" : "failed"),
         ])
+        if policy.pullRequests {
+            try await publisher?.verificationFinished(requirement: root.identity, commit: commit)
+        }
         if output.passed {
             await tracker.comment(on: root.ticket,
                 "Final verification passed at \(commit). Evidence: \(evidence.artifactPath). " +
@@ -136,20 +162,7 @@ extension Reconciler {
                   root.publicationFailure == nil || root.publicationRetryPending else { continue }
             guard root.requirementVerification?.passed == true || root.pullRequestNumber != nil else { continue }
             let branch = root.requirementBranch ?? "agentos/\(root.ticket)"
-            let tip: String?
-            if let requirementBranches {
-                tip = try await requirementBranches.tip(of: branch)
-            } else {
-                let checkout = try await workspace.requirementWorktree(for: root.identity)
-                do {
-                    tip = try await workspace.head(of: checkout)
-                } catch {
-                    await workspace.removeSnapshot(checkout)
-                    throw error
-                }
-                await workspace.removeSnapshot(checkout)
-            }
-            guard let tip else { continue }
+            guard let tip = try await requirementTip(root) else { continue }
             guard root.publishedCommit != tip || root.publicationRetryPending else { continue }
             if root.pullRequestNumber == nil {
                 let leaves = state.requirementLeaves(for: root.id)
@@ -158,6 +171,21 @@ extension Reconciler {
                       root.requirementVerification?.commit == tip else { continue }
             }
             try await publisher.publish(requirement: root.identity, branch: branch, commit: tip)
+        }
+    }
+
+    private func requirementTip(_ root: NodeState) async throws -> String? {
+        if let requirementBranches {
+            return try await requirementBranches.tip(of: root.requirementBranch ?? "agentos/\(root.ticket)")
+        }
+        let checkout = try await workspace.requirementWorktree(for: root.identity)
+        do {
+            let tip = try await workspace.head(of: checkout)
+            await workspace.removeSnapshot(checkout)
+            return tip
+        } catch {
+            await workspace.removeSnapshot(checkout)
+            throw error
         }
     }
 }

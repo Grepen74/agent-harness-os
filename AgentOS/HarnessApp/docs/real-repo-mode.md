@@ -132,6 +132,7 @@ final requirement verification of that exact commit, never a leaf check or a dif
 | State | Description |
 |---|---|
 | `pending` | `Waiting for final verification`, when that commit has no recorded final result |
+| `pending` | `Final verification running`, before checks start on that commit |
 | `success` | `Final verification passed` |
 | `failure` | The start of the verification summary, at most 140 characters; longer summaries end with `…` |
 
@@ -139,8 +140,21 @@ If the final result already exists at push time, the harness posts that result i
 A later result updates its own pushed commit even if the branch has moved. No status is posted on a
 commit the harness did not push, or while publishing is off.
 
+After catch-up merges main, a later leaf lands, or a person commits to a published requirement branch
+(including resolving a catch-up conflict), the harness pushes the new tip in that round and posts
+`pending` without requiring a signal. It runs full final verification on that exact checkout commit.
+Only one final verification runs at a time: requirements with pull requests go first in ascending pull
+request number, then requirements without a pull request in creation order. An unchanged tip with a
+recorded final result is not checked again. A failure waits for a person, with **Needs attention** and a
+ticket comment, never agent rework; `harness:retry` verifies the current tip again. A new tip without a
+result is verified automatically even after a failure.
+
+If main moves during verification, the harness still records and posts the result for the commit it
+checked. The next round catches the requirement branch up with main and verifies the new tip.
+
 Each successful status post records its commit and state in the ledger; recorded commit/state pairs
-are not posted again. After a restart, missing statuses are recovered from pushed commits and recorded
+are not posted again when nothing changes. A human retry posts a new pending/running lifecycle and result.
+After a restart, missing statuses are recovered from pushed commits and recorded
 final results without rerunning verification or repushing the branch. A failed status post shows its
 error in **Needs attention** until posting succeeds and is retried automatically next round, at most
 once per round, without `harness:retry`. It does not block updating the pull request, change the ticket's
