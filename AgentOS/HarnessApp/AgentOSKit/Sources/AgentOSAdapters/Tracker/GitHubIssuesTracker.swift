@@ -79,12 +79,13 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
     public nonisolated let repo: String
     private let transport: any GitHubTransport
     private let listInterval: Duration
+    private let commentPermissions: GitHubCommentPermissions
     /// The board whose status field shows the harness's status, if the config names one.
     private let board: GitHubProjectBoard?
 
     private var openIssues: [Issue] = []
     private var listedAt: ContinuousClock.Instant?
-    private var commentCache: [Int: (updatedAt: String, comments: [Comment])] = [:]
+    private var commentCache: [Int: (updatedAt: String, comments: [IssueComment])] = [:]
     private var labelSetters: [String: Participant] = [:]
     /// Statuses the harness set: the listed labels can be older.
     private var statuses: [Int: String] = [:]
@@ -99,10 +100,13 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
     public static let statusPrefix = "agentos: "
 
     public init(repo: String, transport: any GitHubTransport, project: RepoConfig.Tracker.Project? = nil,
-                listInterval: Duration = .seconds(10)) {
+                listInterval: Duration = .seconds(10), permissionRefreshInterval: Duration = .seconds(300),
+                now: @escaping @Sendable () -> Date = { Date() }) {
         self.repo = repo
         self.transport = transport
         self.listInterval = listInterval
+        commentPermissions = GitHubCommentPermissions(
+            repo: repo, transport: transport, refreshInterval: permissionRefreshInterval, now: now)
         board = project.map { GitHubProjectBoard(config: $0, repo: repo, transport: transport) }
     }
 
@@ -146,7 +150,8 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
         let found: Issue?
         if let listed { found = listed } else { found = await attempt("Reading \(key)") { try await self.get(Issue.self, "repos/\(self.repo)/issues/\(number)") } }
         guard let issue = found, issue.pullRequest == nil else { return nil }
-        return await ticket(from: issue)
+        var permissions: [String: Bool] = [:]
+        return await ticket(from: issue, permissions: &permissions)
     }
 
     public func consume(_ signal: Signal, reply: String) async {
@@ -249,7 +254,10 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
 
     public func tickets() async -> [Ticket] {
         var result: [Ticket] = []
-        for issue in await listOpenIssues() { result.append(await ticket(from: issue)) }
+        var permissions: [String: Bool] = [:]
+        for issue in await listOpenIssues() {
+            result.append(await ticket(from: issue, permissions: &permissions))
+        }
         return result
     }
 
@@ -280,7 +288,8 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
             try await self.send(Issue.self, "POST", "repos/\(self.repo)/issues", ["title": title, "body": body])
         }) else { return nil }
         listedAt = nil
-        return await ticket(from: issue)
+        var permissions: [String: Bool] = [:]
+        return await ticket(from: issue, permissions: &permissions)
     }
 
     public func edit(_ key: String, title: String, description: String, acceptanceCriteria: [String], blockedBy: [String]) async {
@@ -425,7 +434,7 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
         return openIssues
     }
 
-    private func ticket(from issue: Issue) async -> Ticket {
+    private func ticket(from issue: Issue, permissions: inout [String: Bool]) async -> Ticket {
         let parsed = Self.parse(body: issue.body ?? "")
         var ticket = Ticket(
             key: Self.key(issue.number), title: issue.title, description: parsed.description,
@@ -440,26 +449,39 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
         ticket.status = statuses[issue.number]
             ?? issue.labels.first { $0.name.hasPrefix(Self.statusPrefix) }.map { String($0.name.dropFirst(Self.statusPrefix.count)) }
             ?? (issue.state == "closed" ? "Done" : "To Do")
-        ticket.comments = await comments(of: issue)
+        ticket.comments = await comments(of: issue, permissions: &permissions)
         return ticket
     }
 
-    private func comments(of issue: Issue) async -> [Comment] {
-        if let cached = commentCache[issue.number], cached.updatedAt == issue.updatedAt { return cached.comments }
-        guard let fetched = await attempt("Reading comments on \(Self.key(issue.number))", {
+    private func comments(of issue: Issue, permissions: inout [String: Bool]) async -> [Comment] {
+        let items: [IssueComment]
+        if let cached = commentCache[issue.number], cached.updatedAt == issue.updatedAt {
+            items = cached.comments
+        } else if let fetched = await attempt("Reading comments on \(Self.key(issue.number))", {
             try await self.all(IssueComment.self, "repos/\(self.repo)/issues/\(issue.number)/comments")
-        }) else { return commentCache[issue.number]?.comments ?? [] }
-        let comments = fetched.map { item in
+        }) {
+            commentCache[issue.number] = (issue.updatedAt, fetched)
+            items = fetched
+        } else {
+            items = commentCache[issue.number]?.comments ?? []
+        }
+        // Failed lookups are shared within this read, but never cached for the next read.
+        for item in items where Self.participant(item.user).isHuman && !(item.body ?? "").contains(Self.marker) {
+            guard permissions[item.user.login] == nil else { continue }
+            let decision = await commentPermissions.permission(for: item.user.login)
+            permissions[item.user.login] = decision.allowed
+            if let problem = decision.problem { problems.append(problem) }
+        }
+        return items.map { item in
             let text = item.body ?? ""
             let byHarness = text.contains(Self.marker)
             var comment = Comment(author: byHarness ? .reconciler : Self.participant(item.user),
                                   text: text.replacingOccurrences(of: Self.marker, with: "").trimmingCharacters(in: .whitespacesAndNewlines))
+            if !byHarness { comment.authorCanProvideInput = permissions[item.user.login] ?? false }
             comment.id = Self.uuid(item.id)
             comment.at = Self.date(item.createdAt) ?? comment.at
             return comment
         }
-        commentCache[issue.number] = (issue.updatedAt, comments)
-        return comments
     }
 
     /// Who added the label last, from the issue's events. Anyone not known as a person counts as a tool.

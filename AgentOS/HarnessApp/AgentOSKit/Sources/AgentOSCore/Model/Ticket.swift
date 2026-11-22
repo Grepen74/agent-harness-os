@@ -16,6 +16,8 @@ public struct Comment: Codable, Sendable, Hashable, Identifiable {
     public let author: Participant
     public let text: String
     public var at = Date()
+    /// The tracker's permission decision. Nil preserves local comments and older stored tickets.
+    public var authorCanProvideInput: Bool?
 
     public init(author: Participant, text: String) {
         self.author = author
@@ -26,7 +28,9 @@ public struct Comment: Codable, Sendable, Hashable, Identifiable {
     public static let agentIgnoreMarker = "<!-- agentos:ignore -->"
 
     /// A person's comment that agents and the harness may act on.
-    public var isHumanInput: Bool { author.isHuman && !text.contains(Self.agentIgnoreMarker) }
+    public var isHumanInput: Bool {
+        author.isHuman && authorCanProvideInput != false && !text.contains(Self.agentIgnoreMarker)
+    }
 }
 
 /// A ticket as the harness sees it, whatever tracker it came from (doc 03).

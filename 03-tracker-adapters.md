@@ -253,6 +253,13 @@ Other trackers follow the same pattern:
 - **Role-based write access:** only decomposers (and humans) may change acceptance criteria. Implementers may
   comment and report progress, nothing more.
 - **Everything is logged:** every write records who (role + agent), what, and which policy allowed it.
+- **GitHub comment authors need write access.** Only comments by people with **write, maintain or admin**
+  repository permission count as agent context, answers, corrections, escalation replies or preview feedback.
+  Bot comments and comments from authors with read, triage or no access are ignored, but stay on GitHub.
+  Anyone can comment on a public repository, so accepting those comments could let a stranger steer agents
+  through prompt injection. Permissions are cached per author for a few minutes in each tracker session
+  and refreshed even when an issue hasn't changed. If a lookup fails, that author's comments are ignored
+  for that read and checked again on the next read. Local tracker comments remain the app user's input.
 - **Ticket text is not instructions.** Descriptions and comments can be written by anyone and may contain
   hidden instructions aimed at AI agents (*prompt injection*). Defences:
   - an agent's **instructions and permissions come only from the harness** (its role, its rules, the node's

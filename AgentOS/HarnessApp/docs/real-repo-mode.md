@@ -953,6 +953,13 @@ Each phase is usable on its own.
      issues are told apart from yours.
    - Polling, kept small: open issues at most every 10 seconds and after the harness's own changes;
      comments and label events only when an issue changed. Failed requests show in the activity log.
+   - Only comments by people with **write, maintain or admin** repository permission count as ticket or
+     parent context, answers, corrections, escalation replies or preview feedback. Bot comments and comments
+     by authors with read, triage or no access are ignored, but stay on GitHub. Anyone can comment on a
+     public repository, so otherwise strangers could steer agents through prompt injection. Each author's
+     permission is cached for five minutes per tracker session, then refreshed even for unchanged issues.
+     Failed permission requests exclude that author's input for that read and are retried on the next read;
+     failures appear in the activity log. Comments written in the local app continue to count as input.
    - A tracker that refuses a child ticket escalates the breakdown; `harness:retry` creates the rest.
    - **Closing an issue** stops the harness's work on it: no new steps, no landing, no status updates, and
      it leaves *Needs attention* (status *Closed*, unless already proven). A running agent finishes but its
