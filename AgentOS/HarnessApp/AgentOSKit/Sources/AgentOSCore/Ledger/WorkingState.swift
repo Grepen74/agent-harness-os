@@ -170,6 +170,7 @@ public struct WorkingState: Sendable {
     public private(set) var readiness: ReadinessScan?
     /// The latest baseline run on the default branch.
     public private(set) var baseline: Baseline?
+    public private(set) var mainFetchWarning: String?
     public private(set) var catchUpConflict: CatchUpConflict?
     public private(set) var lastCatchUpSuccess: CatchUpSuccess?
 
@@ -329,6 +330,8 @@ public struct WorkingState: Sendable {
             readiness = scan
         case .baselineChecked(let result):
             baseline = result
+        case .mainFetchWarningChanged(let warning):
+            mainFetchWarning = warning
         case .catchUpConflicted(let main, let files, let tickets):
             catchUpConflict = CatchUpConflict(mainSHA: main, files: files, tickets: tickets)
         case .catchUpSucceeded(let main, let tip, let method):

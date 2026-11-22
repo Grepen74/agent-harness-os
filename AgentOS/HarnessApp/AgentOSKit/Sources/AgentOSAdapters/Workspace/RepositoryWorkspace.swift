@@ -26,6 +26,8 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
     /// errors when leaves start side by side. Agents and checks still run in parallel.
     let worktreeLock = AsyncSemaphore(1)
     let mergeAidLock = AsyncSemaphore(1)
+    let mainReferenceLock = AsyncSemaphore(1)
+    let mainReference = MainReferenceSelection()
     private let requirementBranches = RequirementBranchBindings()
     /// "branchTip commit" pairs found not contained: the same until the branch moves.
     private let notContained = SeenPairs()
@@ -134,7 +136,7 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
 
     /// A detached worktree of the landing branch: no branch of its own, so nothing in it can land.
     public func createSnapshot() async throws -> URL? {
-        try await createSnapshot(at: defaultBranch)
+        try await createSnapshot(at: localMainTip())
     }
 
     public func createSnapshot(for id: NodeID) async throws -> URL? {
@@ -532,14 +534,17 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
     public func existingComponents() -> [String] { config.components ?? [] }
 
     public func localMainTip() async throws -> String {
-        try await revision(defaultBranch)
+        if let commit = mainReference.commit { return commit }
+        return try await revision(defaultBranch)
     }
 
     /// Also true for a commit that's gone from the repository (its branch deleted and cleaned up): there's nothing
     /// left to check or to merge. Squashed or rebased work counts once any commit on the branch since it forked had
     /// it, so later changes to the same lines don't hide it again.
     public func branch(_ branch: String?, hasEverythingIn commit: String) async throws -> Bool {
-        let target = try await revision(branch ?? defaultBranch)
+        let target: String
+        if let branch { target = try await revision(branch) }
+        else { target = try await localMainTip() }
         let exists = try await ProcessRunner.run("/usr/bin/env", ["git", "cat-file", "-e", commit + "^{commit}"], in: root)
         guard exists.status == 0 else { return true }
         let ancestor = try await ProcessRunner.run("/usr/bin/env", ["git", "merge-base", "--is-ancestor", commit, target],
@@ -571,7 +576,7 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
     /// git config, hooks and `info/` files, which affect every checkout of the repo.
     public func userGitState() async throws -> [String] {
         var state: [String] = []
-        for line in try await git(["for-each-ref", "--format=%(objectname) %(refname)"], in: root).split(separator: "\n") {
+        for line in try await watchedRefs().split(separator: "\n") {
             guard let space = line.firstIndex(of: " ") else { continue }
             let ref = String(line[line.index(after: space)...])
             if ref.hasPrefix("refs/heads/agentos/") { continue }
@@ -610,7 +615,8 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
     }
 
     private func revision(_ name: String) async throws -> String {
-        try await git(["rev-parse", "--verify", "refs/heads/\(name)"], in: root).trimmingCharacters(in: .whitespacesAndNewlines)
+        let ref = name.hasPrefix("origin/") ? "refs/remotes/\(name)" : "refs/heads/\(name)"
+        return try await git(["rev-parse", "--verify", ref], in: root).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// The working copy (your checkout or a worktree) that has `branch` checked out, if any.

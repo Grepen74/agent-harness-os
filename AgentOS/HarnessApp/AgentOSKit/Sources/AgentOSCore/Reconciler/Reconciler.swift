@@ -161,6 +161,12 @@ public actor Reconciler {
         guard shutdownReason == nil, !Task.isCancelled else { return finish(report) }
 
         do {
+            try await refreshMainReference()
+        } catch {
+            report.safeStop = "Couldn't refresh the default branch: \(error). Check origin access, then run again."
+            return finish(report)
+        }
+        do {
             try await observeRequirementPullRequests(&report)
         } catch {
             report.safeStop = "Couldn't read requirement pull requests: \(error). Check GitHub access, then run again."

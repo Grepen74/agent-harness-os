@@ -99,6 +99,20 @@ pull request into `main`. Later catch-ups and landings push new tips and update 
 including across restarts. Only requirement branches are pushed, never with force; the harness does not
 push tags or leaf branches and never merges a pull request.
 
+With **Push / open pull requests** on, each round starts by fetching the default branch from `origin`,
+before reading ticket signals. The main baseline, requirement catch-up, cross-requirement dependency
+checks, merge detection and new requirement branches all use that fetched **`origin/<default branch>`**
+commit. A requirement merged on origin is detected as **Done** and unblocks its dependants without you
+pulling. Fetching never moves your local default branch, changes your checked-out branch, index or files,
+or interrupts an agent already running in its leaf checkout.
+
+If fetching fails (for example, offline or authentication rejected), **Needs attention** shows the git
+error and explains that the **last fetched commit** is used. The round continues using that commit,
+retries fetching on the next round, and clears the warning after a successful fetch. If there is no
+previously fetched default commit, the round stops and asks you to restore origin access instead of
+silently using a different branch. With publishing off, nothing is fetched: the local default branch
+remains the source for the baseline, catch-up, dependencies, merge detection and new branches.
+
 The description carries the requirement and breakdown, acceptance criteria with their reported proving
 tests, and each check's result, commit, summary and failing tests. Evidence stays local: artifact file names
 and SHA-256 hashes identify it, with nothing uploaded. GitHub Issues tickets also get `Closes #<number>`.
@@ -782,7 +796,9 @@ Agent processes also get a clean environment and restricted tools (see the works
 run that changes your refs or git config anyway is escalated. Branch refs and worktree records do live in
 the repo's `.git`. Removing the `agentos/` branches and the harness's storage removes every trace of it.
 
-The harness itself never fetches or creates your branches. If the remote's default branch (`origin/HEAD`)
+The harness never creates or moves your local default branch. With publishing on it fetches only origin's
+default branch each round, without fetching tags or changing your checkout; its own ref updates do not
+escalate running agents. With publishing off it does not fetch. If the remote's default branch (`origin/HEAD`)
 has no local copy, the scan, baseline and landing read **`origin/<branch>`** as of your last fetch; the
 scan shows when that was and suggests `git fetch` or `git branch <branch> origin/<branch>`. The landing
 branch is created with `--no-track`, so no upstream is written to your config.
@@ -925,7 +941,7 @@ Each phase is usable on its own.
      proven, final verification passed, and merged: its pull request merged or its tip in `main`; squashing
      or rebasing it into `main` without a pull request leaves it *In review*, so merge it instead).
      Until then the ticket shows *Blocked* with "Waiting for GH-12", or "… to be merged into main" once it's
-     Done but its work isn't in the local `main` yet (e.g. a merged pull request not pulled); merge it (and let
+     Done but its work isn't in the selected default commit yet; merge it (and let
      catch-up bring it into the requirement branch) and it unblocks by itself. Within one requirement, proven
      is enough: the work is already on that requirement's branch.
    - **Projects board (opt-in).** With `tracker.project` (owner, number, optional `statusField` and
@@ -945,8 +961,12 @@ Each phase is usable on its own.
    merged). Leaves in progress then rebase as usual; conflicts go to rework, as at landing. Leaves whose
    agent is running or about to start are left alone and catch up on a later round. Catch-up runs at the
    start of every round, so work started or retried in that round begins from the latest `main`; an
-   unresolved catch-up conflict stays the status of its tickets after the round. Nothing is fetched:
-   `main` is whatever your clone has.
+   unresolved catch-up conflict stays the status of its tickets after the round. With **Push / open pull
+   requests** on, the round first fetches the default branch from `origin`; the baseline, catch-up,
+   cross-requirement dependencies, merge detection and new requirement branches use
+   `origin/<default branch>`, leaving local branches and your checkout untouched. A failed fetch shows
+   its git error in **Needs attention** and continues with the last fetched commit; the next successful
+   fetch clears the warning. With publishing off, nothing is fetched and the local default branch is used.
 9. **Publishing pull requests.** The way out to the world, and the end state of concept docs 04 and 08 (every
    change a reviewed pull request). One pull request per **requirement** (a top-level ticket, or a
    composite node), opened once all its leaves are proven; single leaves are too small to review on their

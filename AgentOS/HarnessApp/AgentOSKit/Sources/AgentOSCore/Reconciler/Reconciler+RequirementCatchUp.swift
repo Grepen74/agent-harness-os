@@ -20,9 +20,7 @@ extension Reconciler {
 
     func reconcileRequirementBranches(_ report: inout RoundReport, force: Bool = false) async throws {
         guard let repository = requirementBranches else { return }
-        guard let main = try await repository.tip(of: repository.defaultBranch) else {
-            throw AgentFailure("Default branch \(repository.defaultBranch) is missing; restore it before catching up requirements.")
-        }
+        let main = try await repository.mainTip()
         let state = await ledger.workingState()
         let canCatchUp = state.baseline?.passed == true && state.baseline?.commit == main
 

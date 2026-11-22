@@ -91,9 +91,15 @@ struct AttentionList: View {
 
     var body: some View {
         let items = model.state.attentionList
-        if !items.isEmpty {
+        if !items.isEmpty || model.state.mainFetchWarning != nil {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Needs attention").font(.caption.bold())
+                if let warning = model.state.mainFetchWarning {
+                    Label(warning, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 // A node can have several flags at once.
                 ForEach(items.map { (id: "\($0.node.id) \($0.flag.rawValue)", item: $0) }, id: \.id) { entry in
                     let item = entry.item
