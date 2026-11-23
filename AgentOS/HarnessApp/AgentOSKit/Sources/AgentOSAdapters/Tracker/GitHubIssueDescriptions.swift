@@ -61,7 +61,8 @@ actor GitHubIssueDescriptions {
 
     func beginRound() { roundPermissions.removeAll() }
 
-    func body(number: Int, revision: String, current: String) async -> (body: String?, problems: [String]) {
+    func body(number: Int, revision: String, current: String,
+              confirmingReplanBy person: String? = nil) async -> (body: String?, problems: [String]) {
         let key = "GH-\(number)"
         if let ledger {
             observations[key] = await ledger.workingState().ticketDescriptions[key]
@@ -78,6 +79,18 @@ actor GitHubIssueDescriptions {
                 let decision = await permission(actor.login)
                 if let problem = decision.problem { problems.append(problem) }
                 if decision.allowed { approval = at }
+            }
+            if let person {
+                let decision = await permission(person)
+                if let problem = decision.problem { problems.append(problem) }
+                let requestedAt = events.last {
+                    $0.event == "labeled" && $0.label?.name == HarnessCommand.replan.label
+                }?.createdAt
+                // A pending replan cannot confirm an outside edit made after the request.
+                let coversEdit = requestedAt.map { $0 >= (edit.lastEditedAt ?? .distantPast) } ?? true
+                if decision.allowed && coversEdit {
+                    approval = max(approval ?? .distantPast, edit.lastEditedAt ?? .distantPast)
+                }
             }
             if edit.editor == nil, let editedAt = edit.lastEditedAt,
                editedAt > (approval ?? .distantPast), approval != nil {

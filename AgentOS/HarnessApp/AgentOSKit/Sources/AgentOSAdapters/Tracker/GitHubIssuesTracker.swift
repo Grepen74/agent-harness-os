@@ -140,7 +140,12 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
         await createHarnessLabels()
         var signals: [Signal] = []
         for issue in await listOpenIssues() {
-            guard await acceptedBody(of: issue) != nil else { continue }
+            var replanBy: String?
+            if issue.labels.contains(where: { $0.name == HarnessCommand.replan.label }),
+               case .human(let person) = await setter(of: HarnessCommand.replan.label, on: issue) {
+                replanBy = person
+            }
+            guard await acceptedBody(of: issue, confirmingReplanBy: replanBy) != nil else { continue }
             for label in issue.labels {
                 guard let command = HarnessCommand.allCases.first(where: { $0.label == label.name }) else { continue }
                 signals.append(Signal(ticket: Self.key(issue.number), command: command, setBy: await setter(of: label.name, on: issue)))
@@ -465,8 +470,9 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
         return ticket
     }
 
-    private func acceptedBody(of issue: Issue) async -> String? {
-        let result = await descriptions.body(number: issue.number, revision: issue.updatedAt, current: issue.body ?? "")
+    private func acceptedBody(of issue: Issue, confirmingReplanBy person: String? = nil) async -> String? {
+        let result = await descriptions.body(number: issue.number, revision: issue.updatedAt, current: issue.body ?? "",
+                                             confirmingReplanBy: person)
         problems += result.problems
         return result.body
     }

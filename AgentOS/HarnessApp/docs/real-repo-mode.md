@@ -979,7 +979,12 @@ Each phase is usable on its own.
      after a maintainer approved them. Later outside edits therefore do not change agent context,
      previews, adoption or replanning, including after a restart. For an adopted ticket, *Needs attention*
      names the editor and asks a person with write access to edit the description or add `harness:replan`
-     to accept it. When editor permission is unreadable, the accepted body is kept for the round and
+     to accept it. Any description edit by a person with **write, maintain or admin** access, including
+     a whitespace-only change, confirms the current description. Alternatively, that person can add
+     `harness:replan` without editing or commenting: the harness accepts the current description before
+     replanning. Either route clears the held-edit *Needs attention* entry and updates the description
+     used by subsequent agent context and previews; replanning does not approve any gates.
+     When editor permission is unreadable, the accepted body is kept for the round and
      checked again next round. Before any trusted approval the current body is read as it is; the next
      trusted `harness:` label accepts it. The local tracker always reads its current description.
    - A tracker that refuses a child ticket escalates the breakdown; `harness:retry` creates the rest.
