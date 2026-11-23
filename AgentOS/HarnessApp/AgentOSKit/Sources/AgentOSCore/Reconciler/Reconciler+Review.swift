@@ -83,20 +83,7 @@ extension Reconciler {
     /// They also start over after this stage's review passes: the findings before it were fixed, and work
     /// coming back later (a broken test, say) is a new review.
     func failedReviews(of id: NodeID, stage: ReviewStage) async -> [ReviewRecord] {
-        let records = await ledger.records(for: id)
-        let reset = records.lastIndex {
-            switch $0.event.kind {
-            case .attemptsReset, .replanned: return true
-            case .phaseChanged(to: .specified), .flagCleared(.needsInput): return $0.event.by.isHuman
-            case .reviewRecorded(let review): return review.stage == stage && review.result.passed
-            default: return false
-            }
-        }
-        return records.dropFirst(reset.map { $0 + 1 } ?? 0).compactMap { record -> ReviewRecord? in
-            guard case .reviewRecorded(let review) = record.event.kind,
-                  review.stage == stage, !review.result.passed else { return nil }
-            return review
-        }
+        ReviewBudget.failures(in: await ledger.records(for: id), stage: stage)
     }
 
     func returnReviewFindings(_ result: ReviewResult, stage: ReviewStage,
@@ -165,13 +152,8 @@ extension Reconciler {
     /// one fixed is still progress). Past `maxRounds`, such work carries on instead of escalating, up to
     /// `convergingRoundLimit`.
     static func isConverging(_ failures: [ReviewRecord]) -> Bool {
-        guard failures.count >= 2 else { return false }
-        let latest = failures[failures.count - 1].result.allFindings
-        let before = failures[failures.count - 2].result.allFindings
-        return (latest.count < before.count || !latest.isEmpty && latest.count == before.count) && latest.allSatisfy {
-            $0.trimmingCharacters(in: .whitespaces).lowercased().hasPrefix("new:")
-        }
+        ReviewBudget.isConverging(failures)
     }
 
-    static func convergingRoundLimit(_ maxRounds: Int) -> Int { maxRounds * 2 }
+    static func convergingRoundLimit(_ maxRounds: Int) -> Int { ReviewBudget.convergingRoundLimit(maxRounds) }
 }

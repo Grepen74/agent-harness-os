@@ -17,6 +17,9 @@ public struct ProcessPane: View {
                         Text("No effective repository policy loaded; showing harness defaults.")
                             .foregroundStyle(.secondary)
                     }
+                    if let selected = model.selectedNodeProcess {
+                        ProcessSelectedNode(summary: selected)
+                    }
                     selectionDetails(diagram)
                     ViewThatFits(in: .horizontal) {
                         HStack(alignment: .top, spacing: 36) {
@@ -82,10 +85,16 @@ public struct ProcessPane: View {
         VStack(alignment: .leading, spacing: 4) {
             Button {
                 model.processSelection = .stage(stage.id)
+                model.workStageFilterID = stage.id
             } label: {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(alignment: .firstTextBaseline) {
                         Text(stage.title).font(.headline)
+                        if model.highlightedProcessStageID == stage.id {
+                            Label(model.selectedNodeProcess?.interrupted == true ? "Interrupted" : "Selected node",
+                                  systemImage: "location.fill")
+                                .font(.caption).foregroundStyle(Color.accentColor)
+                        }
                         Spacer(minLength: 4)
                         if stage.waitsOnPerson {
                             Image(systemName: "person.fill").foregroundStyle(.orange)
@@ -125,10 +134,14 @@ public struct ProcessPane: View {
         .background(.background, in: RoundedRectangle(cornerRadius: 8))
         .overlay {
             RoundedRectangle(cornerRadius: 8)
-                .stroke(model.processSelection == .stage(stage.id) ? Color.accentColor : Color.secondary.opacity(0.4),
-                        lineWidth: model.processSelection == .stage(stage.id) ? 2 : 1)
+                .stroke(isHighlighted(stage.id) ? Color.accentColor : Color.secondary.opacity(0.4),
+                        lineWidth: isHighlighted(stage.id) ? 2 : 1)
         }
         .anchorPreference(key: ProcessStageAnchors.self, value: .bounds) { [stage.id: $0] }
+    }
+
+    private func isHighlighted(_ id: String) -> Bool {
+        model.processSelection == .stage(id) || model.highlightedProcessStageID == id
     }
 
     @ViewBuilder private func selectionDetails(_ diagram: ProcessDiagramPresentation) -> some View {

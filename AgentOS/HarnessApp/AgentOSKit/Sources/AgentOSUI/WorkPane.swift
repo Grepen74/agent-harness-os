@@ -5,7 +5,6 @@ import SwiftUI
 /// other team's system (doc 06: observability).
 public struct WorkPane: View {
     @Environment(HarnessViewModel.self) private var model
-    @State private var selection: NodeID?
     @State private var showDoneNodes: Bool = true
 
     public init() {}
@@ -16,10 +15,35 @@ public struct WorkPane: View {
                 PaneHeader(title: "Work tree", subtitle: "Derived from the ledger. Tickets only mirror this.")
                 AttentionList()
                 RunningAgents()
-                List(selection: $selection) {
-                    OutlineGroup(Self.roots(in: model.state, showingDone: showDoneNodes)
-                        .map { TreeItem($0, in: model.state) }, children: \.children) { item in
-                        NodeRow(node: item.node, status: model.state.appStatus(of: item.node)).tag(item.node.id)
+                if let stageID = model.workStageFilterID {
+                    HStack {
+                        Text("Stage: \(WorkflowCatalog.standard.stages.first { $0.id == stageID }?.title ?? stageID)")
+                            .lineLimit(1)
+                        Text("\(model.matchingWorkNodeIDs.count) matching nodes")
+                            .foregroundStyle(.secondary).fixedSize()
+                        Spacer()
+                        Button("Clear stage filter") { model.clearWorkStageFilter() }
+                    }
+                    .padding(8)
+                }
+                List(selection: workSelection) {
+                    if model.workStageFilterID != nil {
+                        ForEach(filteredRows, id: \.node.id) { row in
+                            HStack {
+                                NodeRow(node: row.node, status: model.state.appStatus(of: row.node))
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                if !model.matchingWorkNodeIDs.contains(row.node.id) {
+                                    Text("Context").font(.caption).foregroundStyle(.secondary).fixedSize()
+                                }
+                            }
+                            .padding(.leading, CGFloat(row.depth) * 16)
+                            .tag(row.node.id)
+                        }
+                    } else {
+                        OutlineGroup(Self.roots(in: model.state, showingDone: showDoneNodes)
+                            .map { TreeItem($0, in: model.state) }, children: \.children) { item in
+                            NodeRow(node: item.node, status: model.state.appStatus(of: item.node)).tag(item.node.id)
+                        }
                     }
                 }
                 Toggle("Show Done and closed items", isOn: $showDoneNodes)
@@ -28,7 +52,7 @@ public struct WorkPane: View {
             .frame(minHeight: 260, maxHeight: .infinity)
 
             Group {
-                if let id = selection, let node = model.state.nodes[id] {
+                if let id = model.selectedNodeID, let node = model.state.nodes[id] {
                     NodeDetail(node: node)
                 } else {
                     ContentUnavailableView("No node selected", systemImage: "point.3.connected.trianglepath.dotted")
@@ -36,6 +60,26 @@ public struct WorkPane: View {
             }
             .frame(minHeight: 160, maxHeight: .infinity)
         }
+    }
+
+    private var workSelection: Binding<NodeID?> {
+        Binding(get: { model.selectedNodeID }, set: { selection in
+            // A filtered-out node remains the Process selection even if List drops its row selection.
+            if selection == nil, model.workStageFilterID != nil,
+               let selected = model.selectedNodeID, !model.visibleWorkNodeIDs.contains(selected) { return }
+            model.selectedNodeID = selection
+        })
+    }
+
+    private var filteredRows: [(node: NodeState, depth: Int)] {
+        let visible = model.visibleWorkNodeIDs
+        func rows(_ nodes: [NodeState], depth: Int) -> [(node: NodeState, depth: Int)] {
+            nodes.filter { visible.contains($0.id) }.flatMap { node in
+                [(node: node, depth: depth)] + rows(
+                    node.children.compactMap { model.state.nodes[$0] }, depth: depth + 1)
+            }
+        }
+        return rows(model.state.roots, depth: 0)
     }
 
     /// Open pull requests stay visible; Done and closed requirements are hidden even with attention.
@@ -79,7 +123,7 @@ struct NodeRow: View {
         HStack(spacing: 6) {
             Circle().fill(color).frame(width: 9, height: 9)
             Text(node.displayName).monospaced().lineLimit(1).foregroundStyle(.secondary)
-            Text(node.spec.title).lineLimit(1).foregroundStyle(closed ? .secondary : .primary)
+            Text(node.spec.title).lineLimit(1).layoutPriority(1).foregroundStyle(closed ? .secondary : .primary)
             Spacer()
             ForEach(Flag.allCases.filter { !closed && node.flags[$0] != nil }, id: \.self) { flag in
                 Image(systemName: flag.symbol).foregroundStyle(flag.color).help(node.flags[flag] ?? "")

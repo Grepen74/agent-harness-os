@@ -10,9 +10,9 @@ public struct ProcessDiagramPresentation {
     public let stages: [ProcessStagePresentation]
     public let transitions: [ProcessTransitionPresentation]
 
-    init(policy: EffectivePolicy, state: WorkingState) {
+    init(policy: EffectivePolicy, state: WorkingState, node: NodeState? = nil) {
         let catalog = WorkflowCatalog.standard
-        let projection = WorkflowProjection.project(catalog: catalog, policy: policy, node: nil)
+        let projection = WorkflowProjection.project(catalog: catalog, policy: policy, node: node)
         let occupancy = Dictionary(grouping: state.nodes.keys, by: {
             catalog.currentStage(of: $0, in: state)?.stage ?? ""
         })
@@ -91,7 +91,6 @@ public struct ProcessTransitionPresentation: Identifiable {
 extension HarnessViewModel {
     public var processDiagram: ProcessDiagramPresentation {
         ProcessDiagramPresentation(
-            policy: policy ?? EffectivePolicy.resolve(harness: HarnessSettings(), repo: nil, defaultBranch: nil),
-            state: state)
+            policy: processPolicy, state: state, node: selectedNodeID.flatMap { state.nodes[$0] })
     }
 }
