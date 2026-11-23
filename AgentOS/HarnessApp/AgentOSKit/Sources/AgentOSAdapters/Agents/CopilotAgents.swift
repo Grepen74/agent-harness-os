@@ -669,7 +669,11 @@ public struct CopilotImplementer: Implementer {
         The work item is \(task.identity.displayName).
 
         Make the tests in \(task.testFolder)/ pass by changing the code this work item touches: \
-        \(task.spec.touches.joined(separator: ", ")). The tests are READ-ONLY: changing any test makes your work \
+        \(task.spec.touches.joined(separator: ", ")), and other code where a person's answer below allows it. \
+        If the tests can only pass by changing other code that no answer allows, don't change it and don't report \
+        a broken test (the test author can't widen what you may change): write \(AgentReportFile.name) as \
+        {"scopeRequest": {"paths": [repository-relative files], "reason": string}} saying why, and finish. A person \
+        decides, and your changes so far are kept. The tests are READ-ONLY: changing any test makes your work \
         fail verification, and so does changing the agents' instruction files. Other work items' tests must keep \
         passing too. Run the tests before finishing. You only submit; an independent verifier decides if it's done.
         Do not change behavior outside the ticket's requested scope. For experiments, use the writable scratch folder \
@@ -704,7 +708,7 @@ public struct CopilotImplementer: Implementer {
         acceptance tests, report the broken test instead: you cannot fix it, and changing nothing stops the item \
         until a person looks. Otherwise the report may be omitted.
 
-        \(CopilotCLI.dataBlock(task.spec))
+        \(CopilotCLI.dataBlock(task.spec))\(CopilotCLI.answersBlock(task.clarifications))
         \(CopilotCLI.contextBlock(task.agentContext, includeComments: false))
         """
     }

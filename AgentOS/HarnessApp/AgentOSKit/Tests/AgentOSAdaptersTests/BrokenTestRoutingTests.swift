@@ -123,6 +123,43 @@ struct BrokenTestRoutingTests {
         #expect(reason.contains("First problem.") && reason.contains("Second problem.") && reason.contains("Third problem."))
         #expect(!reason.contains("Old problem."))
     }
+
+    /// GH-117: the implementer could only pass the tests outside its scope, reported that as a broken test twice, and
+    /// the test author, who can't widen the scope, rewrote the tests twice before a person was asked.
+    @Test func codeOutsideTheScopeIsAPersonsCallNotTheTestAuthorsAndTheAnswerReachesTheImplementer() async throws {
+        let request = ScopeRequest(paths: ["Sources/AgentOSCore/Reconciler.swift"], reason: "The bot check lives there.")
+        let fixture = try await Fixture(
+            implementerReports: [AgentReport(
+                questions: [AgentQuestion(question: "Which login?", suggestion: "The authenticated one.")],
+                scopeRequest: request)],
+            // Even agents that go on with their own suggestions don't widen their scope.
+            policy: Policy(guesswork: .autonomous))
+        await fixture.rounds(3)
+
+        let waiting = try #require(await fixture.node())
+        #expect(waiting.phase == .ready)
+        #expect(waiting.flags[.needsInput] != nil)
+        #expect(waiting.openQuestions.map(\.question) == [
+            "Which login?",
+            "May the implementer change Sources/AgentOSCore/Reconciler.swift, outside what this work item touches "
+                + "(\(Fixture.spec.touches.joined(separator: ", ")))? The bot check lives there.",
+        ])
+        #expect(waiting.brokenTestReports.isEmpty)
+        #expect(await fixture.testAuthor.runs == 1)
+        #expect(await fixture.implementer.runs == 1)
+        #expect(fixture.unfinishedWork.recorded == ["saved"])
+
+        await fixture.tracker.reply("1. Answer: ok, 2. Answer: Yes, change it there.")
+        await fixture.tracker.add(.retry)
+        await fixture.rounds(2)
+
+        #expect(await fixture.node()?.flags[.needsInput] == nil)
+        #expect(await fixture.testAuthor.runs == 1)
+        #expect(await fixture.implementer.runs == 2)
+        let answers = try #require(await fixture.implementer.answers.last)
+        #expect(answers.contains { $0.questions.first?.hasPrefix("May the implementer change") == true
+            && $0.answer == "Yes, change it there." })
+    }
 }
 
 private extension BrokenTestRoutingTests {
@@ -136,9 +173,16 @@ private extension BrokenTestRoutingTests {
         let reconciler: Reconciler
 
         let areas: Areas
+        let unfinishedWork = UnfinishedWork()
         let directory: URL
 
-        init(updatable: [String] = [], reports: [BrokenTestReport], files: [String: String] = [:]) async throws {
+        convenience init(updatable: [String] = [], reports: [BrokenTestReport], files: [String: String] = [:]) async throws {
+            try await self.init(updatable: updatable, implementerReports: reports.map { AgentReport(brokenTest: $0) },
+                                files: files)
+        }
+
+        init(updatable: [String] = [], implementerReports: [AgentReport], files: [String: String] = [:],
+             policy: Policy? = nil) async throws {
             directory = FileManager.default.temporaryDirectory.appending(path: "agentos-routing-\(UUID().uuidString)")
             try FileManager.default.createDirectory(at: directory.appending(path: Stub.folder), withIntermediateDirectories: true)
             for (path, text) in files {
@@ -151,13 +195,14 @@ private extension BrokenTestRoutingTests {
                 LedgerEvent(node: Self.spec.id, by: .human("Alice"), kind: .nodeCreated(spec: Self.spec, ticket: "GH-9")),
                 LedgerEvent(node: Self.spec.id, by: .human("Alice"), kind: .gateOpened(.build)),
             ])
-            implementer = Builder(reports: reports)
+            implementer = Builder(reports: implementerReports)
             areas = Areas(updatable)
             reconciler = Reconciler(
                 ledger: ledger, tracker: tracker, external: Stub(directory: directory),
-                workspace: Stub(directory: directory, areas: areas),
+                workspace: Stub(directory: directory, areas: areas, unfinishedWork: unfinishedWork),
                 artifacts: Stub(directory: directory), checks: Stub(directory: directory),
-                team: AgentTeam(name: "routing", decomposer: Stub(directory: directory), testAuthor: testAuthor, implementer: implementer))
+                team: AgentTeam(name: "routing", decomposer: Stub(directory: directory), testAuthor: testAuthor, implementer: implementer),
+                policy: policy)
         }
 
         func rounds(_ count: Int) async {
@@ -172,6 +217,7 @@ private extension BrokenTestRoutingTests {
         private var signals: [Signal] = []
 
         func add(_ command: HarnessCommand) { signals.append(Signal(ticket: "GH-9", command: command, setBy: .human("Alice"))) }
+        func reply(_ text: String) { comments.append(AgentOSCore.Comment(author: .human("Alice"), text: text)) }
         func pendingSignals() -> [Signal] { signals }
         func ticket(_ key: String) -> Ticket? {
             var ticket = Ticket(key: key, title: "Ticket IDs", description: "Children use ticket IDs",
@@ -199,13 +245,23 @@ private extension BrokenTestRoutingTests {
     }
 
     actor Builder: Implementer {
-        private var reports: [BrokenTestReport]
+        private var reports: [AgentReport]
         private(set) var runs = 0
-        init(reports: [BrokenTestReport]) { self.reports = reports }
+        private(set) var answers: [[Clarification]] = []
+        init(reports: [AgentReport]) { self.reports = reports }
         func implement(_ task: AgentTask) async throws -> AgentReport {
             runs += 1
-            return reports.isEmpty ? AgentReport() : AgentReport(brokenTest: reports.removeFirst())
+            answers.append(task.clarifications)
+            return reports.isEmpty ? AgentReport() : reports.removeFirst()
         }
+    }
+
+    /// What the harness did with an implementer's uncommitted work.
+    final class UnfinishedWork: @unchecked Sendable {
+        private let lock = NSLock()
+        private var events: [String] = []
+        func record(_ event: String) { lock.withLock { events.append(event) } }
+        var recorded: [String] { lock.withLock { events } }
     }
 
     /// The repo's further updatable test folders, which its config may change.
@@ -222,6 +278,7 @@ private extension BrokenTestRoutingTests {
         static let folder = "Tests/AgentOSAdaptersTests/GH_9_1Tests"
         let directory: URL
         var areas = Areas([])
+        var unfinishedWork = UnfinishedWork()
 
         func prepare() async throws {}
         func branch(for id: NodeID) -> String { "agentos/\(id)" }
@@ -241,6 +298,11 @@ private extension BrokenTestRoutingTests {
         func landOnMain(_ id: NodeID) async throws -> String { "landed" }
         func existingComponents() -> [String] { [] }
         func prepareBuild(in directory: URL) async throws {}
+        func saveUnfinishedWork(_ directory: URL, for id: NodeID) async throws -> [String] {
+            unfinishedWork.record("saved")
+            return ["Sources/AgentOSCore/Reconciler.swift"]
+        }
+        func forgetUnfinishedWork(for id: NodeID) async throws { unfinishedWork.record("forgot") }
 
         func runChecks(in directory: URL, only testTarget: String?) async -> CheckOutput {
             CheckOutput(passed: false, summary: "not run", log: "")
