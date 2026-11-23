@@ -187,6 +187,9 @@ public struct CopilotCLI: Sendable {
         let logStart = log.flatMap { try? FileManager.default.attributesOfItem(atPath: $0.path)[.size] as? Int } ?? 0
         let result = try await ProcessRunner.run(executable, arguments(prompt: prompt, in: directory, silent: silent), in: directory,
                                                  timeout: limit, log: log, timeZone: .current, logPreamble: inventory)
+        if let credits = Self.aiCredits(in: result.output) {
+            AgentRunRecording.current?.record(credits: credits)
+        }
         if let log, let data = try? Data(contentsOf: log), data.count > logStart,
            let summary = Self.unattendedDenialSummary(String(decoding: data.dropFirst(logStart), as: UTF8.self)) {
             AgentLog.append(summary, to: log, producedAt: Date(), timeZone: .current)

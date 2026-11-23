@@ -126,6 +126,13 @@ public struct NodeState: Sendable, Identifiable {
     public var openTestProblem: String?
     /// The claim: at most one agent run per node at a time.
     public var activeRun: ActiveRun?
+    public fileprivate(set) var recordedAICredits: Double = 0
+    fileprivate var startedAgentRuns: Set<RunID> = []
+    fileprivate var runsWithRecordedCost: Set<RunID> = []
+    /// Includes unfinished agent runs, but not the harness's non-agent verifier runs.
+    public var runsWithoutRecordedCost: Int {
+        startedAgentRuns.subtracting(runsWithRecordedCost).count
+    }
     public var lastSubmission: Submission?
     /// The submitted branch diff; nil until submission or after a reset, and [] for a known empty diff.
     public var actualChangedFiles: [String]?
@@ -306,6 +313,9 @@ public struct WorkingState: Sendable {
             node.pullRequestURL = old.pullRequestURL
             node.pullRequestState = old.pullRequestState
             node.publishedCommit = old.publishedCommit
+            node.recordedAICredits = old.recordedAICredits
+            node.startedAgentRuns = old.startedAgentRuns
+            node.runsWithRecordedCost = old.runsWithRecordedCost
             nodes[id] = node
             return
         }
@@ -506,10 +516,14 @@ public struct WorkingState: Sendable {
             node.openTestProblem = report.reason
         case .runStarted(let run, let role):
             node.activeRun = ActiveRun(run: run, role: role, since: event.at)
+            if role != .verifier { node.startedAgentRuns.insert(run) }
             if role == .testAuthor || role == .implementer { node.agentRunsSinceHuman += 1 }
             // The new run took the draft over: it keeps its own if it fails too.
             if role == .testAuthor { node.testDraft = nil }
         case .runFinished: node.activeRun = nil
+        case .agentCreditsRecorded(let run, let credits), .runCostRecorded(let run, let credits):
+            node.recordedAICredits += credits
+            node.runsWithRecordedCost.insert(run)
         case .changeSubmitted(let run, let commit):
             node.latestReviewFeedback = nil
             node.pendingHumanReview = nil

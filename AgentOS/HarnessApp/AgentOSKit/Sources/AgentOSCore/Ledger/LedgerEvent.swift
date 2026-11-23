@@ -115,6 +115,10 @@ public enum EventKind: Codable, Sendable {
     /// The model and reasoning effort an agent run starts with; written with its `runStarted`. Written again with
     /// `settings.fallback` set when the run fell back to others, e.g. a model that doesn't support the effort.
     case agentConfigured(run: RunID, settings: AgentRunSettings)
+    /// The sum of the incremental AI credits reported during an agent run, including failed runs.
+    case agentCreditsRecorded(run: RunID, credits: Double)
+    /// Credits charged to this event's node for a run, including failed or retried work.
+    case runCostRecorded(run: RunID, aiCredits: Double)
     case runFinished(run: RunID, outcome: String)
     case changeSubmitted(run: RunID, commit: String)
     case actualChangedFilesRecorded(files: [String])
@@ -233,6 +237,11 @@ public struct RecordedEvent: Codable, Sendable, Identifiable {
 }
 
 extension EventKind {
+    /// Records a cost while preserving the existing ledger encoding's `aiCredits` label.
+    public static func runCostRecorded(run: RunID, credits: Double) -> EventKind {
+        .runCostRecorded(run: run, aiCredits: credits)
+    }
+
     /// One line for humans (ledger views, logs).
     public var summary: String {
         switch self {
@@ -312,6 +321,8 @@ extension EventKind {
             settings.fallback.map { "\(run) ran with \(settings.model), reasoning effort \(settings.effort) instead: \($0)" }
                 ?? "\(run) uses \(settings.model), reasoning effort \(settings.effort)"
         case .runFinished(let run, let outcome): "run \(run) finished: \(outcome)"
+        case .agentCreditsRecorded(let run, let credits): "\(run) used \(credits) AI credits"
+        case .runCostRecorded(let run, let credits): "\(run) used \(credits) AI credits"
         case .changeSubmitted(let run, let commit): "change submitted by \(run) (\(commit.prefix(8)))"
         case .actualChangedFilesRecorded(let files): "actual changed files: \(files.joined(separator: ", "))"
         case .predictedPathsExpanded(let files): "predicted paths expanded: \(files.joined(separator: ", "))"

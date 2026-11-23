@@ -84,6 +84,21 @@ Disabling a signal the harness doesn't know is a warning.
 
 ### Final requirement verification
 
+Whenever a composite becomes proven, the harness posts one cost comment on its ticket after
+**✅ Proven**. Linked leaves appear in depth-first current breakdown order, each with its recorded
+run credits. **Breakdown** sums recorded credits on that composite and all nested composites;
+**Total** adds those credits and the leaf rows. Amounts have at most two decimals and no trailing zeros
+(for example `3 AI credits` or `1.5 AI credits`). Failed and retried runs and earlier runs of retained
+nodes count; nodes removed by replanning do not. Later rounds and ledger replay do not repost the
+comment, but a new transition to proven after replanning posts a fresh summary.
+
+If a leaf has runs without reported usage, its credits end with `(N runs without a reported cost)`
+(or `(1 run without a reported cost)`). **Breakdown** uses the same marker for unreported runs on
+the composite and its nested composites. When any row has missing costs, the total is a lower bound,
+for example `Total: at least 4.5 AI credits`. Explicitly reported zero counts as a known cost;
+when every run reports a cost, neither the markers nor `at least` appear.
+
+After the last leaf is proven, the harness checks a disposable checkout of the requirement branch tip:
 After the last leaf is proven, and once the step that marked the requirement proven has finished, the harness checks a disposable checkout of the requirement branch tip:
 the full test command (no leaf-suite filter) and all configured checks, including build preparation.
 The requirement's ledger records the result, commit, full log artifact and SHA-256. A prior leaf landing
@@ -822,6 +837,11 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
   `agentConfigured` with what ran and why. Falling back doesn't extend the run's timeout: all its attempts share
   it. A preview's breakdown is recorded the same way (without a claim, since a preview adopts nothing), keeps its
   log, and its comment names the model; a review records what it ran with in its review result.
+- **AI credits.** Each agent run's AI credits, as reported by the Copilot CLI, are recorded in the ledger.
+  Credits are added across model and reasoning-effort fallback attempts, including unsuccessful attempts
+  that report usage. Nested reviewer attempts count toward the enclosing run's credits, but their fallback
+  settings stay in the review result. Without reported usage (for example after a crash or timeout), credits
+  remain unknown, not zero or an estimate from tokens.
 - **Your git state** is fingerprinted before and compared after each test-author and implementer run: refs
   outside `agentos/` (tags, remote-tracking refs, the stash; for local branches only whether they exist,
   since you may commit while agents work), and the shared git config, hooks and `info/` files (not `info/refs`, which git's own housekeeping —

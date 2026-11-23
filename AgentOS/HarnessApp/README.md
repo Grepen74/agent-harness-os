@@ -167,6 +167,13 @@ Breakdown previews list each leaf's predicted files or directory prefixes after 
 provided. The work pane shows them in **Paths**, or **–** when there are no predictions. Replanning
 refreshes predictions even for leaves whose tickets, tests and approvals are kept.
 
+Each time a parent becomes proven, its ticket gets one cost comment after **✅ Proven**, without
+reposting in later rounds or after restarting. It lists linked leaves at every depth in current breakdown
+order, followed by **Breakdown** (recorded credits on the parent and nested parents) and **Total**.
+Amounts use up to two decimals without trailing zeros, such as `1.5 AI credits`. All recorded runs count,
+including failed attempts, retries and earlier runs of retained nodes; removed nodes are excluded.
+A parent proven again after a replan gets a new summary without changing its historical comments.
+
 With overlap avoidance on, a ready leaf waits for overlapping work that is building, being checked,
 in review or landing. The harness compares predicted paths with the active work's changed files when
 known, or its predictions otherwise; missing paths fall back to shared touch-set components. The leaf
