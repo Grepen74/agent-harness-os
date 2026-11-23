@@ -521,6 +521,14 @@ the test, and the implementer tries again. A test that fails only sometimes (it 
 nothing changed) is flaky, not broken: the implementer is told not to report it. One that fails every time in
 the whole suite but not on its own isn't flaky: the implementer fixes its change if that's the cause and
 reports the conflict otherwise.
+Tests that can only pass by changing code outside what the leaf touches aren't broken, and the test author
+can't widen the scope: the implementer reports a `scopeRequest` (the paths it needs, and why) instead. That
+asks a person at once, as a question with no suggested answer, so it never goes ahead on its own, whatever
+the guesswork setting. The implementer's changes so far stay kept as unfinished work. Once the person answers
+and adds `harness:retry`, the implementer runs again with the answer. People's answers reach the implementer
+and the reviewer like they reach the test author, and an answer may allow changing other code: a change it
+allows is in scope. GH-117's implementer refused, twice, a change a person had allowed in a comment: the
+answer never reached it, and each refusal sent the tests back to the test author.
 Later test-author rounds (for review findings, say) and the acceptance-test reviews get every broken-test
 report since the tests last started over (`harness:retest` or a replan), including one a person sent back with
 `harness:retry`. The author keeps the changes made
@@ -890,8 +898,8 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
   uncommitted changes are kept on the branch `agentos/unfinished/<node>`, out of reach of the next run's
   rebase and of catch-up. The next attempt gets them back, uncommitted, and is told to continue from them
   and to reuse the before screenshots already taken. They stay kept until that attempt ends: failing again
-  keeps its changes instead; submitting or asking questions forgets them, and reporting a broken test moves
-  them to the kept implementation (see the broken-test routing). A run that got them back and undid all of
+  keeps its changes instead; submitting or asking questions forgets them (a scope request keeps them),
+  and reporting a broken test moves them to the kept implementation (see the broken-test routing). A run that got them back and undid all of
   them before failing forgets them, so they don't come back again. Changes
   that no longer apply after the rebase are dropped. A new worktree (new tests, `harness:retest`) forgets
   them. If the changes can't be kept, the ticket goes to a person rather than to a retry that would clean

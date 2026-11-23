@@ -83,6 +83,19 @@ public struct BrokenTestReport: Codable, Sendable, Hashable {
     }
 }
 
+/// The implementer's request to change code outside what its work item touches. The tests are fine; the scope isn't
+/// the test author's to widen, so a person decides.
+public struct ScopeRequest: Codable, Sendable, Hashable {
+    /// Repository-relative files or directories it needs to change.
+    public var paths: [String]
+    public var reason: String
+
+    public init(paths: [String], reason: String) {
+        self.paths = paths
+        self.reason = reason
+    }
+}
+
 public struct AgentQuestion: Codable, Sendable, Hashable, ExpressibleByStringLiteral {
     private enum CodingKeys: String, CodingKey {
         case question
@@ -135,6 +148,8 @@ public struct AgentReport: Codable, Sendable, Hashable {
     public var expectedAPI: [String]
     /// An acceptance test the implementer cannot satisfy because its contract is broken.
     public var brokenTest: BrokenTestReport?
+    /// Code outside what the work item touches that the tests need changed: only a person can allow that.
+    public var scopeRequest: ScopeRequest?
     /// The implementer found the tests already pass without changes, e.g. because other work delivered it.
     public var alreadySatisfied: Bool
     /// Other work's test files the test author changed because this item's criteria deliberately change what they
@@ -147,6 +162,7 @@ public struct AgentReport: Codable, Sendable, Hashable {
         assumptions: [String] = [],
         expectedAPI: [String] = [],
         brokenTest: BrokenTestReport? = nil,
+        scopeRequest: ScopeRequest? = nil,
         alreadySatisfied: Bool = false,
         updatedTests: [String] = [],
         acceptanceCriterionProofs: [AcceptanceCriterionProof] = []
@@ -155,6 +171,7 @@ public struct AgentReport: Codable, Sendable, Hashable {
         self.assumptions = assumptions
         self.expectedAPI = expectedAPI
         self.brokenTest = brokenTest
+        self.scopeRequest = scopeRequest
         self.alreadySatisfied = alreadySatisfied
         self.updatedTests = updatedTests
         self.acceptanceCriterionProofs = acceptanceCriterionProofs
@@ -166,6 +183,7 @@ public struct AgentReport: Codable, Sendable, Hashable {
         assumptions = try container.decodeIfPresent([String].self, forKey: .assumptions) ?? []
         expectedAPI = try container.decodeIfPresent([String].self, forKey: .expectedAPI) ?? []
         brokenTest = try container.decodeIfPresent(BrokenTestReport.self, forKey: .brokenTest)
+        scopeRequest = try container.decodeIfPresent(ScopeRequest.self, forKey: .scopeRequest)
         alreadySatisfied = try container.decodeIfPresent(Bool.self, forKey: .alreadySatisfied) ?? false
         updatedTests = try container.decodeIfPresent([String].self, forKey: .updatedTests) ?? []
         acceptanceCriterionProofs = try container.decodeIfPresent(

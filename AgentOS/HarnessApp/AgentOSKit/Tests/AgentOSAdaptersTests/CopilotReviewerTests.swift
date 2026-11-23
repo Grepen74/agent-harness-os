@@ -56,6 +56,25 @@ struct CopilotReviewerTests {
         #expect(!prompt.contains("OLDER TEST BODY"))
         #expect(prompt.contains("Tests/GH_4Tests/GH_4Tests.swift: another work's test this ticket updated"))
     }
+
+    /// GH-117: a person allowed changing AgentOSCore for an AgentOSAdapters leaf, but the implementer never saw it.
+    @Test("The implementer and the change reviewer see people's answers, which may allow code outside what it touches")
+    func theImplementerAndTheChangeReviewerSeePeoplesAnswers() {
+        let answer = Clarification(questions: ["How to proceed with the conflicting test"],
+                                   answer: "You may change Reconciler+Clarifications.swift in AgentOSCore.")
+        let directory = URL(filePath: "/worktrees/wn-GH-9", directoryHint: .isDirectory)
+        let task = AgentTask(spec: Self.spec, run: "run-1", directory: directory, testFolder: "Tests/GH_9Tests",
+                             scratchDirectory: directory.appending(path: ".agentos/scratch/run-1"), clarifications: [answer])
+        let review = ReviewRequest(
+            stage: .change, spec: Self.spec, acceptanceTests: [:],
+            context: ReviewContext(baseBranch: "main", commit: "c", fullDiff: "", changedFiles: [], recentChanges: [],
+                                   uiEvidence: nil),
+            clarifications: [answer])
+
+        for prompt in [CopilotImplementer.prompt(for: task), CopilotReviewer.prompt(for: review)] {
+            #expect(prompt.contains("A: You may change Reconciler+Clarifications.swift in AgentOSCore."))
+        }
+    }
 }
 
 private extension CopilotReviewerTests {
