@@ -16,6 +16,7 @@ extension Reconciler {
             let state = await ledger.workingState()
             guard let node = state.nodes[queued.id], eligibleForLanding(node, in: state) else { continue }
             if try await needsHumanLandingReview(node) {
+                guard quietLandings == 0, shutdownReason == nil, !Task.isCancelled else { break }
                 considered.insert(node.id)
                 if let action = await step(node.id, landing: true) { report.actions.append(action) }
                 continue
@@ -42,7 +43,8 @@ extension Reconciler {
                 members = ready
             }
             guard !members.isEmpty else { continue }
-            guard shutdownReason == nil, !Task.isCancelled,
+            // A final verification may have started its quiet recheck while this round was suspended.
+            guard quietLandings == 0, shutdownReason == nil, !Task.isCancelled,
                   slotsInUse < max(1, policy.maxParallelAgents) else { break }
             if members.count == 1 {
                 if let action = await step(members[0].id, landing: true) { report.actions.append(action) }

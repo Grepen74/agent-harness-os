@@ -119,7 +119,12 @@ extension Reconciler {
                 try await publisher?.verificationStarted(requirement: root.identity, commit: commit)
             }
             try await workspace.prepareBuild(in: checkout)
-            output = await checks.runChecks(in: checkout, only: nil)
+            output = try await recheckedQuietly(root, after: await checks.runChecks(in: checkout, only: nil),
+                                                in: checkout)
+        } catch is CancellationError {
+            // Stopped while waiting to check again: no result, so it shows as interrupted.
+            if let directory { await workspace.removeSnapshot(directory) }
+            throw CancellationError()
         } catch {
             let message = "Final verification could not run: \(error)"
             output = CheckOutput(passed: false, summary: message, log: message)
@@ -150,6 +155,30 @@ extension Reconciler {
                 \(output.log)
                 """)
         }
+    }
+
+    /// A failed check runs once more in full, like a landing's, with no other work on the machine: other agents' builds
+    /// and tests may be what failed it. Only a second failure waits for a person.
+    private func recheckedQuietly(_ root: NodeState, after initial: CheckOutput, in checkout: URL) async throws
+        -> CheckOutput {
+        guard !initial.passed else { return initial }
+        quietLandings += 1
+        defer { quietLandings -= 1 }
+        await waitForOtherWork(than: root.id)
+        try Task.checkCancellation()
+        let again = await checks.runChecks(in: checkout, only: nil)
+        let summary = again.passed
+            ? "passed when checked again with no other work running (the first check failed: \(initial.summary))"
+            : again.summary
+        return CheckOutput(
+            passed: again.passed, summary: summary,
+            log: """
+                First check, while other work was running:
+                \(initial.log)
+                The whole check again with no other work running:
+                \(again.log)
+                """,
+            failingTargets: again.failingTargets, failureKind: again.failureKind, checks: again.checks)
     }
 
     private func publishRequirements() async throws {
