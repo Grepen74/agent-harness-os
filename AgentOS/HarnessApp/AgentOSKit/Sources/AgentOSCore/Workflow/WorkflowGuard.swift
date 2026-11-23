@@ -28,6 +28,7 @@ public enum WorkflowFact: String, Sendable, Hashable {
     case retryAvailable, retryWaitElapsed, isLeaf, notLanded, noBuildingInSubtree
     case previewFinished, catchUpRequired, catchUpFinished, reviewFailed, checksFailed
     case humanReviewRequired, humanReviewApproved
+    case assumptionApprovalRequired
 }
 
 public enum WorkflowEffect: String, Sendable, Hashable {

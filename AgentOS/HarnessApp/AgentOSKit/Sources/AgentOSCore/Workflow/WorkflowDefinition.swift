@@ -2,10 +2,20 @@ import Foundation
 
 /// Describes controller behavior, not executable permissions or ledger state.
 public struct WorkflowCatalog: Sendable, Equatable {
-    public var workflows: [WorkflowDefinition]
+    public var workflows: [WorkflowDefinition] {
+        didSet {
+            stages = Self.flattenedStages(workflows)
+            transitions = Self.flattenedTransitions(workflows)
+        }
+    }
+    /// The editable logical graph. Workflow definitions retain single/batch scope detail.
+    public var stages: [WorkflowStage]
+    public var transitions: [WorkflowTransition]
 
     public init(workflows: [WorkflowDefinition]) {
         self.workflows = workflows
+        self.stages = Self.flattenedStages(workflows)
+        self.transitions = Self.flattenedTransitions(workflows)
     }
 }
 
@@ -28,14 +38,8 @@ public struct WorkflowDefinition: Sendable, Equatable {
     }
 }
 
-public enum WorkflowStageID: String, Sendable, Hashable {
-    case preview, breakdownGate, breakdown, children, proven
-    case finalVerification, push, pullRequest, waitingForMerge, done, catchUp, catchUpConflict
-    case acceptanceTests, compileCheck, acceptanceTestReview, questions, buildGate
-    case implementation, ownChecks, landingQueue, brokenTestReport
-    case singleLandingChecks, singleChangeReview, batchMemberReview, batchChecks, batchSplit, landingRework
-    case escalated, diagnosis, infrastructureWait, resumeWork
-}
+/// String identifiers also allow callers to supply their own catalog stages.
+public typealias WorkflowStageID = String
 
 public enum WorkflowActor: Sendable, Hashable {
     case agent(AgentRole)
@@ -67,12 +71,17 @@ public struct WorkflowStage: Sendable, Equatable {
     public var childDepthIncrement: Int
     public var limits: Set<WorkflowLimit>
     public var retrySchedule: WorkflowRetrySchedule?
+    public var signals: Set<HarnessCommand>
+    public var condition: String
+    public var settings: [String: String]
 
     public init(id: WorkflowStageID, title: String, actor: WorkflowActor,
                 phases: Set<Phase> = [], flags: Set<Flag> = [], gate: Gate? = nil,
                 scope: WorkflowScope = .requirementBranch,
                 childWorkflows: [NodeKind: WorkflowKind] = [:], childDepthIncrement: Int = 0,
-                limits: Set<WorkflowLimit> = [], retrySchedule: WorkflowRetrySchedule? = nil) {
+                limits: Set<WorkflowLimit> = [], retrySchedule: WorkflowRetrySchedule? = nil,
+                signals: Set<HarnessCommand> = [], condition: String = "",
+                settings: [String: String] = [:]) {
         self.id = id
         self.title = title
         self.actor = actor
@@ -84,6 +93,9 @@ public struct WorkflowStage: Sendable, Equatable {
         self.childDepthIncrement = childDepthIncrement
         self.limits = limits
         self.retrySchedule = retrySchedule
+        self.signals = signals
+        self.condition = condition
+        self.settings = settings
     }
 
     public func retryDelays(in policy: Policy) -> [TimeInterval] {
@@ -95,6 +107,10 @@ public struct WorkflowStage: Sendable, Equatable {
 }
 
 public struct WorkflowTransition: Sendable, Equatable {
+    public var source: String { from }
+    public var target: String { to }
+    public var signals: Set<HarnessCommand> { guardCondition.openingSignals }
+    public var condition: String { guardCondition.description }
     public var from: WorkflowStageID
     public var to: WorkflowStageID
     public var reason: String
