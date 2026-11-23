@@ -58,6 +58,9 @@ New tracker, workspace or agent behaviour starts as a protocol in `AgentOSCore`,
   `RenderedUI.shows(_:in:)` compares while ignoring the spaces text recognition drops; `RenderedUI.png(_:)`
   writes UI evidence. Don't write another renderer, and never capture the screen. A test target you add
   that checks views needs `AgentOSTestSupport` in its dependencies.
+- In `Package.swift`, a target lists every module of this package it imports (e.g. `AgentOSCore` even when
+  `AgentOSAdapters` brings it along). Otherwise an incremental build keeps stale code after a Core type
+  changes, and the tests crash with signal 11. `PackageDependencyTests` checks this.
 - In simulation tests, the last tracker comment is often the harness's reply to a signal. Check
   `comments.contains` rather than `lastComment`.
 - Tests must not depend on timing or on how rounds are scheduled; later tickets change both, and the whole
