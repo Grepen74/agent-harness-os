@@ -452,6 +452,7 @@ public struct CopilotDecomposer: Decomposer {
         {"questions": [string or {"question": string, "suggestion": string}], "assumptions": [string], \
         "children": [{"title": string, "acceptanceCriteria": [string], \
         "touches": [component names], "predictedPaths": [repository-relative files or directory prefixes], \
+        "affectedTests": [existing test names or repository-relative test files deliberately changed, else []], \
         "dependsOn": [keys from the external dependencies list that this leaf needs, else []], \
         "after": [numbers (1-based) of earlier children in this list that must land before this one is built, else []]}]}
         List children in the order they can land. Use "after" when a child can't be built or pass its tests \
@@ -463,8 +464,10 @@ public struct CopilotDecomposer: Decomposer {
         - If the work changes behaviour that existing code or tests rely on (a signature, whether a call waits, \
         a status or value it returns), prefer keeping that behaviour and adding the new one beside it (a new \
         function or option) so existing tests stay valid. If existing tests must change anyway, the child whose \
-        change breaks them updates them: give that child a criterion naming those tests and what they should \
-        expect now. Its test author updates them with its acceptance tests, and a reviewer checks the change. \
+        change breaks them updates them: list those existing tests as test names (e.g. FlowTests.someTest) or \
+        repository-relative test files in that child's "affectedTests", and give that child a criterion naming \
+        those tests and what they should expect now. Its test author updates them with its acceptance tests, \
+        and a reviewer checks the change. \
         Never make the work wait for a person to change the repo first, and don't ask for that.
         - Each rule belongs to one child: the first one that builds it states it in full in its criteria. \
         Children that build on it wait for that child ("after") and don't repeat the rule as a criterion of their \

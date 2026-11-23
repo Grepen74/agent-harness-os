@@ -499,6 +499,12 @@ at landing, when catching up) and they were as locked just before, uncommitted c
 moves along. The reviewer rejects any such change no criterion requires. So the decomposer gives such
 updates to the child whose change breaks those tests, as a criterion naming them and their new
 expectation; it never makes the work wait for a person to change the repo first.
+Each breakdown child can also carry `affectedTests`: existing test names (for example
+`FlowTests.someTest`) or repository-relative test files whose behaviour that child deliberately changes.
+The child still needs a criterion naming those tests and their new expectations. Missing or null
+`affectedTests` means none; empty entries are dropped when the proposal becomes a node spec.
+The field is retained in previews and the ledger. Changing a nonempty list changes the spec fingerprint,
+so replanning does not reuse the older child's tests or approvals; an empty list preserves older fingerprints.
 When the implementer reports a broken test (its own or, by `Suite.testName`, another item's that conflicts
 with this ticket), the ticket goes back to the test author without charging an attempt. Since each report
 costs a round, the implementer is told to run the whole suite first and report every conflicting test at once

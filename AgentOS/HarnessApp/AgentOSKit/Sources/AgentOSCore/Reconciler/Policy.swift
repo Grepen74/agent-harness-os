@@ -235,6 +235,7 @@ enum Planner {
                 intent: "Part of \(parent.title)", acceptanceCriteria: proposal.acceptanceCriteria,
                 touches: touches.isEmpty ? [ComponentName.from(parent.title, maxWords: 3)] : Array(Set(touches)).sorted(),
                 predictedPaths: PredictedPath.normalize(proposal.predictedPaths ?? []),
+                affectedTests: (proposal.affectedTests ?? []).filter { !$0.isEmpty },
                 dependsOn: proposal.dependsOn ?? [])
         }
         for (index, proposal) in proposals.enumerated() {

@@ -85,6 +85,12 @@ results and outcome; see [real-repo mode](docs/real-repo-mode.md) for the full d
 
 ## Open a real repo
 
+A breakdown child can include `affectedTests`, listing existing test names (such as
+`FlowTests.someTest`) or repository-relative test files whose behaviour it deliberately changes.
+Its criteria must still say what those tests should expect now. The field is optional and is retained
+in previews and the ledger; an omitted, null or empty list means no affected tests. Adding or changing
+affected tests changes the child's spec fingerprint, so replanning does not keep its old tests and approvals.
+
 **File → Open Repository…** (⌘O) and choose a git repo. The window runs the **readiness scan** (doc 01)
 and lists its findings: blockers must be fixed before agents may work there, warnings can be accepted.
 **File → Show Simulator** (⇧⌘N) opens the simulator; it's only created when you first open it.
