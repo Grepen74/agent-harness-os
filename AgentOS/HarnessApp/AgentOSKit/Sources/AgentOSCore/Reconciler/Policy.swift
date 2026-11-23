@@ -171,12 +171,13 @@ public struct Policy: Sendable, Equatable {
 }
 
 extension WorkingState {
-    /// A node's status in words people use: on its ticket (and board) and in the work tree. A projection of the
+    /// A node's status in words people use on its ticket and board. A projection of the
     /// ledger, never the source (doc 03 §5). The phase is the
     /// ledger's own word for where it is in the V; this also says whether it waits for someone.
     public func status(of node: NodeState) -> String {
         if node.spec.parent == nil, node.pullRequestState == .merged { return "Done" }
         if node.spec.parent == nil, node.pullRequestState == .closed { return "Needs input" }
+        if node.spec.parent == nil, node.requirementMerged { return "Done" }
         if node.ticketClosed && node.phase != .proven { return "Closed" }
         if node.catchUpConflict != nil { return "Needs human" }
         if node.publicationFailure != nil { return "Needs input" }

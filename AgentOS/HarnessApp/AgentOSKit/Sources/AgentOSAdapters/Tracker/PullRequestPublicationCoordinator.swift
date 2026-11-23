@@ -3,13 +3,15 @@ import Foundation
 
 /// Harness-owned publication. Only an explicit requirement ref can cross this boundary.
 public actor PullRequestPublicationCoordinator: RequirementPublisher, RequirementPullRequestService {
-    private let ledger: Ledger
+    let ledger: Ledger
     private let tracker: any TrackerAdapter
-    private var repository: String
-    private let policy: EffectivePolicy
-    private let transport: any GitHubTransport
+    var repository: String
+    let policy: EffectivePolicy
+    let transport: any GitHubTransport
     private let git: @Sendable ([String]) async throws -> String
     private var reconciling = false
+    var reconcilingVerificationStatuses = false
+    var attemptedVerificationStatuses: Set<String> = []
 
     public init(ledger: Ledger, tracker: any TrackerAdapter, repository: String, policy: EffectivePolicy,
                 transport: any GitHubTransport,
@@ -68,6 +70,7 @@ public actor PullRequestPublicationCoordinator: RequirementPublisher, Requiremen
                 }
                 _ = try await push(branch: request.branch)
                 try await record(.requirementPushed(branch: request.branch, commit: request.commit), on: root.id)
+                try await postVerificationStatus(commit: request.commit, on: root.id)
                 let title = "\(root.ticket): \(root.spec.title)"
                 let body = PullRequestDescription.render(
                     request, root: root, state: state,
@@ -124,7 +127,7 @@ public actor PullRequestPublicationCoordinator: RequirementPublisher, Requiremen
 
     private var collection: String { "repos/\(repository)/pulls" }
 
-    private func resolveRepository() async throws {
+    func resolveRepository() async throws {
         guard repository.isEmpty else { return }
         let remote = try await git(["remote", "get-url", "--push", "origin"])
         guard let resolved = GitHubIssuesTracker.repo(fromRemote: remote) else {
@@ -232,7 +235,7 @@ public actor PullRequestPublicationCoordinator: RequirementPublisher, Requiremen
         return try JSONDecoder().decode(PullRequest.self, from: data)
     }
 
-    private func record(_ kind: EventKind, on node: NodeID) async throws {
+    func record(_ kind: EventKind, on node: NodeID) async throws {
         try await ledger.append([LedgerEvent(node: node, by: .adapter("Pull request publication"), kind: kind)])
     }
 }

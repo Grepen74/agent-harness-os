@@ -7,8 +7,10 @@ public enum LedgerEventKind: String, Hashable, CaseIterable, Sendable {
     case testsFixed, otherTestsUpdated, reviewRecorded, humanReviewRequested, humanReviewApproved
     case requirementBranchCreated
     case requirementBranchObserved, requirementCatchUpConflicted
+    case requirementBranchContainmentObserved
     case requirementVerificationStarted, requirementVerificationFinished, requirementVerificationRetryRequested, requirementMerged
     case requirementPushed, requirementPullRequestOpened, requirementPublicationFinished
+    case requirementVerificationStatusPosted, requirementVerificationStatusPostFailed
     case requirementPullRequestMerged, requirementPullRequestClosed, requirementPullRequestReopened
     case requirementPublicationStarted
     case requirementPublicationFailed, requirementPublicationRetryRequested, acceptanceCriterionProofsRecorded
@@ -20,6 +22,7 @@ public enum LedgerEventKind: String, Hashable, CaseIterable, Sendable {
     case landingBatchSplit, landingBatchOwnersRemoved
     case questionsRaised, assumptionsReported, suggestionsReported, questionsAnswered, externalDependencyResolved
     case ticketClosed, ticketReopened, readinessScanned, baselineChecked
+    case mainFetchWarningChanged
     case catchUpConflicted, catchUpSucceeded, caughtUp
 
     public init(_ kind: EventKind) {
@@ -46,12 +49,15 @@ public enum LedgerEventKind: String, Hashable, CaseIterable, Sendable {
         case .testsFixed: self = .testsFixed
         case .requirementBranchCreated: self = .requirementBranchCreated
         case .requirementBranchObserved: self = .requirementBranchObserved
+        case .requirementBranchContainmentObserved: self = .requirementBranchContainmentObserved
         case .requirementCatchUpConflicted: self = .requirementCatchUpConflicted
         case .requirementVerificationStarted: self = .requirementVerificationStarted
         case .requirementVerificationFinished: self = .requirementVerificationFinished
         case .requirementVerificationRetryRequested: self = .requirementVerificationRetryRequested
         case .requirementMerged: self = .requirementMerged
         case .requirementPushed: self = .requirementPushed
+        case .requirementVerificationStatusPosted: self = .requirementVerificationStatusPosted
+        case .requirementVerificationStatusPostFailed: self = .requirementVerificationStatusPostFailed
         case .requirementPublicationStarted: self = .requirementPublicationStarted
         case .requirementPullRequestOpened: self = .requirementPullRequestOpened
         case .requirementPullRequestMerged: self = .requirementPullRequestMerged
@@ -98,6 +104,7 @@ public enum LedgerEventKind: String, Hashable, CaseIterable, Sendable {
         case .ticketReopened: self = .ticketReopened
         case .readinessScanned: self = .readinessScanned
         case .baselineChecked: self = .baselineChecked
+        case .mainFetchWarningChanged: self = .mainFetchWarningChanged
         case .catchUpConflicted: self = .catchUpConflicted
         case .catchUpSucceeded: self = .catchUpSucceeded
         case .caughtUp: self = .caughtUp

@@ -164,6 +164,12 @@ public actor Reconciler {
         guard shutdownReason == nil, !Task.isCancelled else { return finish(report) }
 
         do {
+            try await refreshMainReference()
+        } catch {
+            report.safeStop = "Couldn't refresh the default branch: \(error). Check origin access, then run again."
+            return finish(report)
+        }
+        do {
             try await observeRequirementPullRequests(&report)
         } catch {
             report.safeStop = "Couldn't read requirement pull requests: \(error). Check GitHub access, then run again."
@@ -204,6 +210,9 @@ public actor Reconciler {
             }
             try await clearObsoleteOverlapHolds()
             try await verifyCompletedRequirements(&report)
+            if policy.pullRequests {
+                try await publisher?.reconcileVerificationStatuses()
+            }
         } catch {
             report.safeStop = "Couldn't reconcile work: \(error). Check the workspace and ledger, then run again."
         }

@@ -19,7 +19,7 @@ public struct WorkPane: View {
                 List(selection: $selection) {
                     OutlineGroup(Self.roots(in: model.state, showingDone: showDoneNodes)
                         .map { TreeItem($0, in: model.state) }, children: \.children) { item in
-                        NodeRow(node: item.node, status: model.state.status(of: item.node)).tag(item.node.id)
+                        NodeRow(node: item.node, status: model.state.appStatus(of: item.node)).tag(item.node.id)
                     }
                 }
                 Toggle("Show Done and closed items", isOn: $showDoneNodes)
@@ -38,15 +38,19 @@ public struct WorkPane: View {
         }
     }
 
-    /// The tree's top rows. Hiding Done and closed items keeps a row that still needs a person, for example a
-    /// requirement whose leaves are all proven but whose final verification failed.
+    /// Open pull requests stay visible; Done and closed requirements are hidden even with attention.
     static func roots(in state: WorkingState, showingDone: Bool) -> [NodeState] {
         guard !showingDone else { return state.roots }
         let attention = Set(state.attentionList.map(\.node.id))
         func needsAttention(_ id: NodeID) -> Bool {
             attention.contains(id) || (state.nodes[id]?.children.contains(where: needsAttention) ?? false)
         }
-        return state.roots.filter { ($0.phase != .proven && !$0.ticketClosed) || needsAttention($0.id) }
+        return state.roots.filter {
+            guard $0.pullRequestState != .merged, $0.pullRequestState != .closed,
+                  state.status(of: $0) != "Done" else { return false }
+            if $0.pullRequestState == .open { return true }
+            return ($0.phase != .proven && !$0.ticketClosed) || needsAttention($0.id)
+        }
     }
 }
 
@@ -64,7 +68,7 @@ struct TreeItem: Identifiable {
 
 struct NodeRow: View {
     let node: NodeState
-    /// The same words as on the ticket; the phase is in the detail pane.
+    /// The app status, including verification detail for open pull requests.
     let status: String
 
     /// Closed on the tracker and not finished: greyed out, its flags kept in the ledger but not shown.
@@ -74,7 +78,7 @@ struct NodeRow: View {
     var body: some View {
         HStack(spacing: 6) {
             Circle().fill(color).frame(width: 9, height: 9)
-            Text(node.displayName).monospaced().foregroundStyle(.secondary)
+            Text(node.displayName).monospaced().lineLimit(1).foregroundStyle(.secondary)
             Text(node.spec.title).lineLimit(1).foregroundStyle(closed ? .secondary : .primary)
             Spacer()
             ForEach(Flag.allCases.filter { !closed && node.flags[$0] != nil }, id: \.self) { flag in
@@ -91,9 +95,15 @@ struct AttentionList: View {
 
     var body: some View {
         let items = model.state.attentionList
-        if !items.isEmpty {
+        if !items.isEmpty || model.state.mainFetchWarning != nil {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Needs attention").font(.caption.bold())
+                if let warning = model.state.mainFetchWarning {
+                    Label(warning, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 // A node can have several flags at once.
                 ForEach(items.map { (id: "\($0.node.id) \($0.flag.rawValue)", item: $0) }, id: \.id) { entry in
                     let item = entry.item
@@ -117,6 +127,9 @@ struct NodeDetail: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("\(node.spec.id) · \(node.spec.kind.rawValue)").font(.headline)
                 grid
+                if let details = model.pullRequestDetails(for: node.id) {
+                    PullRequestSection(details: details)
+                }
                 if let message = model.state.overlapHoldMessage(for: node) {
                     Label(message, systemImage: "pause.circle")
                         .font(.body)

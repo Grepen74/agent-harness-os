@@ -21,6 +21,7 @@ struct RunningAgents: View {
     var body: some View {
         let running = model.state.running
         let previews = model.state.runningPreviews.values.sorted { $0.since < $1.since }
+        let waiting = model.state.verificationQueue
         // Always present, so an open log stays open when its run (or every run) finishes.
         VStack(spacing: 0) {
             if !running.isEmpty || !previews.isEmpty {
@@ -33,6 +34,22 @@ struct RunningAgents: View {
                 }
                 .padding(8).frame(maxWidth: .infinity, alignment: .leading)
                 .background(.orange.opacity(0.08))
+            }
+            if !waiting.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Waiting for final verification").font(.caption.bold())
+                    ForEach(Array(waiting.enumerated()), id: \.element.id) { index, node in
+                        HStack(spacing: 6) {
+                            Text("Position \(index + 1)").monospacedDigit()
+                            Text(node.ticket).monospaced().lineLimit(1)
+                            if let number = node.pullRequestNumber { Text("#\(number)") }
+                            Text(node.spec.title).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                        .font(.caption)
+                    }
+                }
+                .padding(8).frame(maxWidth: .infinity, alignment: .leading)
+                .background(.blue.opacity(0.08))
             }
         }
         .sheet(item: $shown) { shown in

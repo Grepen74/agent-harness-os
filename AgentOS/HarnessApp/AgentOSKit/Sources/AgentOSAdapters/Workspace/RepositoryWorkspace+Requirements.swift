@@ -13,9 +13,10 @@ extension RepositoryWorkspace {
 
     public func requirementIsMerged(_ requirement: NodeIdentity) async throws -> Bool {
         let branch = requirementBranch(for: requirement.ticketKey)
-        guard let commit = try await tip(of: branch), let main = try await tip(of: defaultBranch) else {
+        guard let commit = try await tip(of: branch) else {
             throw AgentFailure("Could not detect the merge: restore \(branch) and \(defaultBranch), then run again.")
         }
+        let main = try await localMainTip()
         return try await isAncestor(commit, of: main)
     }
 

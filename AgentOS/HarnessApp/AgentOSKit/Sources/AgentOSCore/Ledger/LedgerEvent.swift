@@ -81,12 +81,15 @@ public enum EventKind: Codable, Sendable {
     // Work
     case requirementBranchCreated(branch: String, from: String)
     case requirementBranchObserved(branch: String, tip: String, main: String, containedInMain: Bool)
+    case requirementBranchContainmentObserved(branch: String, tip: String, main: String, containsMain: Bool)
     case requirementCatchUpConflicted(branch: String, main: String, files: [String], tickets: [String])
     case requirementVerificationStarted
     case requirementVerificationFinished(Evidence)
     case requirementVerificationRetryRequested
     case requirementMerged(commit: String)
     case requirementPushed(branch: String, commit: String)
+    case requirementVerificationStatusPosted(commit: String, state: RequirementVerificationStatus)
+    case requirementVerificationStatusPostFailed(commit: String, error: String)
     case requirementPublicationStarted
     case requirementPullRequestOpened(number: Int, url: String)
     case requirementPullRequestMerged(number: Int, url: String)
@@ -164,6 +167,7 @@ public enum EventKind: Codable, Sendable {
     // The repo (doc 01): what the harness knew about it when it started, and whenever that changed.
     case readinessScanned(ReadinessScan)
     case baselineChecked(Baseline)
+    case mainFetchWarningChanged(warning: String?)
     case catchUpConflicted(main: String, files: [String], tickets: [String])
     case catchUpSucceeded(main: String, newAgentOSMainTip: String, method: CatchUpMethod)
     case caughtUp(
@@ -262,6 +266,10 @@ extension EventKind {
                 (paths.isEmpty ? "components \(components.joined(separator: ", "))" : "paths \(paths.joined(separator: ", "))")
         case .testsFixed(let digest): "acceptance tests fixed (\(digest.prefix(8)))"
         case .requirementPushed(let branch, let commit): "pushed \(branch) at \(commit)"
+        case .requirementVerificationStatusPosted(let commit, let state):
+            "posted agentos/verified \(state.rawValue) at \(commit)"
+        case .requirementVerificationStatusPostFailed(let commit, let error):
+            "agentos/verified status post failed at \(commit): \(error)"
         case .requirementPublicationStarted: "requirement publication started"
         case .requirementPullRequestOpened(let number, let url): "opened pull request #\(number): \(url)"
         case .requirementPullRequestMerged(let number, let url): "merged pull request #\(number): \(url)"
@@ -274,6 +282,8 @@ extension EventKind {
         case .requirementBranchCreated(let branch, let from): "created \(branch) from \(from)"
         case .requirementBranchObserved(let branch, let tip, let main, let contained):
             "observed \(branch) at \(tip), \(contained ? "contained" : "not contained") in main \(main)"
+        case .requirementBranchContainmentObserved(let branch, let tip, let main, let containsMain):
+            "observed \(branch) at \(tip), contains main \(main): \(containsMain)"
         case .requirementCatchUpConflicted(let branch, let main, let files, let tickets):
             "\(branch) catch-up to \(main) conflicted in \(files.joined(separator: ", ")); requirements: \(tickets.joined(separator: ", "))"
         case .requirementVerificationStarted: "final requirement verification started"
@@ -343,6 +353,8 @@ extension EventKind {
             "readiness scan of \(scan.branch ?? "?") at \((scan.commit ?? "?").prefix(8)): \(scan.summary)"
         case .baselineChecked(let baseline):
             "baseline at \(baseline.commit.prefix(8)) \(baseline.passed ? "passed" : "FAILED") in \(baseline.seconds)s – \(baseline.summary)"
+        case .mainFetchWarningChanged(let warning):
+            warning ?? "Default branch fetch warning cleared"
         case .catchUpConflicted(let main, let files, let tickets):
             "catch-up to \(main.prefix(8)) conflicted in \(files.joined(separator: ", ")) (tickets: \(tickets.joined(separator: ", ")))"
         case .catchUpSucceeded(let main, let tip, let method):

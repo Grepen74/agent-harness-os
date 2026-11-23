@@ -88,7 +88,8 @@ After the last leaf is proven, and once the step that marked the requirement pro
 the full test command (no leaf-suite filter) and all configured checks, including build preparation.
 The requirement's ledger records the result, commit, full log artifact and SHA-256. A prior leaf landing
 check does not replace this check. Completed verification survives a restart without rerunning. While it
-runs, the requirement is **In progress** and the check is listed with the running agents.
+runs before a pull request is opened, the requirement is **In progress** and the check is listed with
+the running agents. An open pull request keeps the ticket **In review** during verification.
 
 Failure or interruption waits for a person; no agent rework or automatic retry starts. Fix the problem
 and add `harness:retry` to the requirement ticket to run final verification again. With **Push / open pull
@@ -99,6 +100,20 @@ With publishing on, passing final verification pushes `agentos/<ticket key>` to 
 pull request into `main`. Later catch-ups and landings push new tips and update that same pull request,
 including across restarts. Only requirement branches are pushed, never with force; the harness does not
 push tags or leaf branches and never merges a pull request.
+
+With **Push / open pull requests** on, each round starts by fetching the default branch from `origin`,
+before reading ticket signals. The main baseline, requirement catch-up, cross-requirement dependency
+checks, merge detection and new requirement branches all use that fetched **`origin/<default branch>`**
+commit. A requirement merged on origin is detected as **Done** and unblocks its dependants without you
+pulling. Fetching never moves your local default branch, changes your checked-out branch, index or files,
+or interrupts an agent already running in its leaf checkout.
+
+If fetching fails (for example, offline or authentication rejected), **Needs attention** shows the git
+error and explains that the **last fetched commit** is used. The round continues using that commit,
+retries fetching on the next round, and clears the warning after a successful fetch. If there is no
+previously fetched default commit, the round stops and asks you to restore origin access instead of
+silently using a different branch. With publishing off, nothing is fetched: the local default branch
+remains the source for the baseline, catch-up, dependencies, merge detection and new branches.
 
 The description carries the requirement and breakdown, acceptance criteria with their reported proving
 tests, and each check's result, commit, summary and failing tests. Evidence stays local: artifact file names
@@ -111,6 +126,41 @@ waits without automatic retries or agent rework: its error appears in a ticket c
 attention**. Fix it and add `harness:retry` to push again and open or update the same pull request, including
 when GitHub created it but its response was lost.
 
+With publishing on, every requirement commit the harness successfully pushes gets the GitHub commit
+status **`agentos/verified`**, posted to `POST repos/{owner}/{repo}/statuses/{sha}`. Its state describes
+final requirement verification of that exact commit, never a leaf check or a different branch tip:
+
+| State | Description |
+|---|---|
+| `pending` | `Waiting for final verification`, when that commit has no recorded final result |
+| `pending` | `Final verification running`, before checks start on that commit |
+| `success` | `Final verification passed` |
+| `failure` | The start of the verification summary, at most 140 characters; longer summaries end with `…` |
+
+If the final result already exists at push time, the harness posts that result instead of `pending`.
+A later result updates its own pushed commit even if the branch has moved. No status is posted on a
+commit the harness did not push, or while publishing is off.
+
+After catch-up merges main, a later leaf lands, or a person commits to a published requirement branch
+(including resolving a catch-up conflict), the harness pushes the new tip in that round and posts
+`pending` without requiring a signal. It runs full final verification on that exact checkout commit.
+Only one final verification runs at a time: requirements with pull requests go first in ascending pull
+request number, then requirements without a pull request in creation order. An unchanged tip with a
+recorded final result is not checked again. A failure waits for a person, with **Needs attention** and a
+ticket comment, never agent rework; `harness:retry` verifies the current tip again. A new tip without a
+result is verified automatically even after a failure.
+
+If main moves during verification, the harness still records and posts the result for the commit it
+checked. The next round catches the requirement branch up with main and verifies the new tip.
+
+Each successful status post records its commit and state in the ledger; recorded commit/state pairs
+are not posted again when nothing changes. A human retry posts a new pending/running lifecycle and result.
+After a restart, missing statuses are recovered from pushed commits and recorded
+final results without rerunning verification or repushing the branch. A failed status post shows its
+error in **Needs attention** until posting succeeds and is retried automatically next round, at most
+once per round, without `harness:retry`. It does not block updating the pull request, change the ticket's
+status, or start agent rework. This automatic retry is separate from push/publication failures above.
+
 The requirement's ticket follows its pull request: **In review** while open, **Done** when merged,
 and **Needs input** when closed without merging. These statuses appear in ticket labels and comments,
 and in the board's status field when `tracker.project` is configured, using `tracker.project.statusMap`.
@@ -118,6 +168,74 @@ A close posts the pull request link and waits for a person: `harness:retry` push
 reopens that same pull request, never a replacement. Opening, closing, reopening and merging are durable
 ledger events. After a merge, `harness:retry` and other build signals are refused with the merged pull
 request link and instructions to open a follow-up ticket.
+
+In the app, the **work tree** row and **Tracker pane** add the open pull request number and its
+verification state: `In review · #110 verified`, `In review · #110 waiting for verification (2nd)`,
+`In review · #110 verifying`, or `In review · #110 verification failed`. Verified and failed results
+describe the current requirement branch tip; a new tip waits for verification. Waiting positions
+count only eligible waiting open pull requests, in ascending pull request number, with the next shown
+as `1st`. Closed tickets, unfinished requirements, catch-up conflicts and old pull requests without a
+published commit are not in that queue until eligible for verification (an explicit verification
+retry can recover an old pull request).
+The suffix is app-only: ticket labels and the Projects board stay **In review** through verification.
+Other blockers retain their usual status, such as **Needs human** for a catch-up conflict or
+**Needs input** for failed publication; verification detail never hides those statuses or counts
+these rows in the displayed queue. This app display does not change the reconciler's verification
+schedule: flags and publication failures do not themselves prevent an initial verification or an
+explicit verification retry.
+Merged and closed pull requests show plain **Done** and **Needs input**, without a pull request suffix.
+
+Turning off **Show Done and closed items** in the work tree keeps requirements with open pull requests
+visible even when all their leaves are proven. It hides merged and closed requirements, and any
+requirement whose status is **Done**, even if it still has attention entries. Other unfinished
+requirements needing a person remain visible. Turning the toggle on shows all requirements.
+
+Select a requirement with a pull request to see its **Pull request** details section. Its **#number**
+is a link to the recorded GitHub URL. Labelled rows show the **Last pushed commit**, that exact commit's
+**agentos/verified** state (**Pending**, **Success**, **Failure**, or **Not posted**), the **Last verified
+commit** with **Passed** or **Failed**, and whether the branch **Contains latest main** (**Yes**, **No**,
+or **Unknown** when no current observation exists). The last completed verification stays visible while
+another runs; it need not describe the last pushed commit. **Last catch-up** shows this requirement's
+latest caught-up main commit and recorded time. **Verification queue** shows its one-based position,
+or **Not waiting**. Requirements without a pull request have no such section.
+
+Below **Running now**, **Running agents** also shows **Waiting for final verification**, even when
+no agent is running. Rows follow the shared verification queue: eligible pull requests in ascending
+number, then unpublished requirements in creation order. Each shows its ticket, its own pull request
+number when present, and numeric position. Completed, currently verifying, closed, merged or blocked
+requirements are not waiting.
+
+### One-time GitHub branch protection setup
+
+A person, not the harness or its agents, must protect the repository's default branch. In GitHub's
+branch protection settings (or an equivalent branch ruleset), require the status check
+**`agentos/verified`** and enable **Require branches to be up to date before merging**. Together these
+prevent merging a pull request until the harness has verified its commit against the latest main.
+No GitHub Actions workflow or GitHub merge queue is needed.
+
+For example, after authenticating `gh` with an account allowed to manage repository protection, run:
+
+```sh
+gh api --method PUT repos/OWNER/REPO/branches/DEFAULT_BRANCH/protection --input - <<'JSON'
+{
+  "required_status_checks": {
+    "strict": true,
+    "contexts": ["agentos/verified"]
+  },
+  "enforce_admins": false,
+  "required_pull_request_reviews": null,
+  "restrictions": null
+}
+JSON
+```
+
+Replace `OWNER`, `REPO` and `DEFAULT_BRANCH` with your repository and default branch (usually `main`).
+This PUT sets branch protection, so first review existing protection and preserve any other required
+checks, review requirements or restrictions rather than replacing them with this minimal example.
+GitHub administrators **can bypass** this configuration because `enforce_admins` is false; rulesets can
+also grant bypass permissions. Do not bypass it for ordinary merges. To apply protection to admins too,
+use `enforce_admins: true` and review any ruleset bypass list. Availability depends on GitHub's plan and
+repository visibility.
 
 The optional boolean `pullRequests` repo key inherits the saved harness setting when absent. `false`
 switches publishing off for the repo. `true` while the harness setting is off has no effect and adds a
@@ -705,7 +823,7 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
   since you may commit while agents work), and the shared git config, hooks and `info/` files (not `info/refs`, which git's own housekeeping —
   `gc --auto` after a commit — rewrites). Origin's tracking refs for `agentos/` branches (wherever its fetch refspec
   puts them) don't count either: the harness's own push moves them when it publishes a requirement while agents
-  work. Worktrees share all of these with your repo. Any change escalates the leaf instead of retrying it, naming what
+  work; nor does `origin/<default branch>` moving to a commit the harness's own fetch brought in. Worktrees share all of these with your repo. Any change escalates the leaf instead of retrying it, naming what
   changed; if it was you (e.g. you fetched meanwhile), add `harness:retry`. When agents ran side by side,
   the change can't be pinned on one: each of them is escalated and names the others it ran with.
 - **Parallel work.** Up to *max parallel agents* nodes take their step at the same time (breakdown,
@@ -845,7 +963,9 @@ Agent processes also get a clean environment and restricted tools (see the works
 run that changes your refs or git config anyway is escalated. Branch refs and worktree records do live in
 the repo's `.git`. Removing the `agentos/` branches and the harness's storage removes every trace of it.
 
-The harness itself never fetches or creates your branches. If the remote's default branch (`origin/HEAD`)
+The harness never creates or moves your local default branch. With publishing on it fetches only origin's
+default branch each round, without fetching tags or changing your checkout; its own ref updates do not
+escalate running agents. With publishing off it does not fetch. If the remote's default branch (`origin/HEAD`)
 has no local copy, the scan, baseline and landing read **`origin/<branch>`** as of your last fetch; the
 scan shows when that was and suggests `git fetch` or `git branch <branch> origin/<branch>`. The landing
 branch is created with `--no-track`, so no upstream is written to your config.
@@ -988,7 +1108,7 @@ Each phase is usable on its own.
      proven, final verification passed, and merged: its pull request merged or its tip in `main`; squashing
      or rebasing it into `main` without a pull request leaves it *In review*, so merge it instead).
      Until then the ticket shows *Blocked* with "Waiting for GH-12", or "… to be merged into main" once it's
-     Done but its work isn't in the local `main` yet (e.g. a merged pull request not pulled); merge it (and let
+     Done but its work isn't in the selected default commit yet; merge it (and let
      catch-up bring it into the requirement branch) and it unblocks by itself. Within one requirement, proven
      is enough: the work is already on that requirement's branch.
    - **Projects board (opt-in).** With `tracker.project` (owner, number, optional `statusField` and
@@ -1008,8 +1128,12 @@ Each phase is usable on its own.
    merged). Leaves in progress then rebase as usual; conflicts go to rework, as at landing. Leaves whose
    agent is running or about to start are left alone and catch up on a later round. Catch-up runs at the
    start of every round, so work started or retried in that round begins from the latest `main`; an
-   unresolved catch-up conflict stays the status of its tickets after the round. Nothing is fetched:
-   `main` is whatever your clone has.
+   unresolved catch-up conflict stays the status of its tickets after the round. With **Push / open pull
+   requests** on, the round first fetches the default branch from `origin`; the baseline, catch-up,
+   cross-requirement dependencies, merge detection and new requirement branches use
+   `origin/<default branch>`, leaving local branches and your checkout untouched. A failed fetch shows
+   its git error in **Needs attention** and continues with the last fetched commit; the next successful
+   fetch clears the warning. With publishing off, nothing is fetched and the local default branch is used.
 9. **Publishing pull requests.** The way out to the world, and the end state of concept docs 04 and 08 (every
    change a reviewed pull request). One pull request per **requirement** (a top-level ticket, or a
    composite node), opened once all its leaves are proven; single leaves are too small to review on their
