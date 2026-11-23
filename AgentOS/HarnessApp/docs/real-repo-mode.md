@@ -505,6 +505,10 @@ The child still needs a criterion naming those tests and their new expectations.
 `affectedTests` means none; empty entries are dropped when the proposal becomes a node spec.
 The field is retained in previews and the ledger. Changing a nonempty list changes the spec fingerprint,
 so replanning does not reuse the older child's tests or approvals; an empty list preserves older fingerprints.
+Before approving a breakdown with `harness:go`, request `harness:preview` to review each child's
+affected tests at the end of its line, after `affected tests:`. The **Broken down** and
+**No breakdown needed** comments use the same suffix; children without affected tests have no suffix.
+Select a node in the **Work** pane to see its **Affected tests** row, one entry per line or **–** when empty.
 When the implementer reports a broken test (its own or, by `Suite.testName`, another item's that conflicts
 with this ticket), the ticket goes back to the test author without charging an attempt. Since each report
 costs a round, the implementer is told to run the whole suite first and report every conflicting test at once

@@ -91,6 +91,11 @@ Its criteria must still say what those tests should expect now. The field is opt
 in previews and the ledger; an omitted, null or empty list means no affected tests. Adding or changing
 affected tests changes the child's spec fingerprint, so replanning does not keep its old tests and approvals.
 
+Before approving a breakdown with `harness:go`, use `harness:preview`: each child's line ends with
+`affected tests:` and its entries when present. The **Broken down** and **No breakdown needed** comments
+show them too. In the **Work** pane, select a node to see **Affected tests**, one entry per line,
+or **–** when there are none.
+
 **File → Open Repository…** (⌘O) and choose a git repo. The window runs the **readiness scan** (doc 01)
 and lists its findings: blockers must be fixed before agents may work there, warnings can be accepted.
 **File → Show Simulator** (⇧⌘N) opens the simulator; it's only created when you first open it.

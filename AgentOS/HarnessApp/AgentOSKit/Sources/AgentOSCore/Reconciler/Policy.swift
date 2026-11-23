@@ -249,7 +249,8 @@ enum Planner {
     static func describe(_ specs: [NodeSpec], under title: String) -> String {
         guard specs.count > 1 else {
             let touches = specs.first.map { " (touches: \($0.touches.joined(separator: ", "))\(pathsDescription($0)))" } ?? ""
-            return "\(title)\n└─ no children: it is a leaf itself\(touches)"
+            let affectedTests = specs.first.map(affectedTestsDescription) ?? ""
+            return "\(title)\n└─ no children: it is a leaf itself\(touches)\(affectedTests)"
         }
         let lines = specs.enumerated().map { index, spec in
             let branch = index == specs.count - 1 ? "└─" : "├─"
@@ -258,12 +259,16 @@ enum Planner {
             }
             let names = siblings + spec.dependsOn
             let waits = names.isEmpty ? "" : "  (waits for \(names.joined(separator: ", ")))"
-            return "\(branch) \(spec.title)  touches: \(spec.touches.joined(separator: ", "))\(pathsDescription(spec))\(waits)"
+            return "\(branch) \(spec.title)  touches: \(spec.touches.joined(separator: ", "))\(pathsDescription(spec))\(waits)\(affectedTestsDescription(spec))"
         }
         return ([title] + lines).joined(separator: "\n")
     }
 
     private static func pathsDescription(_ spec: NodeSpec) -> String {
         spec.predictedPaths.isEmpty ? "" : "  paths: \(spec.predictedPaths.joined(separator: ", "))"
+    }
+
+    private static func affectedTestsDescription(_ spec: NodeSpec) -> String {
+        spec.affectedTests.isEmpty ? "" : "  affected tests: \(spec.affectedTests.joined(separator: ", "))"
     }
 }

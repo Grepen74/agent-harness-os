@@ -197,6 +197,7 @@ struct NodeDetail: View {
             row("Touches", node.spec.touches.isEmpty ? "–" : node.spec.touches.joined(separator: ", "))
             row("Paths", node.spec.predictedPaths.isEmpty ? "–" : node.spec.predictedPaths.joined(separator: "\n"))
             row("Test target", node.spec.kind == .leaf ? node.spec.testTarget : "–")
+            row("Affected tests", node.spec.affectedTests.isEmpty ? "–" : node.spec.affectedTests.joined(separator: "\n"))
             row("Attempts failed", "\(node.failedAttempts)")
             row("Reworks", "\(node.reworks)")
             row("Landed at", node.landedCommit.map { String($0.prefix(8)) } ?? "–")
