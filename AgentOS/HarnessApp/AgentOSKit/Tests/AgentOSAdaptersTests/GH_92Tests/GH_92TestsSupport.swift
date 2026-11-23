@@ -176,6 +176,8 @@ extension GH_92Tests {
             let itemPath = "\(issuePath)/92"
             let value: Any
             switch (method, route) {
+            case ("GET", "user"):
+                value = ["login": "harness", "type": "User"]
             case ("GET", issuePath):
                 value = issueClosed ? [] : [issue()]
             case ("GET", itemPath):
