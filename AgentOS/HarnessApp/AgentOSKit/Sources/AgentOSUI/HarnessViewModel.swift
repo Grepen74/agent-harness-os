@@ -57,6 +57,7 @@ extension HarnessActions {
 public final class HarnessViewModel {
     public var tickets: [Ticket] = []
     public var state = WorkingState()
+    public var processSelection: ProcessSelection?
     public let ledgerPage = LedgerPageModel()
     private var historyRecords: [RecordedEvent] = []
     private var recordsByNode: [NodeID: [RecordedEvent]] = [:]

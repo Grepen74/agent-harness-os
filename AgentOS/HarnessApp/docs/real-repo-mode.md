@@ -31,6 +31,22 @@ requests, and several repos forming one system are planned (phases 8, 9 and 10).
 6. Proven work lands on the local requirement branch **`agentos/<ticket key>`**, for example `agentos/GH-12`.
    You review, merge and push it yourself. Nothing is pushed automatically.
 
+## Process inspector
+
+The repository window's **Process** tab sits beside Readiness, Policy and Ledger. It draws the
+requirement and leaf workflows for the current effective policy, with recovery paths below them.
+Its source of stages and guarded transitions is `WorkflowCatalog.standard` in `AgentOSCore`;
+`WorkflowProjection` applies the effective policy, and the catalog's current-stage mapping reads
+the replayed working state. Root leaves count once, and nested composites use the requirement workflow.
+
+Select a stage to see its actor, current loop limits, shaping settings and enabled signals.
+Use its outgoing-arrow menu to select a transition and read its reason and condition.
+Person stages carry a person mark; occupied ones also show how many nodes wait on a person.
+Every stage shows its repository node count. Policy changes reshape the diagram, including
+acceptance-test and change review, landing approval under `agent+human`, and publishing stages.
+Opening the tab, selecting details and clearing a selection change only UI state: they neither
+open gates nor append ledger events.
+
 ## What changes compared to the simulator
 
 | | Simulator | Real repo |

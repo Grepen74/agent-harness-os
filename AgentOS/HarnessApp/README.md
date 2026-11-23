@@ -97,6 +97,9 @@ and lists its findings: blockers must be fixed before agents may work there, war
 
 The **Policy** pane shows what applies to the repo: the harness's limits from **Settings** (⌘,), tightened
 by the repo's `.agentos/config.json`, each value with its source. The config says how to build and test.
+The read-only **Process** tab diagrams requirement and leaf workflows for that effective policy, with
+node counts and person-wait marks. Select a stage for its actor, limits and settings, or an outgoing
+transition for its reason and condition; selections never write to the ledger.
 **Open .agentos/config.json** opens the copy in your checkout in your default editor. If the repo has none,
 the pane shows a draft guessed from the scan, and **Create .agentos/config.json** writes that draft into your
 checkout. Check it, commit it on `main` yourself, then **Rescan** (toolbar, ⌘R). A rescan reloads the config
