@@ -34,8 +34,8 @@ extension GH_137Tests {
     }
 
     /// The reusable scenario ledgers both scenario tests replay, made once per test process. Each scenario is a real
-    /// reconciler run with git; in a loaded full suite the six together took over two minutes, so each scenario has
-    /// its own hang guard rather than one for all of them.
+    /// reconciler run with git; in a loaded full suite the six together took over two minutes, so the hang guard
+    /// allows its time per scenario rather than for all of them.
     static func scenarioLedgers() async throws -> [WorkflowScenarioLedger] {
         try await ScenarioLedgers.shared.value()
     }
@@ -257,16 +257,11 @@ private actor ScenarioLedgers {
 
     func value() async throws -> [WorkflowScenarioLedger] {
         if let production { return try await production.value }
-        // What `WorkflowScenarioFixtures.ledgers()` does, one guard per scenario so a hang is caught and named
-        // within one budget however many scenarios there are.
+        let count = WorkflowScenario.allCases.count
         let task = Task {
-            var ledgers: [WorkflowScenarioLedger] = []
-            for scenario in WorkflowScenario.allCases {
-                ledgers.append(try await withHangGuard("producing the \(scenario) workflow scenario ledger") {
-                    try await WorkflowScenarioFixtures.ledger(for: scenario)
-                })
+            try await withHangGuard("producing \(count) workflow scenario ledgers", timeout: HangGuard.timeout * count) {
+                try await WorkflowScenarioFixtures.ledgers()
             }
-            return ledgers
         }
         production = task
         return try await task.value
