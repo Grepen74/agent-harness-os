@@ -258,7 +258,7 @@ struct GH_90Tests {
         }
         #expect(await f.agents.calls.isEmpty)
         #expect(await f.publisher.calls.isEmpty)
-        #expect(await f.checks.calls.count == 1)
+        #expect(await f.checks.calls.count == 2, "A failed check runs once more with no other work running.")
 
         await f.reconciler.shutdown(reason: "GH-90 failure restart")
         let reopened = try Ledger(store: FileLedgerStore(fileURL: f.ledgerURL))
@@ -266,12 +266,12 @@ struct GH_90Tests {
         _ = await restarted.recoverAfterRestart()
         try await f.settle(using: restarted)
         try await f.settle(using: restarted)
-        #expect(await f.checks.calls.count == 1, "Failure must not retry automatically, including after restart.")
+        #expect(await f.checks.calls.count == 2, "Failure must not retry automatically, including after restart.")
         #expect(await f.agents.calls.isEmpty)
         #expect(await reopened.workingState().attentionList.contains { $0.node.id == f.requirement.nodeID })
         try f.clearFailure(failure)
         try await f.settle(using: restarted)
-        #expect(await f.checks.calls.count == 1, "Fixing the command alone does not authorize another final check.")
+        #expect(await f.checks.calls.count == 2, "Fixing the command alone does not authorize another final check.")
         #expect(await f.publisher.calls.isEmpty)
         #expect(await reopened.workingState().attentionList.contains { $0.node.id == f.requirement.nodeID })
     }
@@ -289,17 +289,18 @@ struct GH_90Tests {
         _ = await restarted.recoverAfterRestart()
         await f.tracker.addRetry(for: f.requirement.ticketKey)
         try await f.settle(using: restarted)
-        #expect(await f.checks.calls.count == 2)
+        #expect(await f.checks.calls.count == 4)
         #expect(await reopened.workingState().attentionList.contains { $0.node.id == f.requirement.nodeID })
         try await f.settle(using: restarted)
-        #expect(await f.checks.calls.count == 2, "A second failure still needs another human retry.")
+        #expect(await f.checks.calls.count == 4, "A second failure still needs another human retry.")
 
         try f.clearFailure(.lint)
         await f.tracker.addRetry(for: f.requirement.ticketKey)
         try await f.settle(using: restarted)
-        #expect(await f.checks.calls.count == 3)
+        #expect(await f.checks.calls.count == 5)
         #expect(await f.checks.calls.allSatisfy { $0.suite == nil && $0.directory == f.requirementDirectory })
-        #expect(try f.commandTrace().sorted() == ["format", "lint", "lint", "lint", "tests", "tests", "tests"])
+        #expect(try f.commandTrace().sorted() == ["format"] + Array(repeating: "lint", count: 5)
+            + Array(repeating: "tests", count: 5))
         let evidence = await f.requirementEvidence(in: reopened)
         #expect(evidence.contains { !$0.passed })
         #expect(evidence.contains { $0.passed })
@@ -371,7 +372,7 @@ struct GH_90Tests {
         #expect(root.requirementMerged)
         #expect(state.status(of: root) == "Done")
         #expect(!state.attentionList.contains { $0.node.id == f.requirement.nodeID })
-        #expect(await f.checks.calls.count == 1, "No second verification of what main's baseline checks.")
+        #expect(await f.checks.calls.count == 2, "No verification of what main's baseline checks after the recheck.")
     }
 
     @Test
