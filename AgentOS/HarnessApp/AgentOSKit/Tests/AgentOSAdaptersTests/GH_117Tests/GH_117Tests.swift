@@ -285,6 +285,13 @@ import Testing
                 return try Self.json(path.contains("page=2") ? [] : [Self.issue])
             case ("GET", "repos/owner/repository/issues/117"):
                 return try Self.json(Self.issue)
+            case ("GET", "repos/owner/repository/issues/117/events"):
+                return try Self.json([])
+            case ("POST", "graphql"):
+                let description = try #require(Self.issue["body"] as? String)
+                return try Self.json(["data": ["repository": ["issue": [
+                    "body": description, "editor": NSNull(), "lastEditedAt": NSNull()
+                ]]]])
             case ("GET", "repos/owner/repository/issues/117/comments"):
                 let items: [[String: Any]] = comments.enumerated().map { index, seed in
                     ["id": 11700 + index, "body": seed.text,

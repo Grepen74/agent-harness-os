@@ -245,6 +245,12 @@ extension GH_92Tests {
         private func graphql(_ sent: [String: Any]) throws -> [String: Any] {
             let query = try #require(sent["query"] as? String)
             let variables = try #require(sent["variables"] as? [String: Any])
+            if query.contains("editor") {
+                let description = try #require(issue()["body"] as? String)
+                return ["data": ["repository": ["issue": [
+                    "body": description, "editor": NSNull(), "lastEditedAt": NSNull()
+                ]]]]
+            }
             if query.contains("repositoryOwner") {
                 let options = ["Queue", "Awaiting approval", "Completed", "In review", "Done", "Needs input"].map {
                     ["id": "option-\($0)", "name": $0]
