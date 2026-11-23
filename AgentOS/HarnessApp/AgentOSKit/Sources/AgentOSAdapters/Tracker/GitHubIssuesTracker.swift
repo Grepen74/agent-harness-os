@@ -81,6 +81,7 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
     private let transport: any GitHubTransport
     private let listInterval: Duration
     private let commentPermissions: GitHubCommentPermissions
+    private let descriptions: GitHubIssueDescriptions
     /// The board whose status field shows the harness's status, if the config names one.
     private let board: GitHubProjectBoard?
 
@@ -100,7 +101,7 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
     public static let marker = "<!-- agentos -->"
     public static let statusPrefix = "agentos: "
 
-    public init(repo: String, transport: any GitHubTransport, project: RepoConfig.Tracker.Project? = nil,
+    public init(repo: String, transport: any GitHubTransport, ledger: Ledger? = nil, project: RepoConfig.Tracker.Project? = nil,
                 listInterval: Duration = .seconds(10), permissionRefreshInterval: Duration = .seconds(300),
                 now: @escaping @Sendable () -> Date = { Date() }) {
         self.repo = repo
@@ -108,6 +109,7 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
         self.listInterval = listInterval
         commentPermissions = GitHubCommentPermissions(
             repo: repo, transport: transport, refreshInterval: permissionRefreshInterval, now: now)
+        descriptions = GitHubIssueDescriptions(repo: repo, transport: transport, permissions: commentPermissions, ledger: ledger)
         board = project.map { GitHubProjectBoard(config: $0, repo: repo, transport: transport) }
     }
 
@@ -134,15 +136,21 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
     // MARK: TrackerAdapter
 
     public func pendingSignals() async -> [Signal] {
+        await descriptions.beginRound()
         await createHarnessLabels()
         var signals: [Signal] = []
         for issue in await listOpenIssues() {
+            guard await acceptedBody(of: issue) != nil else { continue }
             for label in issue.labels {
                 guard let command = HarnessCommand.allCases.first(where: { $0.label == label.name }) else { continue }
                 signals.append(Signal(ticket: Self.key(issue.number), command: command, setBy: await setter(of: label.name, on: issue)))
             }
         }
         return signals
+    }
+
+    public func connectLedger(_ ledger: Ledger) async throws {
+        try await descriptions.connectLedger(ledger)
     }
 
     public func ticket(_ key: String) async -> Ticket? {
@@ -257,7 +265,9 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
         var result: [Ticket] = []
         var permissions: [String: CommentWriteAccess] = [:]
         for issue in await listOpenIssues() {
-            result.append(await ticket(from: issue, permissions: &permissions))
+            if let ticket = await ticket(from: issue, permissions: &permissions) {
+                result.append(ticket)
+            }
         }
         return result
     }
@@ -435,8 +445,9 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
         return openIssues
     }
 
-    private func ticket(from issue: Issue, permissions: inout [String: CommentWriteAccess]) async -> Ticket {
-        let parsed = Self.parse(body: issue.body ?? "")
+    private func ticket(from issue: Issue, permissions: inout [String: CommentWriteAccess]) async -> Ticket? {
+        guard let body = await acceptedBody(of: issue) else { return nil }
+        let parsed = Self.parse(body: body)
         var ticket = Ticket(
             key: Self.key(issue.number), title: issue.title, description: parsed.description,
             acceptanceCriteria: parsed.criteria, blockedBy: parsed.blockedBy, parentKey: parsed.parent.map(Self.key),
@@ -452,6 +463,12 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
             ?? (issue.state == "closed" ? "Done" : "To Do")
         ticket.comments = await comments(of: issue, permissions: &permissions)
         return ticket
+    }
+
+    private func acceptedBody(of issue: Issue) async -> String? {
+        let result = await descriptions.body(number: issue.number, revision: issue.updatedAt, current: issue.body ?? "")
+        problems += result.problems
+        return result.body
     }
 
     private func comments(of issue: Issue, permissions: inout [String: CommentWriteAccess]) async -> [Comment] {

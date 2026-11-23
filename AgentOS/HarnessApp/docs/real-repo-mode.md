@@ -973,6 +973,15 @@ Each phase is usable on its own.
      permission is cached for five minutes per tracker session, then refreshed even for unchanged issues.
      Failed permission requests exclude that author's input for that read and are retried on the next read;
      failures appear in the activity log. Comments written in the local app continue to count as input.
+   - Description approval is saved in the ledger: the accepted body is the one current when a person
+     with **write, maintain or admin** access last added a `harness:` label or edited the description
+     (GitHub's `Issue.editor`). Issue authors can edit their own descriptions without write access even
+     after a maintainer approved them. Later outside edits therefore do not change agent context,
+     previews, adoption or replanning, including after a restart. For an adopted ticket, *Needs attention*
+     names the editor and asks a person with write access to edit the description or add `harness:replan`
+     to accept it. When editor permission is unreadable, the accepted body is kept for the round and
+     checked again next round. Before any trusted approval the current body is read as it is; the next
+     trusted `harness:` label accepts it. The local tracker always reads its current description.
    - A tracker that refuses a child ticket escalates the breakdown; `harness:retry` creates the rest.
    - **Closing an issue** stops the harness's work on it: no new steps, no landing, no status updates, and
      it leaves *Needs attention* (status *Closed*, unless already proven). A running agent finishes but its

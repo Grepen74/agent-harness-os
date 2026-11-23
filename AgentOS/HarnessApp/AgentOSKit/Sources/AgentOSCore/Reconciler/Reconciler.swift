@@ -169,6 +169,12 @@ public actor Reconciler {
             report.safeStop = "Couldn't read requirement pull requests: \(error). Check GitHub access, then run again."
             return finish(report)
         }
+        do {
+            try await tracker.connectLedger(ledger)
+        } catch {
+            report.safeStop = "Couldn't restore tracker observations: \(error). Check the ledger, then run again."
+            return finish(report)
+        }
         let signals = await tracker.pendingSignals()
         do {
             try await observeIgnoredComments(signals: signals)

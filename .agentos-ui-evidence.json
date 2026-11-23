@@ -1,0 +1,12 @@
+{
+  "snapshotPaths": [
+    ".agentos-ui-evidence/before.png",
+    ".agentos-ui-evidence/after.png",
+    ".agentos-ui-evidence/alongside-question.png",
+    ".agentos-ui-evidence/acceptance-attention.png"
+  ],
+  "windowsOpened": true,
+  "windowsClosed": true,
+  "beforeScreenshot": ".agentos-ui-evidence/before.png",
+  "afterScreenshot": ".agentos-ui-evidence/after.png"
+}

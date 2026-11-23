@@ -2,6 +2,7 @@
 public enum LedgerEventKind: String, Hashable, CaseIterable, Sendable {
     case signalAccepted, signalRejected, previewRecorded, previewStarted, previewFinished, breakdownChecked, breakdownRetryRequested
     case commentIgnored
+    case ticketDescriptionObserved
     case nodeCreated, linkAdded, becameLeaf, replanned, breakdownRevised
     case gateOpened, phaseChanged, flagSet, flagCleared, attemptsReset
     case overlapHoldStarted, overlapHoldEnded
@@ -28,6 +29,7 @@ public enum LedgerEventKind: String, Hashable, CaseIterable, Sendable {
         case .signalAccepted: self = .signalAccepted
         case .signalRejected: self = .signalRejected
         case .commentIgnored: self = .commentIgnored
+        case .ticketDescriptionObserved: self = .ticketDescriptionObserved
         case .previewRecorded: self = .previewRecorded
         case .previewStarted: self = .previewStarted
         case .previewFinished: self = .previewFinished
