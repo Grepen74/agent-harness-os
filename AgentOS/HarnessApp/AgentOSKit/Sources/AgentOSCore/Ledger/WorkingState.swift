@@ -67,6 +67,13 @@ public struct RequirementBranchObservation: Sendable, Equatable {
     public let containedInMain: Bool
 }
 
+public struct RequirementBranchContainmentObservation: Sendable, Equatable {
+    public let branch: String
+    public let tip: String
+    public let main: String
+    public let containsMain: Bool
+}
+
 /// The current state of one Work Node, derived from its events.
 public struct NodeState: Sendable, Identifiable {
     public var id: NodeID { spec.id }
@@ -87,19 +94,26 @@ public struct NodeState: Sendable, Identifiable {
     public var testsDigest: String?
     public var requirementBranch: String?
     public var requirementBranchObservation: RequirementBranchObservation?
+    public var requirementBranchContainmentObservation: RequirementBranchContainmentObservation?
     public var requirementVerificationStarted = false
     public var requirementVerification: Evidence?
+    /// Unlike the current attempt's result, this survives starting another verification.
+    public var lastCompletedRequirementVerification: Evidence?
     public var requirementVerificationRetryPending = false
     public var requirementMerged = false
     public var pullRequestNumber: Int?
     public var pullRequestURL: String?
     public var pullRequestState: RequirementPullRequest.State?
     public var publishedCommit: String?
+    public var lastPushedCommit: String?
+    public var verificationCommitStatuses: [String: VerificationCommitStatus] = [:]
     public var publicationFailure: String?
+    public var verificationStatusPostFailures: [String: String] = [:]
     public var publicationRetryPending = false
     public var acceptanceCriterionProofs: [AcceptanceCriterionProof] = []
     public var catchUpConflict: CatchUpConflict?
     public var lastCatchUpSuccess: CatchUpSuccess?
+    public var lastCaughtUpAt: Date?
     /// Other work's tests this node's acceptance tests changed, locked by `updatedOtherTestsDigest`.
     public var updatedOtherTests: [String] = []
     public var updatedOtherTestsDigest: String?
@@ -177,6 +191,7 @@ public struct WorkingState: Sendable {
     public private(set) var readiness: ReadinessScan?
     /// The latest baseline run on the default branch.
     public private(set) var baseline: Baseline?
+    public private(set) var mainFetchWarning: String?
     public private(set) var catchUpConflict: CatchUpConflict?
     public private(set) var lastCatchUpSuccess: CatchUpSuccess?
 
@@ -229,6 +244,11 @@ public struct WorkingState: Sendable {
             }
             if let failure = node.publicationFailure {
                 items.append((node, .needsInput, failure))
+            }
+            for commit in node.verificationStatusPostFailures.keys.sorted() {
+                if let failure = node.verificationStatusPostFailures[commit] {
+                    items.append((node, .needsInput, failure))
+                }
             }
             return items
         }
@@ -339,6 +359,8 @@ public struct WorkingState: Sendable {
             readiness = scan
         case .baselineChecked(let result):
             baseline = result
+        case .mainFetchWarningChanged(let warning):
+            mainFetchWarning = warning
         case .catchUpConflicted(let main, let files, let tickets):
             catchUpConflict = CatchUpConflict(mainSHA: main, files: files, tickets: tickets)
         case .catchUpSucceeded(let main, let tip, let method):
@@ -387,8 +409,16 @@ public struct WorkingState: Sendable {
         case .requirementVerificationFinished(var evidence):
             evidence.recordedAt = event.at
             node.requirementVerification = evidence
+            node.lastCompletedRequirementVerification = evidence
         case .requirementVerificationRetryRequested:
             if event.by.isHuman { node.requirementVerificationRetryPending = true }
+        case .requirementPushed(_, let commit):
+            node.lastPushedCommit = commit
+        case .requirementVerificationStatusPosted(let commit, let state):
+            node.verificationCommitStatuses[commit] = state
+            node.verificationStatusPostFailures[commit] = nil
+        case .requirementVerificationStatusPostFailed(let commit, let error):
+            node.verificationStatusPostFailures[commit] = error
         case .requirementMerged:
             node.requirementMerged = true
         case .requirementPullRequestOpened(let number, let url),
@@ -431,6 +461,9 @@ public struct WorkingState: Sendable {
             node.requirementBranch = branch
             node.requirementBranchObservation = RequirementBranchObservation(
                 tip: tip, main: main, containedInMain: contained)
+        case .requirementBranchContainmentObserved(let branch, let tip, let main, let containsMain):
+            node.requirementBranchContainmentObservation = RequirementBranchContainmentObservation(
+                branch: branch, tip: tip, main: main, containsMain: containsMain)
         case .requirementCatchUpConflicted(let branch, let main, let files, let tickets):
             node.requirementBranch = branch
             node.catchUpConflict = CatchUpConflict(mainSHA: main, files: files, tickets: tickets)
@@ -439,6 +472,7 @@ public struct WorkingState: Sendable {
         case .catchUpSucceeded(let main, let tip, let method):
             node.catchUpConflict = nil
             node.lastCatchUpSuccess = CatchUpSuccess(mainSHA: main, newAgentOSMainTip: tip, method: method)
+            node.lastCaughtUpAt = event.at
         case .testsFixed(let digest):
             node.testsDigest = digest
             node.testDraft = nil

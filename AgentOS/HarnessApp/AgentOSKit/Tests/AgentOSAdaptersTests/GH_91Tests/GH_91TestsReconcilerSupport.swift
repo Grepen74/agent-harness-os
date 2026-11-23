@@ -48,15 +48,18 @@ extension GH_91Tests {
         let agents = RoundAgents()
         var identity: NodeIdentity { NodeIdentity(ticketKey: "GH-91", nodeID: base.root.id) }
 
-        func makeReconciler(ledger replacement: Ledger? = nil) -> Reconciler {
+        func makeReconciler(ledger replacement: Ledger? = nil, tracker: (any TrackerAdapter)? = nil,
+                            decomposer: (any Decomposer)? = nil, checks checkRunner: (any CheckRunner)? = nil)
+            -> Reconciler {
             let ledger = replacement ?? base.ledger
             let recorder = replacement == nil ? publisher
                 : PublicationRecorder(ledger: ledger, forwarding: base.publisher(ledger: ledger))
             return Reconciler(
-                ledger: ledger, tracker: base.tracker, external: RoundExternal(),
+                ledger: ledger, tracker: tracker ?? base.tracker, external: RoundExternal(),
                 workspace: workspace, artifacts: FileArtifactStore(directory: directory.appending(path: "artifacts")),
-                checks: checks,
-                team: AgentTeam(name: "GH-91 no agent rework", decomposer: agents, testAuthor: agents, implementer: agents),
+                checks: checkRunner ?? checks,
+                team: AgentTeam(name: "GH-91 no agent rework", decomposer: decomposer ?? agents,
+                                testAuthor: agents, implementer: agents),
                 policy: GH_91Tests.policy(enabled: base.enabled).policy, publisher: recorder
             )
         }
@@ -82,9 +85,12 @@ extension GH_91Tests {
         }
 
         func expectFinalVerification(passed: Bool) async throws -> Evidence {
-            let call = try #require(GH_91Tests.single(await checks.calls))
-            #expect(call.directory == workspace.checkout)
-            #expect(call.suite == nil, "The reconciler must run the full configured checks.")
+            let calls = await checks.calls
+            try #require(calls.count == (passed ? 1 : 2), "A failed check runs once more with no other work running.")
+            for call in calls {
+                #expect(call.directory == workspace.checkout)
+                #expect(call.suite == nil, "The reconciler must run the full configured checks.")
+            }
             let state = await base.ledger.workingState()
             let evidence = try #require(state.nodes[identity.nodeID]?.requirementVerification)
             #expect(evidence.passed == passed)

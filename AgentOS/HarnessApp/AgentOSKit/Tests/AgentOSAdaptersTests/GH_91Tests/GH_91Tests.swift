@@ -209,7 +209,125 @@ struct GH_91Tests {
     @Test
     func catchUpsAndLaterLandingsPushNewTipsAndUpdateTheSamePRAcrossRestarts() async throws {
         let fixture = try await Self.fixture()
-        try await fixture.publisher().reconcile([fixture.request()])
+        actor StatusObserver: GitHubTransport {
+            struct Status: Sendable { let commit: String; let state: String; let description: String }
+            let forwarding: any GitHubTransport
+            private(set) var statuses: [Status] = []
+            init(forwarding: any GitHubTransport) { self.forwarding = forwarding }
+            func request(_ method: String, _ path: String, body: Data?) async throws -> Data {
+                let resource = try #require(URLComponents(string: path)).path
+                if method == "POST", let marker = resource.range(of: "/statuses/") {
+                    let data = try #require(body)
+                    var response = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+                    statuses.append(Status(
+                        commit: String(resource[marker.upperBound...]),
+                        state: try #require(response["state"] as? String),
+                        description: try #require(response["description"] as? String)))
+                    response["id"] = statuses.count
+                    return try JSONSerialization.data(withJSONObject: response)
+                }
+                return try await forwarding.request(method, path, body: body)
+            }
+        }
+        struct Refs: RequirementBranchRepository {
+            let git: Git
+            var defaultBranch: String { "main" }
+            func requirementBranch(for ticket: String) -> String { "agentos/\(ticket)" }
+            func tip(of branch: String) async throws -> String? {
+                branch == defaultBranch ? GH_91Tests.oldCommit : try await git.run(["rev-parse", branch])
+            }
+            func isAncestor(_ ancestor: String, of descendant: String) async throws -> Bool {
+                ancestor == GH_91Tests.oldCommit || ancestor == descendant
+            }
+            func mergeMain(_ main: String, into branch: String) async throws -> RebaseResult {
+                throw AgentFailure("The publication fixture already contains main.")
+            }
+            func changedFiles(in commit: String) async throws -> [String] { [] }
+        }
+        struct CheckoutWorkspace: Workspace {
+            let base: RoundWorkspace
+            let refs: Refs
+            func requirementWorktree(for requirement: NodeIdentity) async throws -> URL {
+                let commit = try #require(await refs.tip(of: refs.requirementBranch(for: requirement.ticketKey)))
+                return base.root.appending(path: commit)
+            }
+            func head(of directory: URL) async throws -> String { directory.lastPathComponent }
+            func requirementIsMerged(_ requirement: NodeIdentity) async throws -> Bool { false }
+            func prepare() async throws {}
+            func prepareBuild(in directory: URL) async throws {}
+            func branch(for id: NodeID) -> String { base.branch(for: id) }
+            func worktree(for id: NodeID) -> URL { base.worktree(for: id) }
+            var testArea: String { base.testArea }
+            var agentContext: String { base.agentContext }
+            func testFolder(for spec: NodeSpec) -> String { base.testFolder(for: spec) }
+            func existingComponents() -> [String] { [] }
+            func changedFiles(in directory: URL) async throws -> [String] { [] }
+            func removeWorktree(for id: NodeID) async throws { try await base.removeWorktree(for: id) }
+            func abortRebase(_ directory: URL) async throws { try await base.abortRebase(directory) }
+            func createWorktree(for id: NodeID) async throws -> URL { try await base.createWorktree(for: id) }
+            func commitAll(in directory: URL, message: String, author: String) async throws -> String? {
+                try await base.commitAll(in: directory, message: message, author: author)
+            }
+            func rebaseOntoMain(_ directory: URL) async throws -> RebaseResult { try await base.rebaseOntoMain(directory) }
+            func resetForRework(_ directory: URL) async throws { try await base.resetForRework(directory) }
+            func landOnMain(_ id: NodeID) async throws -> String { try await base.landOnMain(id) }
+        }
+        actor FinalChecks: CheckRunner {
+            let workspace: CheckoutWorkspace
+            private(set) var commits: [String] = []
+            init(workspace: CheckoutWorkspace) { self.workspace = workspace }
+            func runChecks(in directory: URL, only suite: String?) async -> CheckOutput {
+                do {
+                    let commit = try await workspace.head(of: directory)
+                    #expect(suite == nil)
+                    commits.append(commit)
+                    return CheckOutput(passed: true, summary: "Full checkout checks passed", log: "Checked \(commit)")
+                } catch {
+                    Issue.record("Could not inspect the verification checkout: \(error)")
+                    return CheckOutput(passed: false, summary: "\(error)", log: "\(error)")
+                }
+            }
+        }
+        struct Artifacts: ArtifactStore {
+            func put(named name: String, contents: Data) throws -> StoredArtifact {
+                StoredArtifact(path: "memory/\(name)", sha256: Hashing.sha256(contents))
+            }
+        }
+        let statuses = StatusObserver(forwarding: fixture.github)
+        let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        let refs = Refs(git: fixture.git)
+        let workspace = CheckoutWorkspace(
+            base: RoundWorkspace(root: directory, checkout: directory), refs: refs)
+        let checks = FinalChecks(workspace: workspace)
+        let agents = RoundAgents()
+        func publication(in ledger: Ledger) -> PullRequestPublicationCoordinator {
+            PullRequestPublicationCoordinator(
+                ledger: ledger, tracker: fixture.tracker, repository: Self.repository,
+                policy: Self.policy(enabled: true), transport: statuses,
+                git: { try await fixture.git.run($0) })
+        }
+        func verifyAndPublish(in ledger: Ledger, commit: String) async throws {
+            let publisher = publication(in: ledger)
+            let reconciler = Reconciler(
+                ledger: ledger, tracker: fixture.tracker, external: RoundExternal(),
+                workspace: workspace, artifacts: Artifacts(), checks: checks,
+                team: AgentTeam(name: "GH-91 reverification", decomposer: agents, testAuthor: agents, implementer: agents),
+                policy: Self.policy(enabled: true).policy, requirementBranches: refs,
+                publisher: publisher, pullRequests: publisher)
+            let count = await checks.commits.count
+            try await withHangGuard("GH-91 publishing a reverified tip") {
+                while true {
+                    let report = await reconciler.runRound(waitForAgents: true)
+                    try #require(report.safeStop == nil, "\(report.safeStop ?? "")")
+                    if report.isIdle { break }
+                }
+            }
+            #expect(await checks.commits.dropFirst(count) == [commit])
+            let result = try #require(await ledger.workingState().nodes[fixture.root.id]?.requirementVerification)
+            #expect(result.commit == commit && result.passed)
+            #expect(await agents.calls.isEmpty)
+        }
+        try await verifyAndPublish(in: fixture.ledger, commit: Self.tip)
         let original = try #require(Self.single(await fixture.github.pullRequests))
         let initialEdits = await fixture.github.editedNumbers.count
         let afterCatchUp = String(repeating: "b", count: 40)
@@ -224,7 +342,7 @@ struct GH_91Tests {
         request.verification = nil
         await fixture.git.setTip(afterCatchUp)
         var replay = try await Self.replay(fixture.ledger)
-        try await fixture.publisher(ledger: replay).reconcile([request])
+        try await verifyAndPublish(in: replay, commit: afterCatchUp)
         let catchUpEdits = await fixture.github.editedNumbers.count
         #expect(catchUpEdits > initialEdits)
         try await replay.append([
@@ -235,8 +353,8 @@ struct GH_91Tests {
         request.commit = afterLanding
         await fixture.git.setTip(afterLanding)
         replay = try await Self.replay(replay)
-        let publisher = fixture.publisher(ledger: replay)
-        try await publisher.reconcile([request])
+        let publisher = publication(in: replay)
+        try await verifyAndPublish(in: replay, commit: afterLanding)
         try await publisher.reconcile([request])
 
         let pr = try #require(Self.single(await fixture.github.pullRequests))
@@ -252,6 +370,12 @@ struct GH_91Tests {
         for push in pushes { try Self.expectSafePush(push, branch: fixture.branch) }
         for commit in [Self.tip, afterCatchUp, afterLanding] {
             #expect(try await Self.hasEvent(in: replay, node: fixture.root.id, values: [fixture.branch, commit]))
+        }
+        for commit in [afterCatchUp, afterLanding] {
+            let posted = await statuses.statuses.filter { $0.commit == commit }
+            #expect(posted.contains { $0.state == "pending" && $0.description == "Waiting for final verification" })
+            #expect(posted.contains { $0.state == "pending" && $0.description == "Final verification running" })
+            #expect(posted.contains { $0.state == "success" })
         }
         #expect(await fixture.github.unexpectedRequests.isEmpty)
     }

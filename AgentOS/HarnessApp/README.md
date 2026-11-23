@@ -125,6 +125,13 @@ pushes tags or leaf branches, or merges pull requests. The description includes 
 mapping, checks and local artifact names with SHA-256 hashes; no evidence is uploaded. Publication errors
 appear on the ticket and under **Needs attention**; only a human `harness:retry` resumes publication.
 
+Each publishing round first fetches origin's default branch. The baseline, requirement catch-up,
+cross-requirement dependencies, merge detection and new branches use `origin/<default branch>`, without
+changing your local branches, checkout, index or files. Origin-only merges are detected without pulling.
+A fetch failure shows the git error in **Needs attention** and uses the last fetched commit; fetching
+retries next round and a successful fetch clears the warning. With publishing off, nothing is fetched
+and the local default branch is used.
+
 The requirement follows its pull request: open is **In review**, merged is **Done**, and closed without
 merging is **Needs input**, on ticket labels and comments and the configured board's mapped status.
 After a close, `harness:retry` pushes again and reopens the same pull request. After a merge, build signals

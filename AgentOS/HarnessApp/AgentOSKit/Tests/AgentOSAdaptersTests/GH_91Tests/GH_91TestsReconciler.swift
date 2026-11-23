@@ -59,7 +59,8 @@ extension GH_91Tests {
         try await fixture.settle()
         #expect(await fixture.base.git.commands.count == (enabled && finalChecksPass ? 1 : 0))
         #expect(await fixture.base.github.createAttempts == (enabled && finalChecksPass ? 1 : 0))
-        #expect(await fixture.checks.calls.count == 1)
+        #expect(await fixture.checks.calls.count == (finalChecksPass ? 1 : 2),
+                "A failed check runs once more with no other work running, then never again by itself.")
         #expect(await fixture.agents.calls.isEmpty)
         #expect(await fixture.base.github.unexpectedRequests.isEmpty)
     }

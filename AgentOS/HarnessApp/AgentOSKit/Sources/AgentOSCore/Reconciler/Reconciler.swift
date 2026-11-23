@@ -61,9 +61,12 @@ public actor Reconciler {
     var lifecycleFailure: String?
     /// Set while a round works through the landing queue; another round meanwhile skips landing.
     private var isLanding = false
-    /// Above zero while a landing check is rerun and diagnosed with no other work on the machine: no step or
-    /// preview starts, so the load that made tests fail the first time is gone.
+    /// Above zero while a landing check or a final verification is rerun and diagnosed with no other work on the
+    /// machine: no step or preview starts, so the load that made tests fail the first time is gone.
     var quietLandings = 0
+    /// Work in `waitForOtherWork`. Such waits skip each other, so a landing and a final verification never wait for
+    /// each other; whichever stops waiting first is waited for by the rest.
+    var quietWaits: Set<NodeID> = []
     /// Nodes waiting in landing until the workspace lets the landing branch move (`Workspace.whyLandingMustWait`).
     var landingWaits: Set<NodeID> = []
     /// Per requirement, other requirements' proven work found on its branch (or on `main`, before it has one).
@@ -164,6 +167,12 @@ public actor Reconciler {
         guard shutdownReason == nil, !Task.isCancelled else { return finish(report) }
 
         do {
+            try await refreshMainReference()
+        } catch {
+            report.safeStop = "Couldn't refresh the default branch: \(error). Check origin access, then run again."
+            return finish(report)
+        }
+        do {
             try await observeRequirementPullRequests(&report)
         } catch {
             report.safeStop = "Couldn't read requirement pull requests: \(error). Check GitHub access, then run again."
@@ -204,6 +213,9 @@ public actor Reconciler {
             }
             try await clearObsoleteOverlapHolds()
             try await verifyCompletedRequirements(&report)
+            if policy.pullRequests {
+                try await publisher?.reconcileVerificationStatuses()
+            }
         } catch {
             report.safeStop = "Couldn't reconcile work: \(error). Check the workspace and ledger, then run again."
         }
@@ -229,22 +241,6 @@ public actor Reconciler {
             let pending = Array(tasks.values)
             for task in pending { _ = await task.value }
             for preview in Array(previewRuns.values) { await preview.task.value }
-        }
-    }
-
-    /// Waits until every step but `id`'s, and every preview, has finished. Used with `quietLandings`, so none
-    /// starts meanwhile.
-    func waitForOtherWork(than id: NodeID) async {
-        var awaitedPreviews: Set<RunID> = []
-        while true {
-            if let task = tasks.first(where: { $0.key != id && !landingBatchNodes.contains($0.key) })?.value {
-                _ = await task.value
-            } else if let preview = previewRuns.values.first(where: { !awaitedPreviews.contains($0.run) }) {
-                awaitedPreviews.insert(preview.run)
-                await preview.task.value
-            } else {
-                return
-            }
         }
     }
 

@@ -23,7 +23,10 @@ public struct TrackerPane: View {
                         Text(ticket.key).monospaced().foregroundStyle(.secondary)
                         Text(ticket.title).lineLimit(1)
                         Spacer()
-                        Text(ticket.status).font(.caption).padding(.horizontal, 6).padding(.vertical, 2)
+                        Text(model.state.node(forTicket: ticket.key).map {
+                            $0.pullRequestState == nil ? ticket.status : model.state.appStatus(of: $0)
+                        }
+                             ?? ticket.status).font(.caption).padding(.horizontal, 6).padding(.vertical, 2)
                             .background(.quaternary, in: Capsule())
                     }
                     .padding(.leading, CGFloat(depth) * 16)

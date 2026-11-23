@@ -21,6 +21,13 @@ extension Reconciler {
 
     static let unaddressedFindingsOutcome = "made no changes for the review findings"
 
+    /// A scope request as a question for a person. Their answer reaches the implementer with the other answers.
+    static func scopeQuestion(_ request: ScopeRequest, touches: [String]) -> AgentQuestion {
+        let paths = request.paths.isEmpty ? "code" : request.paths.joined(separator: ", ")
+        return AgentQuestion(question: "May the implementer change \(paths), outside what this work item touches " +
+            "(\(touches.joined(separator: ", ")))? \(request.reason)")
+    }
+
     func build(_ node: NodeState) async throws -> String {
         let run = Self.newRunID()
         let author = Participant.agent(run: run, role: .implementer)
@@ -53,9 +60,20 @@ extension Reconciler {
             }
             try Task.checkCancellation()
             let report = implementationResult as? AgentReport ?? AgentReport()
-            let questions = policy.questions(in: report)
+            var questions = policy.questions(in: report)
+            if let scope = report.scopeRequest {
+                // Never settled by a suggestion: only a person may widen what the work item touches. Stopping for a
+                // person anyway, the questions it would have gone on with its own suggestions are theirs to see too.
+                questions = report.questions.filter { !questions.contains($0) } + questions
+                    + [Self.scopeQuestion(scope, touches: node.spec.touches)]
+            }
             guard questions.isEmpty else {
-                try await workspace.forgetUnfinishedWork(for: node.id)
+                if report.scopeRequest == nil {
+                    try await workspace.forgetUnfinishedWork(for: node.id)
+                } else {
+                    // The implementation may be right: the next run continues from it once a person has answered.
+                    _ = try await keepUnfinishedWork(directory, of: node)
+                }
                 try await resetForRework(node, in: directory)
                 return try await raise(
                     questions,
