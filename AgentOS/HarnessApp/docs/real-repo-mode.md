@@ -91,6 +91,10 @@ check does not replace this check. Completed verification survives a restart wit
 runs before a pull request is opened, the requirement is **In progress** and the check is listed with
 the running agents. An open pull request keeps the ticket **In review** during verification.
 
+A failed check runs once more in full, as a landing's does, after every other agent and preview has finished
+and with none starting meanwhile: other agents' builds and tests may be what failed it. The evidence keeps both
+logs. Only a second failure counts.
+
 Failure or interruption waits for a person; no agent rework or automatic retry starts. Fix the problem
 and add `harness:retry` to the requirement ticket to run final verification again. With **Push / open pull
 requests** off, passing verification leaves the branch local and the requirement **In review**, until a
