@@ -1,0 +1,123 @@
+Snapshot evidence: diagnostic rendering of WorkflowCatalog and WorkflowProjection.
+Before: supplied catalog, prior to policy specialization (not a previous product UI).
+After: effective policy with overall review none, Payments agent+human, ask, publishing off.
+Both images rendered with AgentOSTestSupport.RenderedUI in hidden NSHostingView windows.
+Both windows were instantiated, attached to their views, rendered, detached and closed.
+NSWindowDelegate.windowWillClose was observed for each window.
+OCR checks passed for the visible catalog stages and projected review, approval and merge stages.
+No screen capture or production UI changes.
+BEFORE OCR:
+Before policy projection: supplied catalog
+All catalog branches, before effective settings are applied
+GH-136 core projection diagnostic; no Process tab is implemented by this ticket.
+final-verification
+Catalog stage
+Opening signals:
+push
+Catalog stage
+Opening signals:
+pull-request
+Catalog stage
+Opening signals:
+manual-merge
+Catalog stage
+Opening signals:
+acceptance-tests
+Catalog stage
+Opening signals:
+acceptance-test-review
+Catalog stage
+Opening signals:
+questions
+Catalog stage
+Opening signals:
+build-gate
+Catalog stage
+Opening signals:
+implementation
+Catalog stage
+Opening signals:
+landing-queue
+Catalog stage
+Opening signals:
+change-review
+Catalog stage
+Opening signals:
+batch-checks
+Catalog stage
+Opening signals:
+landing-approval
+Catalog stage
+Opening signals:
+agent(AgentOSCore.AgentRole.verifier)
+harness
+harness
+person
+agent (AgentOSCore.AgentRole.testAuthor)
+reviewer
+person
+person
+agent(AgentOSCore.AgentRole.implementer)
+harness
+reviewer
+agent(AgentOSCore.AgentRole.verifier)
+person
+AFTER OCR:
+After policy projection: effective settings
+Review none + Payments agent+human | guesswork ask | publishing off
+GH-136 core projection diagnostic; no Process tab is implemented by this ticket.
+final-verification
+Catalog stage
+pullRequests = false
+Opening signals: harness:retry
+manual-merge
+Catalog stage
+pullRequests = false
+Opening signals:
+acceptance-tests
+Catalog stage
+agents.guesswork = ask | limits.maxAgentRuns = 12 | limits.maxAttempts = 3
+Opening signals:
+acceptance-test-review
+review.level = none; Review areas: Payments (agent+human)
+review.areas.Payments = agent+human | review.convergingMaxRounds = 4 | review.level = none | review.maxRounds = 2
+Opening signals:
+questions
+Stop when the run reports questions or assumptions
+agents.guesswork = ask
+Opening signals: harness:retest, harness:retry
+build-gate
+A person approves with harness:build
+agents.guesswork = ask
+Opening signals: harness:build, harness:go
+implementation
+Catalog stage
+agents.guesswork = ask | limits.maxAgentRuns = 12 | limits.maxAttempts = 3
+Opening signals:
+landing-queue
+review.level = none; Review areas: Payments (agent+human)
+limits.landingBatchSize = 4 | review.areas.Payments = agent+human | review.level = none
+Opening signals:
+change-review
+review.level = none; Review areas: Payments (agent+human)
+review.areas.Payments = agent+human | review.convergingMaxRounds = 4 | review.level = none | review.maxRounds = 2
+Opening signals:
+batch-checks
+review.level = none; Review areas: Payments (agent+human)
+limits.landingBatchSize = 4 | limits.maxAttempts = 3 | review.areas.Payments = agent+human | review.level = none
+Opening signals:
+landing-approval
+review.level = none; Review areas: Payments (agent+human)
+review.areas.Payments = agent+human | review.level = none
+Opening signals: harness:build
+agent(AgentOSCore.AgentRole.verifier)
+person
+agent(AgentOSCore.AgentRole.testAuthor)
+reviewer
+person
+person
+agent(AgentOSCore.AgentRole.implementer)
+harness
+reviewer
+agent(AgentOSCore.AgentRole.Verifier)
+person
