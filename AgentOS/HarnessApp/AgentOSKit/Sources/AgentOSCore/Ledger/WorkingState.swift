@@ -114,6 +114,8 @@ public struct NodeState: Sendable, Identifiable {
     public var catchUpConflict: CatchUpConflict?
     public var lastCatchUpSuccess: CatchUpSuccess?
     public var lastCaughtUpAt: Date?
+    /// Repository-relative tests a person permits this node's test author, never its implementer, to update.
+    public var approvedTestUpdates: [String] = []
     /// Other work's tests this node's acceptance tests changed, locked by `updatedOtherTestsDigest`.
     public var updatedOtherTests: [String] = []
     public var updatedOtherTestsDigest: String?
@@ -479,6 +481,10 @@ public struct WorkingState: Sendable {
             node.openTestProblem = nil
             node.updatedOtherTests = []
             node.updatedOtherTestsDigest = nil
+        case .testUpdatesApproved(let files):
+            if event.by.isHuman {
+                node.approvedTestUpdates = Array(Set(node.approvedTestUpdates + files)).sorted()
+            }
         case .otherTestsUpdated(let files, let digest):
             node.updatedOtherTests = files
             node.updatedOtherTestsDigest = digest

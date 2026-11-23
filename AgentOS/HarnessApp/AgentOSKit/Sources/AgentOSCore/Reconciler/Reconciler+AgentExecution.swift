@@ -115,7 +115,8 @@ extension Reconciler {
             clarifications: state.clarifications(for: node.id), guesswork: policy.guesswork,
             expectedAPI: node.expectedAPI, ticketKey: node.ticket,
             agentContext: includeComments ? context : context.withoutComments(), unfinishedWork: unfinishedWork,
-            draftCheck: draftCheck, earlierTestReviews: earlierTestReviews, earlierBrokenTests: earlierBrokenTests)
+            draftCheck: draftCheck, earlierTestReviews: earlierTestReviews, earlierBrokenTests: earlierBrokenTests,
+            approvedTestUpdates: node.approvedTestUpdates)
     }
 
     static func newRunID() -> RunID { "run-" + UUID().uuidString.prefix(6).lowercased() }

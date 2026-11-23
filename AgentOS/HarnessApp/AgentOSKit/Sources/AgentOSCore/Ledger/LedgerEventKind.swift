@@ -4,7 +4,7 @@ public enum LedgerEventKind: String, Hashable, CaseIterable, Sendable {
     case nodeCreated, linkAdded, becameLeaf, replanned, breakdownRevised
     case gateOpened, phaseChanged, flagSet, flagCleared, attemptsReset
     case overlapHoldStarted, overlapHoldEnded
-    case testsFixed, otherTestsUpdated, reviewRecorded, humanReviewRequested, humanReviewApproved
+    case testsFixed, testUpdatesApproved, otherTestsUpdated, reviewRecorded, humanReviewRequested, humanReviewApproved
     case requirementBranchCreated
     case requirementBranchObserved, requirementCatchUpConflicted
     case requirementBranchContainmentObserved
@@ -49,6 +49,7 @@ public enum LedgerEventKind: String, Hashable, CaseIterable, Sendable {
         case .overlapHoldStarted: self = .overlapHoldStarted
         case .overlapHoldEnded: self = .overlapHoldEnded
         case .testsFixed: self = .testsFixed
+        case .testUpdatesApproved: self = .testUpdatesApproved
         case .requirementBranchCreated: self = .requirementBranchCreated
         case .requirementBranchObserved: self = .requirementBranchObserved
         case .requirementBranchContainmentObserved: self = .requirementBranchContainmentObserved

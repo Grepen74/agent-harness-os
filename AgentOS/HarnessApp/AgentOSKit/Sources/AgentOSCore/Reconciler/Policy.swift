@@ -235,6 +235,7 @@ enum Planner {
                 intent: "Part of \(parent.title)", acceptanceCriteria: proposal.acceptanceCriteria,
                 touches: touches.isEmpty ? [ComponentName.from(parent.title, maxWords: 3)] : Array(Set(touches)).sorted(),
                 predictedPaths: PredictedPath.normalize(proposal.predictedPaths ?? []),
+                affectedTests: (proposal.affectedTests ?? []).filter { !$0.isEmpty },
                 dependsOn: proposal.dependsOn ?? [])
         }
         for (index, proposal) in proposals.enumerated() {
@@ -245,10 +246,12 @@ enum Planner {
         return specs
     }
 
-    static func describe(_ specs: [NodeSpec], under title: String) -> String {
+    static func describe(_ specs: [NodeSpec], under title: String, testApprovalNotes: [NodeID: String] = [:]) -> String {
         guard specs.count > 1 else {
             let touches = specs.first.map { " (touches: \($0.touches.joined(separator: ", "))\(pathsDescription($0)))" } ?? ""
-            return "\(title)\n└─ no children: it is a leaf itself\(touches)"
+            let affectedTests = specs.first.map(affectedTestsDescription) ?? ""
+            let approval = specs.first.flatMap { testApprovalNotes[$0.id] } ?? ""
+            return "\(title)\n└─ no children: it is a leaf itself\(touches)\(affectedTests)\(approval)"
         }
         let lines = specs.enumerated().map { index, spec in
             let branch = index == specs.count - 1 ? "└─" : "├─"
@@ -257,12 +260,17 @@ enum Planner {
             }
             let names = siblings + spec.dependsOn
             let waits = names.isEmpty ? "" : "  (waits for \(names.joined(separator: ", ")))"
-            return "\(branch) \(spec.title)  touches: \(spec.touches.joined(separator: ", "))\(pathsDescription(spec))\(waits)"
+            return "\(branch) \(spec.title)  touches: \(spec.touches.joined(separator: ", "))\(pathsDescription(spec))\(waits)\(affectedTestsDescription(spec))"
+                + (testApprovalNotes[spec.id] ?? "")
         }
         return ([title] + lines).joined(separator: "\n")
     }
 
     private static func pathsDescription(_ spec: NodeSpec) -> String {
         spec.predictedPaths.isEmpty ? "" : "  paths: \(spec.predictedPaths.joined(separator: ", "))"
+    }
+
+    private static func affectedTestsDescription(_ spec: NodeSpec) -> String {
+        spec.affectedTests.isEmpty ? "" : "  affected tests: \(spec.affectedTests.joined(separator: ", "))"
     }
 }

@@ -455,6 +455,7 @@ public struct CopilotDecomposer: Decomposer {
         {"questions": [string or {"question": string, "suggestion": string}], "assumptions": [string], \
         "children": [{"title": string, "acceptanceCriteria": [string], \
         "touches": [component names], "predictedPaths": [repository-relative files or directory prefixes], \
+        "affectedTests": [existing test names or repository-relative test files deliberately changed, else []], \
         "dependsOn": [keys from the external dependencies list that this leaf needs, else []], \
         "after": [numbers (1-based) of earlier children in this list that must land before this one is built, else []]}]}
         List children in the order they can land. Use "after" when a child can't be built or pass its tests \
@@ -466,8 +467,10 @@ public struct CopilotDecomposer: Decomposer {
         - If the work changes behaviour that existing code or tests rely on (a signature, whether a call waits, \
         a status or value it returns), prefer keeping that behaviour and adding the new one beside it (a new \
         function or option) so existing tests stay valid. If existing tests must change anyway, the child whose \
-        change breaks them updates them: give that child a criterion naming those tests and what they should \
-        expect now. Its test author updates them with its acceptance tests, and a reviewer checks the change. \
+        change breaks them updates them: list those existing tests as test names (e.g. FlowTests.someTest) or \
+        repository-relative test files in that child's "affectedTests", and give that child a criterion naming \
+        those tests and what they should expect now. Its test author updates them with its acceptance tests, \
+        and a reviewer checks the change. \
         Never make the work wait for a person to change the repo first, and don't ask for that.
         - Each rule belongs to one child: the first one that builds it states it in full in its criteria. \
         Children that build on it wait for that child ("after") and don't repeat the rule as a criterion of their \
@@ -535,11 +538,25 @@ public struct CopilotTestAuthor: TestAuthor {
 
     /// The rules for tests it writes (no fixed sleeps, say) once had it "fixing" other work's tests it only had to
     /// point at a new branch, and restoring them from memory, round after round of review.
-    static let otherTestsRule = "In another work item's test, change only the lines the criterion requires and " +
+    static let otherTestsRule = "In another work item's test, change only the lines this ticket's behaviour requires and " +
         "leave everything else exactly as it is, even code that breaks the rules here for tests you write (a fixed " +
         "sleep, say): those rules are for your own tests. To restore something there, copy it from git history " +
         "(git log and git show on that file), never from memory, and check with git diff on that file that only the " +
-        "lines the criterion requires differ."
+        "lines this ticket's behaviour requires differ."
+
+    static func approvedTests(_ files: [String]) -> String {
+        guard !files.isEmpty else { return "" }
+        return """
+
+        A person approved these tests for this node's test author:
+        \(files.map { "- \($0)" }.joined(separator: "\n"))
+        You may update approved tests where this ticket's change requires it, even when no criterion names them.
+        Tests not approved still require a ticket criterion deliberately changing what they check.
+        Approval never overrides the updatable test areas or protected paths. List every updated file in updatedTests.
+        The implementer still may not change these tests.
+
+        """
+    }
 
     /// The implementer's earlier broken-test reports. A round for review findings once undid a fixture fix one of
     /// them needed, because neither the reviewer nor the author saw why it was there.
@@ -586,7 +603,8 @@ public struct CopilotTestAuthor: TestAuthor {
             An earlier test-author run on this item stopped before finishing (it may have run out of time). Its \
             draft is back in your working copy, uncommitted: \(draftFiles). Continue from it instead of starting \
             over: keep what is right, add what is missing and fix the rest. Where it changed other work's tests, keep \
-            only the changes a criterion of this item asks for, undo the others, and list the kept ones in updatedTests.\
+            only the changes a criterion of this item asks for or an approved test needs for this ticket's change, \
+            undo the others, and list the kept ones in updatedTests.\
             \(draftCheck) Make one bounded pass: fix what doesn't compile and helpers that don't work, check that each \
             failing test fails because the work item isn't built yet, then write the report and stop. Time is limited: \
             build and run only your suite, and don't start over.
@@ -608,14 +626,17 @@ public struct CopilotTestAuthor: TestAuthor {
         Your tests and their helpers go under \(task.testFolder)/ only. The one exception: where a criterion of \
         this item deliberately changes behaviour another work item's existing test checks, update that test with \
         the smallest change that makes it expect the new behaviour (never delete it or loosen it beyond that), \
-        and list its file in updatedTests. A reviewer checks every such change against the criteria. Where no \
-        criterion asks for the change, leave the other test alone and ask a question instead. \(Self.otherTestsRule) Name any other file you add there after the \
+        and list its file in updatedTests. A reviewer checks every such change against the criteria or the explicit \
+        approvals below. Where no criterion asks for the change and the test is not approved, leave the other test \
+        alone and ask a question instead. \(Self.otherTestsRule)\(Self.approvedTests(task.approvedTestUpdates)) \
+        Name any other file you add there after the \
         suite (e.g. \(suite)Support.swift): files in one test target need unique names, even in different folders. \
         Build and run your suite before finishing, as the repo's instructions say (only your suite, not every \
         test). Where the API your tests expect doesn't exist yet, add placeholders for it so they build: \
         declarations with the smallest body that compiles, returning empty or default values, never fatalError \
         or anything else that crashes the test run. The harness throws away everything you change outside \
-        \(task.testFolder)/ before your tests are committed, so placeholders never reach the implementer. Every \
+        \(task.testFolder)/ except the permitted other tests listed in updatedTests before your tests are committed, \
+        so placeholders never reach the implementer. Every \
         test must compile. Tests of new behaviour should fail against the placeholders, for the reason the test \
         names. Your own helpers, fakes and renderers must work: when a test relies on one (say, it reads text \
         from a rendered view), check it once against something that already exists, because a broken helper \
