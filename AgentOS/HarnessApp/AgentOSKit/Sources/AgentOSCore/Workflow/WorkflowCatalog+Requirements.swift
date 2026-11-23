@@ -8,7 +8,8 @@ extension WorkflowCatalog {
             kind: .rootLeaf, entryStage: leaf.entryStage,
             stages: leaf.stages + root.stages.filter { stage in !leaf.stages.contains { $0.id == stage.id } },
             transitions: leaf.transitions + root.transitions)
-        return WorkflowCatalog(workflows: [composite, root, leaf, rootLeaf, recoveryWorkflow])
+        return WorkflowCatalog(workflows: [composite, root, leaf, rootLeaf, recoveryWorkflow],
+                               observationTransitions: observableTransitions)
     }()
 
     private static func requirementWorkflow(kind: WorkflowKind) -> WorkflowDefinition {

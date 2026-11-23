@@ -16,6 +16,8 @@ extension WorkflowCatalog {
             .init(id: .brokenTestReport, title: "Return a broken acceptance test to its author", actor: .harness),
             .init(id: .landingQueue, title: "Wait in the landing queue", actor: .harness,
                   phases: [.landing], flags: [.blocked]),
+            .init(id: .landing, title: "Land the checked change", actor: .agent(.verifier),
+                  phases: [.landing], limits: reviewLimits.union([.maxAttempts, .maxReworks])),
             .init(id: .singleLandingChecks, title: "Full checks on the latest requirement branch",
                   actor: .agent(.verifier), phases: [.landing], limits: [.maxAttempts]),
             .init(id: .singleChangeReview, title: "Review the checked change", actor: .reviewer,

@@ -12,6 +12,7 @@ extension WorkflowStageID {
     public static let catchUp = "catch-up"
     public static let catchUpConflict = "catch-up-conflict"
     public static let acceptanceTests = "acceptance-tests"
+    public static let testAuthoring = acceptanceTests
     public static let compileCheck = "compile-check"
     public static let acceptanceTestReview = "acceptance-test-review"
     public static let questions = "questions"
@@ -19,6 +20,7 @@ extension WorkflowStageID {
     public static let implementation = "implementation"
     public static let ownChecks = "own-checks"
     public static let landingQueue = "landing-queue"
+    public static let landing = "landing"
     public static let brokenTestReport = "broken-test-report"
     public static let singleLandingChecks = "single-landing-checks"
     public static let singleChangeReview = "change-review"

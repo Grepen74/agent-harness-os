@@ -10,6 +10,7 @@ public struct WorkflowProjection: Sendable, Equatable {
         let stages = catalog.stages.filter { context.includes($0, catalog: catalog) }
         let ids = Set(stages.map(\.id))
         let transitions = catalog.transitions.compactMap { edge -> WorkflowTransition? in
+            guard !catalog.observationTransitions.contains(edge) else { return nil }
             guard ids.contains(edge.source), ids.contains(edge.target) else { return nil }
             var result = edge
             result.guardCondition = edge.guardCondition.specializing(context.resolve)

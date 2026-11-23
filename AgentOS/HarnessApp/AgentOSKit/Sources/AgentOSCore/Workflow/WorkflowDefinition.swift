@@ -5,17 +5,21 @@ public struct WorkflowCatalog: Sendable, Equatable {
     public var workflows: [WorkflowDefinition] {
         didSet {
             stages = Self.flattenedStages(workflows)
-            transitions = Self.flattenedTransitions(workflows)
+            transitions = Self.flattenedTransitions(workflows) + observationTransitions
         }
     }
     /// The editable logical graph. Workflow definitions retain single/batch scope detail.
     public var stages: [WorkflowStage]
     public var transitions: [WorkflowTransition]
+    /// Ledger-level edges spanning substeps that have no separate start event. These
+    /// validate replay, but must not bypass gates in the detailed policy projection.
+    public let observationTransitions: [WorkflowTransition]
 
-    public init(workflows: [WorkflowDefinition]) {
+    public init(workflows: [WorkflowDefinition], observationTransitions: [WorkflowTransition] = []) {
         self.workflows = workflows
+        self.observationTransitions = observationTransitions
         self.stages = Self.flattenedStages(workflows)
-        self.transitions = Self.flattenedTransitions(workflows)
+        self.transitions = Self.flattenedTransitions(workflows) + observationTransitions
     }
 }
 
