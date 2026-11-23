@@ -1,4 +1,5 @@
 import AgentOSSimulation
+import AgentOSTestSupport
 import Foundation
 import Testing
 @testable import AgentOSCore
@@ -30,6 +31,13 @@ extension GH_137Tests {
             case .finalVerification: .finalVerification
             }
         }
+    }
+
+    /// The reusable scenario ledgers both scenario tests replay, made once per test process. Each scenario is a real
+    /// reconciler run with git; in a loaded full suite the six together took over two minutes, so the hang guard
+    /// allows its time per scenario rather than for all of them.
+    static func scenarioLedgers() async throws -> [WorkflowScenarioLedger] {
+        try await ScenarioLedgers.shared.value()
     }
 
     static var scenarios: [WorkflowScenario] {
@@ -240,5 +248,22 @@ extension GH_137Tests {
         default:
             break
         }
+    }
+}
+
+private actor ScenarioLedgers {
+    static let shared = ScenarioLedgers()
+    private var production: Task<[WorkflowScenarioLedger], Error>?
+
+    func value() async throws -> [WorkflowScenarioLedger] {
+        if let production { return try await production.value }
+        let count = WorkflowScenario.allCases.count
+        let task = Task {
+            try await withHangGuard("producing \(count) workflow scenario ledgers", timeout: HangGuard.timeout * count) {
+                try await WorkflowScenarioFixtures.ledgers()
+            }
+        }
+        production = task
+        return try await task.value
     }
 }

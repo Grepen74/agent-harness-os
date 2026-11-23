@@ -120,9 +120,7 @@ import Testing
 
     @Test
     func reusableScenarioLedgersContainTheRequiredSuccessAndRecoveryPaths() async throws {
-        let fixtures = try await withHangGuard("producing reusable workflow scenario ledgers") {
-            try await WorkflowScenarioFixtures.ledgers()
-        }
+        let fixtures = try await Self.scenarioLedgers()
         for scenario in Self.scenarios {
             let fixture = try #require(fixtures.first { $0.scenario == scenario },
                                        "Missing reusable scenario: \(scenario)")
@@ -133,9 +131,7 @@ import Testing
 
     @Test
     func everyScenarioStageChangeHasADirectedCatalogTransition() async throws {
-        let fixtures = try await withHangGuard("producing scenario ledgers for catalog replay") {
-            try await WorkflowScenarioFixtures.ledgers()
-        }
+        let fixtures = try await Self.scenarioLedgers()
         for scenario in Self.scenarios {
             try #require(fixtures.contains { $0.scenario == scenario }, "Missing replay scenario: \(scenario)")
         }
