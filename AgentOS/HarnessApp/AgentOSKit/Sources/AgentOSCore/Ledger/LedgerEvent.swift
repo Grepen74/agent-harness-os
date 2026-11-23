@@ -101,6 +101,8 @@ public enum EventKind: Codable, Sendable {
     case acceptanceCriterionProofsRecorded([AcceptanceCriterionProof])
     /// Fingerprint of the node's acceptance tests; nobody may change them afterwards.
     case testsFixed(digest: String)
+    /// Repository-relative tests a person permits this node's test author to update.
+    case testUpdatesApproved(files: [String])
     /// Other work's tests the acceptance tests changed (written after `testsFixed`), with their fingerprint: they
     /// are locked like the node's own tests.
     case otherTestsUpdated(files: [String], digest: String)
@@ -265,6 +267,7 @@ extension EventKind {
             "overlap hold ended: waited for \(waitingFor); " +
                 (paths.isEmpty ? "components \(components.joined(separator: ", "))" : "paths \(paths.joined(separator: ", "))")
         case .testsFixed(let digest): "acceptance tests fixed (\(digest.prefix(8)))"
+        case .testUpdatesApproved(let files): "test updates approved: \(files.joined(separator: ", "))"
         case .requirementPushed(let branch, let commit): "pushed \(branch) at \(commit)"
         case .requirementVerificationStatusPosted(let commit, let state):
             "posted agentos/verified \(state.rawValue) at \(commit)"

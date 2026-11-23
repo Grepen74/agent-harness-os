@@ -503,6 +503,20 @@ Each breakdown child can also carry `affectedTests`: existing test names (for ex
 `FlowTests.someTest`) or repository-relative test files whose behaviour that child deliberately changes.
 The child still needs a criterion naming those tests and their new expectations. Missing or null
 `affectedTests` means none; empty entries are dropped when the proposal becomes a node spec.
+
+When `harness:breakdown` or `harness:go` accepts the matching preview the person saw, the harness records
+one `testUpdatesApproved` ledger event per affected child, listing resolved repository-relative test files
+and authored by the person who opened the breakdown gate. If the leaf check passes, that event belongs
+to the original node instead. The Ledger pane lists every approved file with its approving person.
+A fresh breakdown without a matching preview grants no test-update approval: each child's affected tests
+are marked **not approved** in its breakdown comment.
+
+An affected file inside another node's test folder is excluded while that node has not landed. The
+comment names the owning ticket and says its work is still in progress; neighboring folder names do not
+count as ownership. Tests that cannot be resolved to a file are also marked **not approved**. Once the
+owning work lands (or the affected test name is corrected), use `harness:replan`, then `harness:preview`
+and approve the new preview. These events record permission for the test author, never the implementer;
+they do not remove protected-path or test-area restrictions.
 The field is retained in previews and the ledger. Changing a nonempty list changes the spec fingerprint,
 so replanning does not reuse the older child's tests or approvals; an empty list preserves older fingerprints.
 Before approving a breakdown with `harness:go`, request `harness:preview` to review each child's

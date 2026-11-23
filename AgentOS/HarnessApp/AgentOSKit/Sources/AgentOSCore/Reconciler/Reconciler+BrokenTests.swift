@@ -157,7 +157,7 @@ extension Reconciler {
 
     /// The files, relative to the repo's top folder, that declare the reported test's suite, or the file the
     /// report names by path.
-    private func declaringFiles(of testName: String, in directory: URL) -> [String] {
+    func declaringFiles(of testName: String, in directory: URL, includingMissingPaths: Bool = false) -> [String] {
         let root = directory.standardizedFileURL.path + "/"
         let relative = { (url: URL) -> String? in
             let path = url.standardizedFileURL.path
@@ -165,7 +165,8 @@ extension Reconciler {
         }
         if testName.contains("/") {
             let named = directory.appending(path: testName.split(separator: ":").first.map(String.init) ?? testName)
-            guard FileManager.default.fileExists(atPath: named.path), let path = relative(named) else { return [] }
+            guard includingMissingPaths || FileManager.default.fileExists(atPath: named.path),
+                  let path = relative(named) else { return [] }
             return [path]
         }
         // A declaration starts its line (after attributes and modifiers), so a suite named in a string or a

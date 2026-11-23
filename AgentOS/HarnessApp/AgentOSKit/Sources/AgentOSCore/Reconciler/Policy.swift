@@ -246,11 +246,12 @@ enum Planner {
         return specs
     }
 
-    static func describe(_ specs: [NodeSpec], under title: String) -> String {
+    static func describe(_ specs: [NodeSpec], under title: String, testApprovalNotes: [NodeID: String] = [:]) -> String {
         guard specs.count > 1 else {
             let touches = specs.first.map { " (touches: \($0.touches.joined(separator: ", "))\(pathsDescription($0)))" } ?? ""
             let affectedTests = specs.first.map(affectedTestsDescription) ?? ""
-            return "\(title)\n└─ no children: it is a leaf itself\(touches)\(affectedTests)"
+            let approval = specs.first.flatMap { testApprovalNotes[$0.id] } ?? ""
+            return "\(title)\n└─ no children: it is a leaf itself\(touches)\(affectedTests)\(approval)"
         }
         let lines = specs.enumerated().map { index, spec in
             let branch = index == specs.count - 1 ? "└─" : "├─"
@@ -260,6 +261,7 @@ enum Planner {
             let names = siblings + spec.dependsOn
             let waits = names.isEmpty ? "" : "  (waits for \(names.joined(separator: ", ")))"
             return "\(branch) \(spec.title)  touches: \(spec.touches.joined(separator: ", "))\(pathsDescription(spec))\(waits)\(affectedTestsDescription(spec))"
+                + (testApprovalNotes[spec.id] ?? "")
         }
         return ([title] + lines).joined(separator: "\n")
     }

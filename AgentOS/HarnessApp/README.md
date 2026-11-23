@@ -96,6 +96,14 @@ Before approving a breakdown with `harness:go`, use `harness:preview`: each chil
 show them too. In the **Work** pane, select a node to see **Affected tests**, one entry per line,
 or **–** when there are none.
 
+Approving a matching preview with `harness:breakdown` or `harness:go` records a **test updates approved**
+ledger event for each affected child, authored by the person who opened the breakdown gate. Test names
+are resolved to repository-relative files; a leaf check records the approval on the original ticket.
+The Ledger pane names every approved file. Without a matching preview, affected tests are **not approved**.
+The breakdown comment also marks unresolved tests, or tests owned by another ticket that has not landed,
+as **not approved**, naming the owner whose work is still in progress. Land that work first, then use
+`harness:replan` and `harness:preview` before approving again.
+
 **File → Open Repository…** (⌘O) and choose a git repo. The window runs the **readiness scan** (doc 01)
 and lists its findings: blockers must be fixed before agents may work there, warnings can be accepted.
 **File → Show Simulator** (⇧⌘N) opens the simulator; it's only created when you first open it.
