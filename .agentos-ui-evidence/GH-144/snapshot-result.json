@@ -1,0 +1,11 @@
+{
+  "afterText" : "Ledger\n7 records. Append-only; the source of truth.\nVerify chain\nTicket\nAll tickets Event kind\nAll event kinds\n#6 • → ready\nreconciler • GH-144 • af5de62a6a • 2026-11-23, 17:00:00\n#5 • run author finished: acceptance tests committed\ntestAuthor agent (author) • GH-144 • Offbe455ec • 2026-11-23, 17:00:00\n#4 • updated other work's tests: Tests\/Acceptance\/OlderTests\/Greeting.swift, Tests\/Unit\/GreetingTests.swift\ntestAuthor agent (author) • GH-144 • 93a1ad2821 • 2026-11-23, 17:00:00\n#3 • acceptance tests fixed (1aacaeda)\ntestAuthor agent (author) • GH-144 • 039df91e96 • 2026-11-23, 17:00:00\n#2 • testAuthor run author started\ntestAuthor agent (author) • GH-144 • 5f30f06473 • 2026-11-23, 17:00:00\n#1 • test updates approved: Tests\/Acceptance\/OlderTests\/Greeting.swift, Tests\/Unit\/GreetingTests.swif\nDeveloper • GH-144 • 39c9cf5216 • 2026-11-23, 17:00:00\n#0 0\ncreated leaf wn-GH-144 (GH-144): Let the test author update approved tests under one shared rule\nreconciler • GH-144 • 16585572a0 • 2026-11-23, 17:00:00\nHarness activity\nWhat each reconciler round did.\n<>",
+  "beforeText" : "Ledger\n2 records. Append-only; the source of truth.\nVerify chain\nTicket\nAll tickets Event kind\nAll event kinds\n#1 • test updates approved: Tests\/Acceptance\/OlderTests\/Greeting.swift, Tests\/Unit\/GreetingTests.swift\nDeveloper • GH-144 • 39c9cf5216 • 2026-11-23, 17:00:00\n#0 O created leaf wn-GH-144 (GH-144): Let the test author update approved tests under one shared rule\nreconciler • GH-144 • 16585572a0 • 2026-11-23, 17:00:00\nHarness activity\nWhat each reconciler round did.",
+  "captureMethod" : "RenderedUI.image(of:) and cacheDisplay of the real LedgerPane in hidden NSWindows; no screen capture",
+  "comparison" : "Existing UI before and after ledger events, not a UI code change",
+  "fixture" : "In-memory ledger; illustrative test paths and fingerprints",
+  "scenario" : "Before: human approval. After: test author records and locks those approved test updates.",
+  "snapshotChecksPassed" : true,
+  "windowsClosed" : true,
+  "windowsOpened" : true
+}

@@ -1,0 +1,10 @@
+{
+  "afterScreenshot" : ".agentos-ui-evidence\/GH-144\/after.png",
+  "beforeScreenshot" : ".agentos-ui-evidence\/GH-144\/before.png",
+  "snapshotPaths" : [
+    ".agentos-ui-evidence\/GH-144\/before.png",
+    ".agentos-ui-evidence\/GH-144\/after.png"
+  ],
+  "windowsClosed" : true,
+  "windowsOpened" : true
+}
