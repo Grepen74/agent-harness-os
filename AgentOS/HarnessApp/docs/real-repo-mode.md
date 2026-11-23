@@ -341,7 +341,7 @@ is configured, Copilot CLI chooses its own default. Display titles are not confi
 | `leafTests` | Object naming the existing acceptance-test target and folder | Missing is a blocker for agents; not required for baseline alone | Agents need an existing test target; the harness does not restructure the repo |
 | `leafTests.target` | String: existing acceptance-test target name | Required when `leafTests` is present | Must identify the target leaves add their tests to |
 | `leafTests.folder` | String: repository-relative path to the acceptance-test folder | Required when `leafTests` is present | Each leaf writes only its own suite subfolder; approved tests are protected |
-| `leafTests.updatable` | Array of repository-relative folders holding other existing tests (say, other test targets) | Only `leafTests.folder` | Where the test author may update other work's tests a criterion deliberately changes; nobody else may change tests there. The repo's top folder, absolute paths and `..` are ignored |
+| `leafTests.updatable` | Array of repository-relative folders holding other existing tests (say, other test targets) | Only `leafTests.folder` | Where the test author may update other work's tests a criterion deliberately changes or a person approved for this ticket; nobody else may change tests there. The repo's top folder, absolute paths and `..` are ignored |
 | `components` | Array of strings naming source components or repository paths for touch sets | Empty component list | None; declares existing components available to breakdown |
 | `landing` | Retired landing configuration object | Requirement-scoped branches | Remove this obsolete object |
 | `landing.branch` | String branch name; ignored, with no effect | Always `agentos/<ticket key>` | A warning says the key is ignored and its value has no effect; remove it |
@@ -488,20 +488,26 @@ against them, and its own helpers (fakes, renderers) must work. The harness then
 changed outside the leaf's test folder (ignored build output stays) and commits only the tests. So helper
 defects are found while writing the tests, not one implementer run at a time.
 The one exception is other work's existing tests that this ticket's criteria deliberately supersede (say a
-default that flips): the test author may update them with the smallest change and list them in
-`updatedTests`. It changes only the lines the criterion requires, leaving the rest as it is even where it
+default that flips), or tests a person explicitly approved for this node. The test author's prompt lists those
+approved tests: it may update them where this ticket's change requires it, even when no criterion names them.
+Unapproved tests still require a ticket criterion deliberately changing what they check. The test author makes
+the smallest change and lists every updated file in `updatedTests`. It changes only the lines this ticket requires, leaving the rest as it is even where it
 breaks the rules for new tests (a fixed sleep, say), and restores anything it was asked to from git history
 rather than from memory. Only listed files that aren't protected and lie in the test area, or in a folder
 `leafTests.updatable` names, are kept; the implementer may change none of those. They're committed with
 the acceptance tests, fingerprinted and locked like them, and named in the ticket comment. Work landing on
 the requirement branch meanwhile may change them too: when the harness moves the leaf onto it (before building,
 at landing, when catching up) and they were as locked just before, uncommitted changes aside, their lock
-moves along. The reviewer rejects any such change no criterion requires. So the decomposer gives such
+moves along. Both retention and verification use one Core rule for the updatable areas and protected paths;
+approval never bypasses those boundaries or lets an implementer change any other work's tests. The test review
+treats approved updates as in scope without a naming criterion. The change review lists approved tests the
+branch changed and reports any weakened or removed check as a finding. For unapproved tests, the reviewer
+rejects any change no criterion requires. So the decomposer gives such
 updates to the child whose change breaks those tests, as a criterion naming them and their new
 expectation; it never makes the work wait for a person to change the repo first.
 Each breakdown child can also carry `affectedTests`: existing test names (for example
 `FlowTests.someTest`) or repository-relative test files whose behaviour that child deliberately changes.
-The child still needs a criterion naming those tests and their new expectations. Missing or null
+Without explicit approval, the child still needs a criterion naming those tests and their new expectations. Missing or null
 `affectedTests` means none; empty entries are dropped when the proposal becomes a node spec.
 The field is retained in previews and the ledger. Changing a nonempty list changes the spec fingerprint,
 so replanning does not reuse the older child's tests or approvals; an empty list preserves older fingerprints.

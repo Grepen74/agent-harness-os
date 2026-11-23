@@ -138,6 +138,24 @@ public struct CopilotReviewer: Reviewer {
         }.joined(separator: "\n\n")
     }
 
+    static func approvedTests(in request: ReviewRequest) -> String {
+        let changed = Set(request.context.changedFiles)
+        let approved = Set(request.approvedTestUpdates).intersection(changed).sorted()
+        guard !approved.isEmpty else { return "" }
+        let instruction = request.stage == .change
+            ? "Report any check weakened or removed in these approved tests as a finding (in testFindings, "
+                + "since only the test author can fix them)."
+            : "Changes to these approved tests are in scope where this ticket's change requires them, even "
+                + "when no criterion names them. Do not reject them for lacking a naming criterion; reject "
+                + "changes that go further than this ticket needs."
+        return """
+        Approved tests this branch changed:
+        \(approved.map { "- \($0)" }.joined(separator: "\n"))
+        \(instruction)
+
+        """
+    }
+
     public static func prompt(for request: ReviewRequest) -> String {
         """
         Independently review the \(request.stage.rawValue). Read only; never edit files or run git.
@@ -155,15 +173,17 @@ public struct CopilotReviewer: Reviewer {
         the review.
         Report every blocking problem you find now, not only the first few: later rounds only check the fixes \
         and what they changed, so a problem held back costs a whole round.
-        \(earlierRounds(of: request))\(brokenTestReports(of: request))\(unchangedProduction(in: request))
+        \(earlierRounds(of: request))\(brokenTestReports(of: request))\(unchangedProduction(in: request))\(approvedTests(in: request))
         Reject acceptance tests that only check constants or types, use made-up APIs instead of real behavior,
         or pass without the requirement being met. Check the tests against every ticket criterion
         they can prove.
         The test author may only test behaviour through APIs, never source text, and may only change files in
         its test folder: no new test targets, package manifests or build settings. The one exception: it may
-        update other work's existing tests where a criterion of this ticket deliberately changes what they check.
-        At the acceptanceTests stage, make a finding for every change to another test that no criterion requires,
-        or that goes further than the criterion needs (deleting a test instead of updating what it expects, say). Criteria that only source
+        update other work's existing tests where a criterion of this ticket deliberately changes what they check,
+        or where the explicit approvals above allow it. Unapproved tests still require a ticket criterion.
+        At the acceptanceTests stage, make a finding for every change to another test that neither a criterion nor
+        an approval allows, or that goes further than this ticket needs (deleting a test instead of updating what
+        it expects, say). Criteria that only source
         text, documents or build setup can show (what documentation describes, file layout, code moved unchanged,
         file sizes, access levels, build or target settings) are checked at the change stage against the diff, never at the acceptanceTests stage:
         don't make findings at the acceptanceTests stage for tests missing them. At the change stage, check

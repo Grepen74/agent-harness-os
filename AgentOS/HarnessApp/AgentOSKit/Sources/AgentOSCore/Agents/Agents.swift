@@ -36,6 +36,8 @@ public struct AgentTask: Sendable {
     /// Test author: the broken-test reports its tests were changed for before the one `previousFailure` is about
     /// (since they were last started over), as "Suite.test: reason". Those changes must outlive later rounds.
     public let earlierBrokenTests: [String]
+    /// Tests a person approved for the test author to update where this ticket's change requires it.
+    public let approvedTestUpdates: [String]
 
     public init(spec: NodeSpec, run: RunID, directory: URL, testFolder: String, scratchDirectory: URL,
                 context: String = "", attempt: Int = 1, previousFailure: String? = nil,
@@ -43,7 +45,7 @@ public struct AgentTask: Sendable {
                 clarifications: [Clarification] = [], guesswork: Guesswork = .assumeAndReport,
                 expectedAPI: [String] = [], ticketKey: String? = nil, agentContext: AgentContext = AgentContext(),
                 unfinishedWork: [String] = [], draftCheck: String? = nil, earlierTestReviews: [[String]] = [],
-                earlierBrokenTests: [String] = []) {
+                earlierBrokenTests: [String] = [], approvedTestUpdates: [String] = []) {
         self.spec = spec
         let inferredTicket = spec.id.hasPrefix("wn-") ? String(spec.id.dropFirst(3)) : spec.id
         self.identity = NodeIdentity(ticketKey: ticketKey ?? inferredTicket, nodeID: spec.id)
@@ -64,6 +66,7 @@ public struct AgentTask: Sendable {
         self.draftCheck = draftCheck
         self.earlierTestReviews = earlierTestReviews
         self.earlierBrokenTests = earlierBrokenTests
+        self.approvedTestUpdates = approvedTestUpdates
     }
 }
 
@@ -152,8 +155,8 @@ public struct AgentReport: Codable, Sendable, Hashable {
     public var scopeRequest: ScopeRequest?
     /// The implementer found the tests already pass without changes, e.g. because other work delivered it.
     public var alreadySatisfied: Bool
-    /// Other work's test files the test author changed because this item's criteria deliberately change what they
-    /// check. Only these are kept besides its own tests; the reviewer checks each change.
+    /// Other work's test files the test author changed under a person's approval or because this item's criteria
+    /// deliberately change what they check. Only these are kept besides its own tests; the reviewer checks each change.
     public var updatedTests: [String]
     public var acceptanceCriterionProofs: [AcceptanceCriterionProof]
 

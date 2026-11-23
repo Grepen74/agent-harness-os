@@ -204,6 +204,14 @@ and unoffered models block starting. The Policy pane shows the effective level a
 Findings return to the test author or implementer; repeated findings escalate with `harness:retry` as the
 next step. Reviews and findings appear on the node and in the ledger. At `agent+human`, a passing candidate
 waits **In review** for a fresh human `harness:build`, even if building was already approved.
+
+The test author's prompt lists tests a person approved for the node. It may update them where the ticket's
+change requires it, even without a criterion naming them; unapproved tests still need a criterion deliberately
+changing what they check. It lists changed files in `updatedTests`; only files inside the updatable test areas
+and outside protected paths are kept and fingerprinted. The implementer still may not change them, approved
+or not. Test review treats approved updates as in scope; change review lists approved tests the branch changed
+and reports weakened or removed checks as findings.
+
 UI changes require snapshots and evidence that windows open and close; human UI review also requires
 before and after screenshots. Implementers report actual evidence in `.agentos-ui-evidence.json` at the
 worktree root; evidence files are retained in the repository's artifact storage.
