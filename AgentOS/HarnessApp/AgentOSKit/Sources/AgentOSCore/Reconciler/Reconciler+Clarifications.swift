@@ -138,7 +138,7 @@ extension Reconciler {
     /// People's comments after the harness's latest "Needs input" comment (notes marked for people only are
     /// left out), or nil when nobody answered yet.
     static func answer(on ticket: Ticket) -> String? {
-        guard let asked = ticket.comments.lastIndex(where: { !$0.author.isHuman && $0.text.contains(needsInputMarker) }) else { return nil }
+        guard let asked = ticket.comments.lastIndex(where: { $0.author == .reconciler && $0.text.contains(needsInputMarker) }) else { return nil }
         let replies = ticket.comments[(asked + 1)...].filter(\.isHumanInput).map(\.text)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
         return replies.isEmpty ? nil : replies.joined(separator: "\n\n")
@@ -224,7 +224,7 @@ extension Reconciler {
             replies = []
         }
         for comment in ticket.comments {
-            if !comment.author.isHuman,
+            if comment.author == .reconciler,
                comment.text.contains(previewQuestionsMarker) || comment.text.contains(previewSuggestionsMarker) {
                 try flush()
                 correctingSuggestions = comment.text.contains(previewSuggestionsMarker)

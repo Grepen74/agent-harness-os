@@ -959,8 +959,11 @@ Each phase is usable on its own.
      events, so only people's labels count, as before. The status is an `agentos: <status>` label.
    - The harness talks to GitHub through `gh api` with your login, or the account set in Settings
      (*GitHub account*; `--github-account` for `agentos work`). Agents never get the token. Since it acts as
-     you, everything it writes carries a hidden `<!-- agentos -->` marker, which is how its comments and
-     issues are told apart from yours.
+     you, everything it writes carries a hidden `<!-- agentos -->` marker. A comment counts as the
+     harness's own only when it carries that marker **and** was written by the login the harness posts
+     with (read from the authenticated GitHub connection). Anyone can type the marker, so a marked
+     comment from another login remains that author's comment, used or ignored according to their
+     permission; it cannot ask harness questions or change which replies count as answers.
    - Polling, kept small: open issues at most every 10 seconds and after the harness's own changes;
      comments and label events only when an issue changed. Failed requests show in the activity log.
    - Only comments by people with **write, maintain or admin** repository permission count as ticket or

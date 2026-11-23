@@ -68,7 +68,8 @@ public struct GhCLITransport: GitHubTransport {
 /// left out. Labels are the signals, as in the local tracker: who set one comes from the issue's events.
 ///
 /// The harness acts as your `gh` login, so its comments and issues carry a hidden marker (`<!-- agentos -->`)
-/// to tell them apart from yours. Statuses are `agentos: <status>` labels. Acceptance criteria are the list
+/// and only comments from that login carrying the marker count as its own: anyone can type the marker.
+/// Statuses are `agentos: <status>` labels. Acceptance criteria are the list
 /// under an "Acceptance criteria" heading in the issue body; a `Blocked by:` line names what other systems
 /// must deliver.
 ///
@@ -465,8 +466,17 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
         } else {
             items = commentCache[issue.number]?.comments ?? []
         }
+        let login: String?
+        if items.contains(where: { ($0.body ?? "").contains(Self.marker) }) {
+            login = await attempt("Reading the harness's GitHub login") { try await self.harnessLogin() }
+        } else {
+            login = nil
+        }
+        func isHarnessComment(_ item: IssueComment) -> Bool {
+            (item.body ?? "").contains(Self.marker) && item.user.login.lowercased() == login?.lowercased()
+        }
         // Failed lookups are shared within this read, but never cached for the next read.
-        for item in items where Self.participant(item.user).isHuman && !(item.body ?? "").contains(Self.marker) {
+        for item in items where Self.participant(item.user).isHuman && !isHarnessComment(item) {
             guard permissions[item.user.login] == nil else { continue }
             let decision = await commentPermissions.permission(for: item.user.login)
             permissions[item.user.login] = decision.problem != nil ? .unknown : (decision.allowed ? .allowed : .denied)
@@ -474,10 +484,14 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
         }
         return items.map { item in
             let text = item.body ?? ""
-            let byHarness = text.contains(Self.marker)
+            let byHarness = isHarnessComment(item)
             var comment = Comment(author: byHarness ? .reconciler : Self.participant(item.user),
                                   text: text.replacingOccurrences(of: Self.marker, with: "").trimmingCharacters(in: .whitespacesAndNewlines))
-            if !byHarness { comment.writeAccess = permissions[item.user.login] ?? .unknown }
+            if login == nil && text.contains(Self.marker) {
+                comment.writeAccess = .unknown
+            } else if !byHarness {
+                comment.writeAccess = permissions[item.user.login] ?? .unknown
+            }
             comment.id = Self.uuid(item.id)
             comment.at = Self.date(item.createdAt) ?? comment.at
             return comment
@@ -531,6 +545,12 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
     }
 
     // MARK: Requests
+
+    private func harnessLogin() async throws -> String {
+        let user = try await get(User.self, "user")
+        guard !user.login.isEmpty else { throw GitHubError(description: "GitHub returned an empty login.") }
+        return user.login
+    }
 
     private func attempt<T>(_ what: String, _ operation: () async throws -> T) async -> T? {
         do { return try await operation() } catch {

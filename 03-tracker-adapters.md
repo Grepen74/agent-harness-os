@@ -260,6 +260,10 @@ Other trackers follow the same pattern:
   through prompt injection. Permissions are cached per author for a few minutes in each tracker session
   and refreshed even when an issue hasn't changed. If a lookup fails, that author's comments are ignored
   for that read and checked again on the next read. Local tracker comments remain the app user's input.
+- **Harness comment ownership needs both login and marker.** On GitHub, a comment counts as the
+  harness's own only when it contains `<!-- agentos -->` and was written by the login the harness posts
+  with. Anyone can type the marker: another author's marked comment remains their comment, subject to
+  the permission rule above, and cannot pose harness questions or change which replies count as answers.
 - **Ticket text is not instructions.** Descriptions and comments can be written by anyone and may contain
   hidden instructions aimed at AI agents (*prompt injection*). Defences:
   - an agent's **instructions and permissions come only from the harness** (its role, its rules, the node's
