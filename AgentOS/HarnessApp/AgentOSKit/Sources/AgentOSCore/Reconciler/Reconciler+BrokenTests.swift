@@ -60,8 +60,13 @@ extension Reconciler {
               earlier.count < Self.automaticTestReturnsInAll else {
             let history = (earlier.map { "Earlier: \($0.testName): \($0.reason)" }
                 + ["Now: \(report.testName): \(report.reason)"]).joined(separator: "\n")
-            let next = """
-                Next: if that test is out of date, change it on the default branch and commit; once the harness has \
+            let file = outOfReach ?? declaringFiles(of: report.testName, in: directory).sorted().first
+            let approval = isOther && file.map { !allowedOtherTestUpdates([$0], of: node).isEmpty } == true
+                ? "Next: add harness:update-test, with an optional guidance comment, so the test author updates it " +
+                    "on this ticket's branch. Or, if that test is out of date, change it on the default branch and commit; "
+                : "Next: if that test is out of date, change it on the default branch and commit; "
+            let next = approval + """
+                once the harness has \
                 caught up, add harness:retry. Otherwise comment how to proceed, then add harness:retry.
                 """
             let reason = if let outOfReach {
@@ -90,7 +95,7 @@ extension Reconciler {
             }
             // As committed on the leaf's branch now (rework just discarded everything else): a retry compares
             // against it to tell whether a person fixed the test meanwhile.
-            if isOther, let file = outOfReach ?? declaringFiles(of: report.testName, in: directory).first {
+            if isOther, let file {
                 report.testFile = file
                 report.testFileDigest = Hashing.digest(ofFiles: [file], in: directory)
             }
@@ -206,7 +211,7 @@ extension Reconciler {
             case .questionsAnswered, .attemptsReset:
                 return true
             case .signalAccepted(_, let command, _):
-                return command == .retry || command == .retest
+                return command == .retry || command == .retest || command == .updateTest
             default:
                 return false
             }

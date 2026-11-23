@@ -212,6 +212,17 @@ and outside protected paths are kept and fingerprinted. The implementer still ma
 or not. Test review treats approved updates as in scope; change review lists approved tests the branch changed
 and reports weakened or removed checks as findings.
 
+When a ticket waits because **another test conflicts with this ticket**, add `harness:update-test` to
+approve updating the reported test on this ticket's branch. An optional guidance comment made after the
+harness asked is recorded as the answer to **How to proceed with the conflicting test** and reaches the
+restarted test author. The ledger records the exact approved file and the approving person; the signal
+clears the input wait and any escalation, resets escalated attempts and broken-test return counts, and
+returns the ticket to test authoring. Only tests inside the updatable test areas and outside protected
+paths qualify, and another node's test must wait until its owner lands. The test author lists its change
+in `updatedTests`; it is kept and fingerprinted on this branch, never editable by the implementer.
+Alternatively, change the test on the default branch and commit, then add `harness:retry` once the
+harness catches up.
+
 UI changes require snapshots and evidence that windows open and close; human UI review also requires
 before and after screenshots. Implementers report actual evidence in `.agentos-ui-evidence.json` at the
 worktree root; evidence files are retained in the repository's artifact storage.

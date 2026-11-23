@@ -546,7 +546,7 @@ the comment says how many files were kept. Feedback with `harness:retry` after a
 If it can't be kept, the tests aren't sent back: the ticket goes to
 a person with the worktree unchanged. A person is asked
 only on the third report about the same test, or the fifth about any tests, since a person last stepped in
-(an answer, `harness:retry` or `harness:retest`): settled reports about other tests don't use up a test's
+(an answer, `harness:retry`, `harness:retest` or `harness:update-test`): settled reports about other tests don't use up a test's
 tries. The "Needs input" lists every report. A conflicting test that lives outside the test area and the
 `leafTests.updatable` folders (a general test of the app, say) goes to a person on the first report: no
 agent may change it, so a return can't settle it. On `harness:retry`, a conflicting test the test author
@@ -1112,6 +1112,17 @@ Each phase is usable on its own.
      makes from them (`### …` headings, `_No response_` for empty fields, `#12` meaning `GH-12`).
    - Signals are `harness:` labels, created in the repo on first use. Who set a label comes from the issue's
      events, so only people's labels count, as before. The status is an `agentos: <status>` label.
+   - **`harness:update-test`** applies when a ticket is waiting because **another test conflicts with this
+     ticket**. It records `testUpdatesApproved(files:)` for the reported test's exact file, authored by the
+     approving person. An optional human comment after the harness asked is recorded as the answer to
+     **How to proceed with the conflicting test** and reaches the test author's restarted prompt. The signal
+     clears **Needs input** and any escalation, resets escalated attempts and both broken-test return
+     budgets, and returns the node to the specified phase for test authoring. The author lists the change
+     in `updatedTests`; it is kept and fingerprinted on this ticket's branch. The implementer still may
+     not change it. Approval cannot reach outside the updatable test areas or into protected paths:
+     no agent may change those tests. A test inside another unlanded node's test folder is also refused;
+     the reply names its ticket and asks you to wait for it to land. Alternatively, change the test on
+     the default branch and commit, then add `harness:retry` after the harness catches up.
    - The harness talks to GitHub through `gh api` with your login, or the account set in Settings
      (*GitHub account*; `--github-account` for `agentos work`). Agents never get the token. Since it acts as
      you, everything it writes carries a hidden `<!-- agentos -->` marker, which is how its comments and
