@@ -120,11 +120,10 @@ public struct ProcessDiagramPresentation {
             let after = cards.lastIndex { $0.workflow == .leaf && feeders.contains($0.id) }
             cards.insert(card, at: after.map { $0 + 1 } ?? cards.endIndex)
         }
-        stages = cards
         transitions = edges
 
-        let cardIDs = Set(cards.map(\.id))
-        childLinks = projection.stages.flatMap { parent -> [ProcessChildLink] in
+        let lanes = Dictionary(cards.map { ($0.id, $0.workflow) }, uniquingKeysWith: { first, _ in first })
+        let links = projection.stages.flatMap { parent -> [ProcessChildLink] in
             parent.childWorkflows.sorted { $0.key.rawValue < $1.key.rawValue }.flatMap { kind, workflowKind in
                 guard let entry = catalog.workflows.first(where: { $0.kind == workflowKind })?.entryStage else {
                     return [ProcessChildLink]()
@@ -136,7 +135,17 @@ public struct ProcessDiagramPresentation {
                                      role: .reportsBack),
                 ]
             }
-        }.filter { cardIDs.contains($0.from) && cardIDs.contains($0.to) }
+        }.filter { lanes[$0.from] != nil && lanes[$0.to] != nil }
+        // A child that starts in its parent's own lane (a nested requirement at Allow breakdown) would
+        // need a dashed line back up the lane, which reads like a transition; the parent card says it instead.
+        let sameLaneStarts = links.filter { $0.role == .startsChild && lanes[$0.from] == lanes[$0.to] }
+        for link in sameLaneStarts {
+            guard let index = cards.firstIndex(where: { $0.id == link.from }) else { continue }
+            cards[index].childNote = "Bigger children start this lane again at "
+                + ProcessStageWording.title(ProcessStageKey(link.to).stageID) + "."
+        }
+        childLinks = links.filter { !sameLaneStarts.contains($0) }
+        stages = cards
     }
 
     /// Recovery edges reach most stages, so drawing them all would bury the main workflows.
@@ -166,6 +175,8 @@ public struct ProcessStagePresentation: Identifiable {
     public let nodeIDs: Set<NodeID>
     /// One or two plain sentences on what happens here, for selection details and hover help.
     let whatHappens: String
+    /// Where children that stay in this lane start, in place of a dashed link within the lane.
+    var childNote: String?
     /// The card ID; differs from the catalog stage ID for a per-lane card such as "leaf/proven".
     public var id: String { key.id }
     public var waitsOnPerson: Bool { stage.actor == .person }
@@ -208,7 +219,7 @@ struct ProcessChildLink: Hashable {
 
     /// An entry and a return meet at the parent stage. The return comes in below the card's middle
     /// and the entry leaves above it, each on its own rail, so the two never join into one line
-    /// (which would read as Proven → Breakdown gate).
+    /// (which would read as a path from Proven onwards).
     var route: (offset: CGFloat, verticalOffset: CGFloat) {
         switch role {
         case .reportsBack: (ProcessEdgeRoute.parallelOffset, ProcessEdgeRoute.parallelOffset)

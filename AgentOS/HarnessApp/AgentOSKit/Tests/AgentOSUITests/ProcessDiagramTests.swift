@@ -178,22 +178,24 @@ struct ProcessDiagramTests {
         #expect(try marker(.implementation) == ProcessStageMarker(selected: false, nodeLocation: false))
     }
 
-    @Test func dashedChildLinksJoinFollowChildWorkflowsToEachChildsEntryAndBack() {
+    @Test func dashedChildLinksJoinWaitForChildWorkToTheLeafEntryAndBack() throws {
         let diagram = Self.diagram()
         let links = Set(diagram.childLinks)
         #expect(links == [
-            ProcessChildLink(from: .children, to: .breakdownGate, role: .startsChild),
             ProcessChildLink(from: "composite/proven", to: .children, role: .reportsBack),
             ProcessChildLink(from: .children, to: .acceptanceTests, role: .startsChild),
             ProcessChildLink(from: "leaf/proven", to: .children, role: .reportsBack),
         ])
         let transitions = Set(diagram.transitions.map { "\($0.from)→\($0.to)" })
         #expect(links.allSatisfy { !transitions.contains("\($0.from)→\($0.to)") })
+        let children = try #require(diagram.stages.first { $0.id == .children })
+        #expect(children.childNote == "Bigger children start this lane again at Allow breakdown.")
+        #expect(diagram.stages.filter { $0.childNote != nil }.map(\.id) == [.children])
     }
 
-    /// Proven → Follow child workflows and Follow child workflows → Breakdown gate meet at the parent
-    /// card; sharing a rail and an attachment point drew them as one line from Proven to Breakdown gate.
-    @Test func aChildReturnAndANestedChildEntryDoNotJoinIntoOneLine() throws {
+    /// A child's return and a child's entry meet at the parent card; sharing a rail and an attachment
+    /// point drew them as one line from Proven onwards.
+    @Test func aChildReturnAndAChildEntryDoNotJoinIntoOneLine() throws {
         let gate = CGRect(x: 0, y: 0, width: 400, height: 100)
         let children = CGRect(x: 0, y: 200, width: 400, height: 100)
         let proven = CGRect(x: 0, y: 400, width: 400, height: 100)
@@ -203,7 +205,7 @@ struct ProcessDiagramTests {
                              verticalOffset: link.route.verticalOffset)
         }
         let back = route(try #require(links.first { $0.from == "composite/proven" }), from: proven, to: children)
-        let entry = route(try #require(links.first { $0.to == .breakdownGate }), from: children, to: gate)
+        let entry = route(try #require(links.first { $0.role == .startsChild }), from: children, to: gate)
         let solidRail = ProcessEdgeRoute(from: children, to: gate).points[1].x
 
         #expect(try #require(back.points.last) != entry.points.first)

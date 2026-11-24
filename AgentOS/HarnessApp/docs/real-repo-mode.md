@@ -52,9 +52,10 @@ Both workflows end in the catalog's one Proven stage, but Process draws a Proven
 leaves count in the Leaf lane's card and requirements in the Requirement lane's, and each lane's
 arrows into Proven end at its own card. Root transitions out of Proven (final verification, catch-up)
 leave from both, since a root leaf hands off from its own Proven. Dashed arrows are not transitions:
-they link **Wait for child work to finish** to each child workflow's entry (**Write acceptance tests**
-for a leaf, **Allow breakdown** for a nested composite) and each Proven card back to it, because a requirement waits
-there until every child is proven. Dashed links can't be selected and aren't in the menus.
+they link **Wait for child work to finish** to a leaf child's entry, **Write acceptance tests**, and each Proven
+card back to it, because a requirement waits there until every child is proven. A nested composite starts
+again at **Allow breakdown** in the same lane; a dashed line back up the lane would read like a transition,
+so the card says it instead. Dashed links can't be selected and aren't in the menus.
 
 Select a stage to see what happens there, in a sentence or two that depends on the lane (a leaf's and a
 requirement's Proven differ) and on the policy (the batch size), plus its actor, current loop limits,

@@ -116,6 +116,9 @@ public struct ProcessPane: View {
                         }
                     }
                     .font(.caption)
+                    if let note = stage.childNote {
+                        Text(note).font(.caption).foregroundStyle(.secondary)
+                    }
                 }
                 .contentShape(Rectangle())
             }
