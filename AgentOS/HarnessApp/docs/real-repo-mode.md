@@ -1218,8 +1218,13 @@ Each phase is usable on its own.
    merged). Leaves in progress then rebase as usual; conflicts go to rework, as at landing. Leaves whose
    agent is running or about to start are left alone and catch up on a later round. Catch-up runs at the
    start of every round, so work started or retried in that round begins from the latest `main`; an
-   unresolved catch-up conflict stays the status of its tickets after the round. With **Push / open pull
-   requests** on, the round first fetches the default branch from `origin`; the baseline, catch-up,
+   unresolved catch-up conflict stays the status of its tickets after the round. A conflict waits for a
+   person: the ticket comment names the files and the commands (`git switch agentos/GH-N`,
+   `git merge <main commit>`), your own merge shows git's usual conflict markers, and the next round
+   recognises it. The harness keeps no merge settings of its own in git (older versions wrote
+   `merge=union` aids to `.git/info/attributes`, which hid the conflict; any left over are removed).
+   With **Push / open pull requests** on, the round first fetches the default branch from `origin`; the
+   baseline, catch-up,
    cross-requirement dependencies, merge detection and new requirement branches use
    `origin/<default branch>`, leaving local branches and your checkout untouched. A failed fetch shows
    its git error in **Needs attention** and continues with the last fetched commit; the next successful

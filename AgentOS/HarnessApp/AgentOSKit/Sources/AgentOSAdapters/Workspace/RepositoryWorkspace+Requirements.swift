@@ -55,9 +55,9 @@ extension RepositoryWorkspace {
     }
 
     func mergeRequirementBranch(_ branch: String, main: String) async throws -> RequirementCatchUpResult {
-        try await withoutCatchUpMergeAids {
-            try await mergeRequirementBranchWithoutAids(branch, main: main)
-        }
+        // A leftover union aid would resolve this merge's conflicts by keeping both sides.
+        try await removeCatchUpMergeAids()
+        return try await mergeRequirementBranchWithoutAids(branch, main: main)
     }
 
     private func mergeRequirementBranchWithoutAids(_ branch: String, main: String) async throws -> RequirementCatchUpResult {

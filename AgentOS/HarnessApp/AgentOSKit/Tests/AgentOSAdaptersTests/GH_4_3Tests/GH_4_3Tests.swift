@@ -209,7 +209,8 @@ struct GH_4_3Tests {
         let fixture = try await conflictedFixture()
         let resolution = FileManager.default.temporaryDirectory.appending(path: "agentos-manual-\(UUID().uuidString)")
         _ = try await git(["worktree", "add", "-q", resolution.path, "agentos/\(fixture.aTicket)"], in: fixture.repo)
-        _ = try? await git(["merge", "--no-edit", "main"], in: resolution)
+        let merge = try await ProcessRunner.run("/usr/bin/env", ["git", "merge", "--no-edit", "main"], in: resolution)
+        #expect(merge.status != 0, "A person's merge shows the catch-up conflict: \(merge.output)")
         try "resolved A\n".write(to: resolution.appending(path: "Sources/A.swift"), atomically: true, encoding: .utf8)
         _ = try await git(["add", "Sources/A.swift"], in: resolution)
         _ = try await git(

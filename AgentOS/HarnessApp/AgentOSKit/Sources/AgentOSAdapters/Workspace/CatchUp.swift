@@ -113,6 +113,7 @@ public actor CatchUpCoordinator {
     func reconcileRequirement(force: Bool, busy: Set<NodeID>) async -> String? {
         do {
             try await workspace.prepare()
+            try await workspace.removeCatchUpMergeAids()
             let main = try await workspace.localMainTip()
             let landing = try await revision(landingBranch)
             let state = await ledger.workingState()
@@ -120,7 +121,6 @@ public actor CatchUpCoordinator {
 
             if let conflict = currentConflict,
                try await isAncestor(conflict.mainSHA, of: landing) {
-                try await setManualMergeAid(files: [], enabled: false)
                 try await recordSuccess(main: conflict.mainSHA, tip: landing, method: .manual, busy: busy)
                 return "Manual catch-up to \(conflict.mainSHA.prefix(8)) recognized"
             }
@@ -134,13 +134,9 @@ public actor CatchUpCoordinator {
                 return nil
             }
 
-            if let conflict = currentConflict {
-                try await setManualMergeAid(files: conflict.files, enabled: false)
-            }
             let result = try await workspace.mergeRequirementBranch(landingBranch, main: main)
             switch result {
             case .success(let tip):
-                try await setManualMergeAid(files: [], enabled: false)
                 try await recordSuccess(main: main, tip: tip, method: .automatic, busy: busy)
                 return "Caught \(landingBranch) up to \(main.prefix(8))"
             case .conflict(let files):
@@ -154,7 +150,6 @@ public actor CatchUpCoordinator {
                     ),
                 ])
                 let conflict = CatchUpConflict(mainSHA: main, files: files.sorted(), tickets: tickets)
-                try await setManualMergeAid(files: files, enabled: true)
                 await notify(ticketFiles, main: main)
                 await projectConflict(conflict)
                 return "Catch-up to \(main.prefix(8)) conflicted"
@@ -205,15 +200,12 @@ public actor CatchUpCoordinator {
             throw AgentFailure("There is no catch-up conflict.")
         }
         let directory = workspace.worktreesDirectory.appending(path: "catch-up-diff-\(UUID().uuidString)")
-        try await setManualMergeAid(files: conflict.files, enabled: false)
+        try await workspace.removeCatchUpMergeAids()
         try await addDetachedWorktree(directory)
-        _ = try await workspace.withoutCatchUpMergeAids {
-            try await ProcessRunner.run(
-                "/usr/bin/env", ["git", "merge", "--no-commit", "--no-ff", conflict.mainSHA], in: directory)
-        }
+        _ = try await ProcessRunner.run(
+            "/usr/bin/env", ["git", "merge", "--no-commit", "--no-ff", conflict.mainSHA], in: directory)
         let diff = try await git(["diff", "--no-ext-diff"], in: directory)
         try await removeWorktree(directory)
-        try await setManualMergeAid(files: conflict.files, enabled: true)
         return diff
     }
 
@@ -225,16 +217,13 @@ public actor CatchUpCoordinator {
         if FileManager.default.fileExists(atPath: directory.path) {
             try await removeWorktree(directory)
         }
-        try await setManualMergeAid(files: conflict.files, enabled: false)
+        try await workspace.removeCatchUpMergeAids()
         try await addDetachedWorktree(directory)
-        let result = try await workspace.withoutCatchUpMergeAids {
-            try await ProcessRunner.run(
-                "/usr/bin/env", ["git", "merge", "--no-commit", "--no-ff", conflict.mainSHA], in: directory)
-        }
+        let result = try await ProcessRunner.run(
+            "/usr/bin/env", ["git", "merge", "--no-commit", "--no-ff", conflict.mainSHA], in: directory)
         guard result.status != 0 else {
             throw AgentFailure("The recorded catch-up no longer conflicts.")
         }
-        try await setManualMergeAid(files: conflict.files, enabled: true)
         return directory
     }
 
@@ -357,10 +346,6 @@ public actor CatchUpCoordinator {
                 )
             }
         }
-    }
-
-    private func setManualMergeAid(files: [String], enabled: Bool) async throws {
-        try await workspace.updateCatchUpMergeAid(for: landingBranch, files: enabled ? files : [])
     }
 
     private func addDetachedWorktree(_ directory: URL) async throws {

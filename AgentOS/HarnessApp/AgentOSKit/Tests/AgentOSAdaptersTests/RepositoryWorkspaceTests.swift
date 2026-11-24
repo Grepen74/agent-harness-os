@@ -1798,6 +1798,59 @@ struct RepositoryWorkspaceTests {
         #expect(try await workspace.branch(nil, hasEverythingIn: String(repeating: "0", count: 40)), "Gone")
     }
 
+    @Test("A catch-up conflict stays a conflict in a person's own merge: old union merge aids are removed")
+    func aCatchUpConflictStaysVisibleToAPersonsMerge() async throws {
+        let repo = try await makeRepo()
+        let commit = ["-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-q", "-am"]
+        try await git(["switch", "-q", "-c", "agentos/GH-1"], in: repo)
+        try "requirement\n".write(to: repo.appending(path: "app.txt"), atomically: true, encoding: .utf8)
+        try await git(commit + ["requirement"], in: repo)
+        try await git(["switch", "-q", "main"], in: repo)
+        try "main\n".write(to: repo.appending(path: "app.txt"), atomically: true, encoding: .utf8)
+        try await git(commit + ["main"], in: repo)
+        let main = try await git(["rev-parse", "main"], in: repo)
+        // What older harness versions left behind for a recorded conflict, next to a person's own settings.
+        let attributes = repo.appending(path: ".git/info/attributes")
+        try FileManager.default.createDirectory(at: attributes.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try """
+            *.png binary
+            # agentos catch-up conflict agentos/GH-1
+            app.txt merge=union
+            # end agentos catch-up conflict agentos/GH-1
+            # agentos catch-up conflict agentos/GH-3
+            notes.txt merge=union
+
+            """.write(to: attributes, atomically: true, encoding: .utf8)
+        try await git(["config", "branch.agentos/GH-1.mergeOptions", "--no-commit"], in: repo)
+        try await git(["config", "--add", "branch.agentos/GH-1.mergeOptions", "--no-commit"], in: repo)
+        try await git(["config", "branch.agentos/GH-2.mergeOptions", "--squash"], in: repo)
+        let storage = FileManager.default.temporaryDirectory.appending(path: "agentos-storage-\(UUID().uuidString)")
+        let workspace = try RepositoryWorkspace(root: repo, storage: storage, config: Self.config,
+                                                landingBranch: "agentos/GH-1", defaultBranch: "main")
+        try await workspace.prepare()
+
+        let result = try await workspace.mergeMain(main, into: "agentos/GH-1")
+
+        guard case .conflict(let files) = result else { Issue.record("Expected a conflict, got \(result)"); return }
+        #expect(files == ["app.txt"])
+        // A block without its end marker isn't recognisably ours, so it stays.
+        #expect(try String(contentsOf: attributes, encoding: .utf8) == """
+            *.png binary
+            # agentos catch-up conflict agentos/GH-3
+            notes.txt merge=union
+
+            """)
+        let leftover = try await ProcessRunner.run(
+            "/usr/bin/env", ["git", "config", "--get", "branch.agentos/GH-1.mergeOptions"], in: repo)
+        #expect(leftover.status == 1, "\(leftover.output)")
+        #expect(try await git(["config", "--get", "branch.agentos/GH-2.mergeOptions"], in: repo) == "--squash")
+        try await git(["switch", "-q", "agentos/GH-1"], in: repo)
+        let merge = try await ProcessRunner.run(
+            "/usr/bin/env", ["git", "-c", "user.name=T", "-c", "user.email=t@example.com", "merge", main], in: repo)
+        #expect(merge.status != 0, "\(merge.output)")
+        #expect(try await git(["diff", "--name-only", "--diff-filter=U"], in: repo) == "app.txt")
+    }
+
     private func makeRepo() async throws -> URL {
         let repo = FileManager.default.temporaryDirectory.appending(path: "agentos-repo-\(UUID().uuidString)")
         let files = ["app.txt": "hi\n", "run-tests.sh": Self.runner, "AGENTS.md": "# Rules\n", "Tests/AppTests/Existing/check.sh": "true\n"]

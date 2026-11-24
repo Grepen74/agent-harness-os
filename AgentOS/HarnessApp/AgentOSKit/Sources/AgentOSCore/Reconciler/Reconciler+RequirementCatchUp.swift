@@ -20,6 +20,7 @@ extension Reconciler {
 
     func reconcileRequirementBranches(_ report: inout RoundReport, force: Bool = false) async throws {
         guard let repository = requirementBranches else { return }
+        try await repository.removeCatchUpMergeAids()
         let main = try await repository.mainTip()
         let state = await ledger.workingState()
         let canCatchUp = state.baseline?.passed == true && state.baseline?.commit == main
@@ -38,7 +39,6 @@ extension Reconciler {
 
             var moved = false
             if !containsMain {
-                try await repository.updateCatchUpMergeAid(for: branch, files: [])
                 switch try await repository.mergeMain(main, into: branch) {
                 case .clean:
                     moved = true
@@ -51,11 +51,11 @@ extension Reconciler {
                     try await write(root.id, by: .reconciler, [
                         .requirementCatchUpConflicted(branch: branch, main: main, files: files, tickets: [root.ticket]),
                     ])
-                    try await repository.updateCatchUpMergeAid(for: branch, files: files)
                     let sources = tickets.isEmpty ? "" : " Work already in main from: \(tickets.joined(separator: ", "))."
                     await tracker.comment(on: root.ticket,
                         "Catch-up conflict on \(branch) with main \(main) in \(files.joined(separator: ", "))." +
-                        sources + " Waiting for a person: merge main into \(branch) and resolve the conflicts. " +
+                        sources + " Waiting for a person: `git switch \(branch)`, `git merge \(main)`, resolve the " +
+                        "conflicts, run the tests and commit, then switch back so the harness can land on \(branch) again. " +
                         "The harness recognises the merge automatically; no harness:retry signal is needed.")
                     report.actions.append("\(root.displayName): catch-up conflict on \(branch)")
                     continue
@@ -67,7 +67,6 @@ extension Reconciler {
             let lastSuccess = root.lastCatchUpSuccess
             if moved || conflict != nil || lastSuccess?.mainSHA != main || lastSuccess?.newAgentOSMainTip != tip {
                 try await rebaseRequirementLeaves(root.id)
-                try await repository.updateCatchUpMergeAid(for: branch, files: [])
                 try await write(root.id, by: .reconciler, [
                     .catchUpSucceeded(main: main, newAgentOSMainTip: tip,
                                       method: containsMain && conflict != nil ? .manual : .automatic),

@@ -598,7 +598,7 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
         files.removeAll { $0 == "info/refs" }
         for file in files.sorted() {
             if var data = FileManager.default.contents(atPath: common.appending(path: file).path) {
-                // Harness-owned merge aids may change while another requirement's agent is running.
+                // Leftover merge aids from older harness versions, removed while another agent may be running.
                 if let text = String(data: data, encoding: .utf8) {
                     if file == "config" {
                         data = Data(RequirementMergeAid.unmanagedConfiguration(text).utf8)
