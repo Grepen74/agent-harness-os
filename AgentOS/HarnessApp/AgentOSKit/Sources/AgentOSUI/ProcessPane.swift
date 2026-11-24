@@ -17,10 +17,10 @@ public struct ProcessPane: View {
                         Text("No effective repository policy loaded; showing harness defaults.")
                             .foregroundStyle(.secondary)
                     }
+                    selectionDetails(diagram)
                     if let selected = model.selectedNodeProcess {
                         ProcessSelectedNode(summary: selected)
                     }
-                    selectionDetails(diagram)
                     ViewThatFits(in: .horizontal) {
                         HStack(alignment: .top, spacing: 36) {
                             lane(.requirement, diagram: diagram).frame(minWidth: 280)
@@ -34,31 +34,38 @@ public struct ProcessPane: View {
                     lane(.recovery, diagram: diagram)
                     Text("Root leaves follow the leaf workflow, then the root-only requirement stages. Nested composites follow the requirement workflow again.")
                         .font(.caption).foregroundStyle(.secondary)
+                    Text("Solid arrows are transitions; dashed arrows link a requirement to its children. Recovery arrows appear when you select a recovery transition or a stage it connects.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
                 .padding()
                 .frame(maxWidth: .infinity, alignment: .topLeading)
                 .backgroundPreferenceValue(ProcessStageAnchors.self) { anchors in
                     GeometryReader { geometry in
                         Canvas { context, _ in
-                            for edge in diagram.transitions {
+                            for link in diagram.childLinks {
+                                guard let source = anchors[link.from], let target = anchors[link.to] else { continue }
+                                let route = ProcessEdgeRoute(from: geometry[source], to: geometry[target],
+                                                             offset: link.route.offset,
+                                                             verticalOffset: link.route.verticalOffset)
+                                var path = Path()
+                                path.addLines(route.points)
+                                context.stroke(path, with: .color(.secondary.opacity(0.5)),
+                                               style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                                var arrow = Path()
+                                arrow.addLines(route.arrowhead)
+                                context.stroke(arrow, with: .color(.secondary), lineWidth: 1)
+                            }
+                            for edge in diagram.drawnTransitions(for: model.processSelection) {
                                 guard let source = anchors[edge.from], let target = anchors[edge.to],
                                       edge.from != edge.to else { continue }
-                                let from = geometry[source], to = geometry[target]
-                                let start = CGPoint(x: from.maxX, y: from.midY)
-                                let end = CGPoint(x: to.maxX, y: to.midY)
-                                let rail = max(start.x, end.x) + 10
+                                let route = ProcessEdgeRoute(from: geometry[source], to: geometry[target])
                                 var path = Path()
-                                path.move(to: start)
-                                path.addLine(to: CGPoint(x: rail, y: start.y))
-                                path.addLine(to: CGPoint(x: rail, y: end.y))
-                                path.addLine(to: end)
+                                path.addLines(route.points)
                                 let selected = model.processSelection == .transition(edge.id)
                                 context.stroke(path, with: .color(selected ? .accentColor : .secondary.opacity(0.3)),
                                                lineWidth: selected ? 2 : 1)
                                 var arrow = Path()
-                                arrow.move(to: CGPoint(x: end.x + 5, y: end.y - 3))
-                                arrow.addLine(to: end)
-                                arrow.addLine(to: CGPoint(x: end.x + 5, y: end.y + 3))
+                                arrow.addLines(route.arrowhead)
                                 context.stroke(arrow, with: .color(.secondary), lineWidth: 1)
                             }
                         }
@@ -82,7 +89,8 @@ public struct ProcessPane: View {
     }
 
     private func stageCard(_ stage: ProcessStagePresentation, diagram: ProcessDiagramPresentation) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+        let marker = model.processStageMarker(for: stage)
+        return VStack(alignment: .leading, spacing: 4) {
             Button {
                 model.processSelection = .stage(stage.id)
                 model.workStageFilterID = stage.id
@@ -90,10 +98,10 @@ public struct ProcessPane: View {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(alignment: .firstTextBaseline) {
                         Text(stage.title).font(.headline)
-                        if model.highlightedProcessStageID == stage.id {
-                            Label(model.selectedNodeProcess?.interrupted == true ? "Interrupted" : "Selected node",
-                                  systemImage: "location.fill")
-                                .font(.caption).foregroundStyle(Color.accentColor)
+                        if marker.nodeLocation {
+                            let interrupted = model.selectedNodeProcess?.interrupted == true
+                            Label(interrupted ? "Interrupted" : "Selected node", systemImage: "location.fill")
+                                .font(.caption).foregroundStyle(interrupted ? Color.orange : Color.secondary)
                         }
                         Spacer(minLength: 4)
                         if stage.waitsOnPerson {
@@ -133,15 +141,16 @@ public struct ProcessPane: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.background, in: RoundedRectangle(cornerRadius: 8))
         .overlay {
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(isHighlighted(stage.id) ? Color.accentColor : Color.secondary.opacity(0.4),
-                        lineWidth: isHighlighted(stage.id) ? 2 : 1)
+            let shape = RoundedRectangle(cornerRadius: 8)
+            if marker.selected {
+                shape.stroke(Color.accentColor, lineWidth: 2)
+            } else if marker.nodeLocation {
+                shape.stroke(Color.secondary, style: StrokeStyle(lineWidth: 1.5, dash: [5, 3]))
+            } else {
+                shape.stroke(Color.secondary.opacity(0.4), lineWidth: 1)
+            }
         }
         .anchorPreference(key: ProcessStageAnchors.self, value: .bounds) { [stage.id: $0] }
-    }
-
-    private func isHighlighted(_ id: String) -> Bool {
-        model.processSelection == .stage(id) || model.highlightedProcessStageID == id
     }
 
     @ViewBuilder private func selectionDetails(_ diagram: ProcessDiagramPresentation) -> some View {
@@ -155,7 +164,7 @@ public struct ProcessPane: View {
                 switch selection {
                 case .stage(let id):
                     if let stage = diagram.stages.first(where: { $0.id == id }) {
-                        Text(stage.title).font(.title3.bold())
+                        Text(stage.qualifiedTitle).font(.title3.bold())
                         Text(stage.stage.title)
                         Text("Who acts: \(stage.actor)")
                         Text(stage.nodeCount)
@@ -197,7 +206,7 @@ public struct ProcessPane: View {
     }
 
     private func title(_ id: String, in diagram: ProcessDiagramPresentation) -> String {
-        diagram.stages.first { $0.id == id }?.title ?? id
+        diagram.stages.first { $0.id == id }?.qualifiedTitle ?? id
     }
 }
 

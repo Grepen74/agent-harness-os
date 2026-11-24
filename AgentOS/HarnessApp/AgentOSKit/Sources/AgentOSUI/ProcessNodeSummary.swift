@@ -57,9 +57,25 @@ extension HarnessViewModel {
     }
 
     public var matchingWorkNodeIDs: Set<NodeID> {
-        guard let stage = workStageFilterID else { return Set(state.nodes.keys) }
+        guard let filter = workStageFilterID else { return Set(state.nodes.keys) }
+        let key = ProcessStageKey(filter)
         let catalog = WorkflowCatalog.standard
-        return Set(state.nodes.keys.filter { catalog.currentStage(of: $0, in: state)?.stage == stage })
+        return Set(state.nodes.values.filter { node in
+            catalog.currentStage(of: node.id, in: state).map { key.matches(node, at: $0.stage) } ?? false
+        }.map(\.id))
+    }
+
+    /// The Work pane's title for the stage filter, naming the lane for a per-lane card.
+    public var workStageFilterTitle: String? { workStageFilterID.map { ProcessStageKey($0).title } }
+
+    /// How a stage card is marked: the clicked stage is the selection; the Work-selected node's
+    /// stage is only its location, so the two never look alike.
+    func processStageMarker(for stage: ProcessStagePresentation) -> ProcessStageMarker {
+        ProcessStageMarker(
+            selected: processSelection == .stage(stage.id),
+            nodeLocation: selectedNodeProcess.flatMap { summary in
+                state.nodes[summary.nodeID].map { stage.key.matches($0, at: summary.stageID) }
+            } ?? false)
     }
 
     public var visibleWorkNodeIDs: Set<NodeID> {

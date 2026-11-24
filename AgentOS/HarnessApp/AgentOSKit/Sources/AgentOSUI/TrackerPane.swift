@@ -7,9 +7,12 @@ public struct TrackerPane: View {
     @Environment(HarnessViewModel.self) private var model
     @State private var selection: String?
     @State private var editor: TicketEditor.Mode?
-    @State private var showDoneTickets: Bool = true
+    @State private var showDoneTickets: Bool
 
-    public init() {}
+    /// `showingDone` is where the **Show Done items** toggle starts.
+    public init(showingDone: Bool = false) {
+        _showDoneTickets = State(initialValue: showingDone)
+    }
 
     public var body: some View {
         VSplitView {

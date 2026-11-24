@@ -39,8 +39,20 @@ Its source of stages and guarded transitions is `WorkflowCatalog.standard` in `A
 `WorkflowProjection` applies the effective policy, and the catalog's current-stage mapping reads
 the replayed working state. Root leaves count once, and nested composites use the requirement workflow.
 
+Both workflows end in the catalog's one Proven stage, but Process draws a Proven card in each lane:
+leaves count in the Leaf lane's card and requirements in the Requirement lane's, and each lane's
+arrows into Proven end at its own card. Root transitions out of Proven (final verification, catch-up)
+leave from both, since a root leaf hands off from its own Proven. Dashed arrows are not transitions:
+they link **Follow child workflows** to each child workflow's entry (Acceptance tests for a leaf,
+Breakdown gate for a nested composite) and each Proven card back to it, because a requirement waits
+there until every child is proven. Dashed links can't be selected and aren't in the menus.
+
 Select a stage to see its actor, current loop limits, shaping settings and enabled signals.
 Use its outgoing-arrow menu to select a transition and read its reason and condition.
+Recovery arrows reach most stages, so they are drawn only while a recovery transition or a stage
+at either end of one is selected; highlighting a node selected in **Work** doesn't reveal them.
+The outgoing-arrow menus always list every transition. Arrows between side-by-side lanes run
+through the gap between them, never behind another lane's cards.
 Person stages carry a person mark; occupied ones also show how many nodes wait on a person.
 Every stage shows its repository node count. Policy changes reshape the diagram, including
 acceptance-test and change review, landing approval under `agent+human`, and publishing stages.
@@ -48,8 +60,10 @@ Opening the tab, selecting details and clearing a selection change only UI state
 open gates nor append ledger events.
 
 Select a node in **Work** to project Process for that node's effective review policy (including
-its touched areas and changed files). Process highlights its current stage and shows the harness
-status and why it waits. An interrupted run stays at its original stage, marked **Interrupted**,
+its touched areas and changed files). Process marks its current stage with **Selected node** and a
+dashed border, and shows the harness status and why it waits under **Selected node in Work**, below
+any selection details. Only a stage you click gets the solid selection border, so the node's stage
+never looks selected. An interrupted run stays at its original stage, marked **Interrupted**,
 until another run starts. Clear the node selection to return to the repository-wide diagram.
 
 The selected-node counters show failed attempts / `maxAttempts`, landing reworks / `maxReworks`,
@@ -60,10 +74,11 @@ stage, against `review.maxRounds`. That stage's count starts over after a passin
 its questions. Reviews with no repeated findings and no increase in findings can converge beyond
 the usual limit; the counter then shows the bounded allowance of up to **2 × maxRounds**.
 
-Selecting a Process stage also filters **Work** to nodes currently in that stage. Ancestors stay
+Selecting a Process stage also filters **Work** to nodes currently in that stage; a Proven card
+filters to its lane's node kind, e.g. **Stage: Proven (leaf)**. Ancestors stay
 expanded for context and are labelled **Context**, but do not count as matches. **Clear stage filter**
 restores the full tree. Filtering never clears a selected node: even a hidden selection remains
-highlighted in Process. Node selection and the stage filter are shared window UI state in
+marked in Process. Node selection and the stage filter are shared window UI state in
 `HarnessViewModel`, not ledger events or tracker commands.
 
 ## What changes compared to the simulator
@@ -239,7 +254,8 @@ schedule: flags and publication failures do not themselves prevent an initial ve
 explicit verification retry.
 Merged and closed pull requests show plain **Done** and **Needs input**, without a pull request suffix.
 
-Turning off **Show Done and closed items** in the work tree keeps requirements with open pull requests
+**Show Done and closed items** in the work tree and **Show Done items** in the tracker start off.
+With the work-tree toggle off, requirements with open pull requests stay
 visible even when all their leaves are proven. It hides merged and closed requirements, and any
 requirement whose status is **Done**, even if it still has attention entries. Other unfinished
 requirements needing a person remain visible. Turning the toggle on shows all requirements.

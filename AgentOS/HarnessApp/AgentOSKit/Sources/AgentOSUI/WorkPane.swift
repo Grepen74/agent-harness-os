@@ -5,9 +5,12 @@ import SwiftUI
 /// other team's system (doc 06: observability).
 public struct WorkPane: View {
     @Environment(HarnessViewModel.self) private var model
-    @State private var showDoneNodes: Bool = true
+    @State private var showDoneNodes: Bool
 
-    public init() {}
+    /// `showingDone` is where the **Show Done and closed items** toggle starts.
+    public init(showingDone: Bool = false) {
+        _showDoneNodes = State(initialValue: showingDone)
+    }
 
     public var body: some View {
         VSplitView {
@@ -15,9 +18,9 @@ public struct WorkPane: View {
                 PaneHeader(title: "Work tree", subtitle: "Derived from the ledger. Tickets only mirror this.")
                 AttentionList()
                 RunningAgents()
-                if let stageID = model.workStageFilterID {
+                if let stageTitle = model.workStageFilterTitle {
                     HStack {
-                        Text("Stage: \(WorkflowCatalog.standard.stages.first { $0.id == stageID }?.title ?? stageID)")
+                        Text("Stage: \(stageTitle)")
                             .lineLimit(1)
                         Text("\(model.matchingWorkNodeIDs.count) matching nodes")
                             .foregroundStyle(.secondary).fixedSize()

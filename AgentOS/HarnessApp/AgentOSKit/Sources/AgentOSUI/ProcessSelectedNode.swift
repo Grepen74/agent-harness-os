@@ -7,6 +7,7 @@ struct ProcessSelectedNode: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
+            Text("Selected node in Work").font(.caption).foregroundStyle(.secondary)
             HStack {
                 Text(model.state.nodes[summary.nodeID]?.spec.title ?? summary.nodeID).font(.title3.bold())
                 Text(summary.status).foregroundStyle(.secondary)

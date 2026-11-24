@@ -72,15 +72,50 @@ public enum RenderedUI {
     /// Since macOS 27.2 accurate recognition skips text unpredictably: most small text in a large, mostly empty
     /// image (for example every value in a detail grid), and now and then a short word. So this reads the part of
     /// `image` that isn't blank, which finds nearly everything, and then the whole image for words the first
-    /// reading skipped.
+    /// reading skipped. Recognition also scales a tall image down and then misreads small text ("guesswork" as
+    /// "auesswork"), so tall content is read again in overlapping bands, and a band's complete reading of a line
+    /// replaces the scaled-down one.
     public static func lines(in image: CGImage) throws -> [Line] {
         let whole = CGRect(x: 0, y: 0, width: image.width, height: image.height)
         guard let content = inkRect(of: image, margin: 16), content != whole else { return try read(image, area: whole) }
         var lines = try read(image, area: content)
+        for band in bands(of: content) {
+            for line in try read(image, area: band) where isInside(line, band: band, content: content, image: image) {
+                let matches = lines.indices.filter { lines[$0].overlaps(line) }
+                // A fragment, or a reading that spans several lines, would reorder or merge text: keep the first.
+                if matches.count == 1, line.box.width >= 0.8 * lines[matches[0]].box.width {
+                    lines[matches[0]] = line
+                }
+            }
+        }
         for line in try read(image, area: whole) where !lines.contains(where: { $0.overlaps(line) }) {
             lines.append(line)
         }
         return lines
+    }
+
+    /// Overlapping bands about as tall as `content` is wide; none when `content` isn't tall.
+    private static func bands(of content: CGRect) -> [CGRect] {
+        guard content.height > content.width * 1.25 else { return [] }
+        let height = content.width.rounded(), overlap: CGFloat = 200
+        var bands: [CGRect] = []
+        var top = content.minY
+        while top < content.maxY {
+            let band = CGRect(x: content.minX, y: top, width: content.width,
+                              height: min(height, content.maxY - top))
+            bands.append(band)
+            if band.maxY >= content.maxY { break }
+            top = band.maxY - overlap
+        }
+        return bands
+    }
+
+    /// Whether `line` lies clear of a cut edge of `band`, so the band read it whole.
+    private static func isInside(_ line: Line, band: CGRect, content: CGRect, image: CGImage) -> Bool {
+        let height = CGFloat(image.height), margin: CGFloat = 8
+        let top = (1 - line.box.maxY) * height, bottom = (1 - line.box.minY) * height
+        return (band.minY <= content.minY || top >= band.minY + margin)
+            && (band.maxY >= content.maxY || bottom <= band.maxY - margin)
     }
 
     private static func read(_ image: CGImage, area: CGRect) throws -> [Line] {

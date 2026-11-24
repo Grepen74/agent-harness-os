@@ -349,14 +349,27 @@ struct GH_113Tests {
         #expect(state.status(of: try #require(state.nodes[Self.id(215)])) == status)
         #expect(state.appStatus(of: try #require(state.nodes[Self.id(215)])) == status)
         let model = Self.model(for: state)
-        let workTree = try RenderedUI.text(
-            of: WorkPane().environment(model), size: CGSize(width: 1500, height: 900))
-        let tracker = try RenderedUI.text(
-            of: TrackerPane().environment(model), size: CGSize(width: 1500, height: 900))
-        for text in [workTree, tracker] {
-            #expect(RenderedUI.shows(status, in: text), "\(text)")
-            #expect(!RenderedUI.shows("#215", in: text), "\(text)")
+        let size = CGSize(width: 1500, height: 900)
+        // Both toggles start off: the work tree hides the requirement, the tracker only a Done ticket.
+        let hiddenWorkTree = try RenderedUI.text(of: WorkPane().environment(model), size: size)
+        #expect(!RenderedUI.shows("Requirement 215", in: hiddenWorkTree), "\(hiddenWorkTree)")
+        let hiddenTracker = try RenderedUI.text(of: TrackerPane().environment(model), size: size)
+        #expect(RenderedUI.shows("Requirement 215", in: hiddenTracker) == (pullRequestState == .closed),
+                "\(hiddenTracker)")
+        for pane in [AnyView(WorkPane(showingDone: true)), AnyView(TrackerPane(showingDone: true))] {
+            let row = try Self.rowText("Requirement 215", in: RenderedUI.image(of: pane.environment(model), size: size))
+            #expect(RenderedUI.shows(status, in: row), "\(row)")
+            #expect(!RenderedUI.shows("#215", in: row), "\(row)")
         }
+    }
+
+    /// The text on the rendered row whose title is `title`, left to right.
+    @MainActor private static func rowText(_ title: String, in image: CGImage) throws -> String {
+        let lines = try RenderedUI.lines(in: image)
+        let row = try #require(lines.first { RenderedUI.shows(title, in: $0.text) },
+                               "No row \(title) in \(lines.map(\.text))")
+        return lines.filter { abs($0.box.midY - row.box.midY) < row.box.height / 2 }
+            .sorted { $0.box.minX < $1.box.minX }.map(\.text).joined(separator: " ")
     }
 
     @Test(arguments: [false, true])
