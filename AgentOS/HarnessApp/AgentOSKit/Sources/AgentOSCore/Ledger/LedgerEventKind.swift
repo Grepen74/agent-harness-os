@@ -6,15 +6,19 @@ public enum LedgerEventKind: String, Hashable, CaseIterable, Sendable {
     case nodeCreated, linkAdded, becameLeaf, replanned, breakdownRevised
     case gateOpened, phaseChanged, flagSet, flagCleared, attemptsReset
     case overlapHoldStarted, overlapHoldEnded
-    case testsFixed, otherTestsUpdated, reviewRecorded, humanReviewRequested, humanReviewApproved
+    case testsFixed, testUpdatesApproved, otherTestsUpdated, reviewRecorded, humanReviewRequested, humanReviewApproved
     case requirementBranchCreated
     case requirementBranchObserved, requirementCatchUpConflicted
+    case requirementBranchContainmentObserved
     case requirementVerificationStarted, requirementVerificationFinished, requirementVerificationRetryRequested, requirementMerged
     case requirementPushed, requirementPullRequestOpened, requirementPublicationFinished
+    case requirementVerificationStatusPosted, requirementVerificationStatusPostFailed
     case requirementPullRequestMerged, requirementPullRequestClosed, requirementPullRequestReopened
     case requirementPublicationStarted
     case requirementPublicationFailed, requirementPublicationRetryRequested, acceptanceCriterionProofsRecorded
     case expectedAPIReported, brokenTestReported, brokenTestRouted, runStarted, agentConfigured, runFinished
+    case agentCreditsRecorded
+    case runCostRecorded
     case changeSubmitted, attemptFailed, testDraftKept, diagnosisRecorded, acceptanceTestPreflightFailed, passingCheckRecorded, mainMovedRework
     case actualChangedFilesRecorded, predictedPathsExpanded
     case evidenceRecorded, landingReworkNeeded, landingRerunRequested, reworkNeeded, landed
@@ -22,6 +26,7 @@ public enum LedgerEventKind: String, Hashable, CaseIterable, Sendable {
     case landingBatchSplit, landingBatchOwnersRemoved
     case questionsRaised, assumptionsReported, suggestionsReported, questionsAnswered, externalDependencyResolved
     case ticketClosed, ticketReopened, readinessScanned, baselineChecked
+    case mainFetchWarningChanged
     case catchUpConflicted, catchUpSucceeded, caughtUp
 
     public init(_ kind: EventKind) {
@@ -48,14 +53,18 @@ public enum LedgerEventKind: String, Hashable, CaseIterable, Sendable {
         case .overlapHoldStarted: self = .overlapHoldStarted
         case .overlapHoldEnded: self = .overlapHoldEnded
         case .testsFixed: self = .testsFixed
+        case .testUpdatesApproved: self = .testUpdatesApproved
         case .requirementBranchCreated: self = .requirementBranchCreated
         case .requirementBranchObserved: self = .requirementBranchObserved
+        case .requirementBranchContainmentObserved: self = .requirementBranchContainmentObserved
         case .requirementCatchUpConflicted: self = .requirementCatchUpConflicted
         case .requirementVerificationStarted: self = .requirementVerificationStarted
         case .requirementVerificationFinished: self = .requirementVerificationFinished
         case .requirementVerificationRetryRequested: self = .requirementVerificationRetryRequested
         case .requirementMerged: self = .requirementMerged
         case .requirementPushed: self = .requirementPushed
+        case .requirementVerificationStatusPosted: self = .requirementVerificationStatusPosted
+        case .requirementVerificationStatusPostFailed: self = .requirementVerificationStatusPostFailed
         case .requirementPublicationStarted: self = .requirementPublicationStarted
         case .requirementPullRequestOpened: self = .requirementPullRequestOpened
         case .requirementPullRequestMerged: self = .requirementPullRequestMerged
@@ -74,6 +83,8 @@ public enum LedgerEventKind: String, Hashable, CaseIterable, Sendable {
         case .brokenTestRouted: self = .brokenTestRouted
         case .runStarted: self = .runStarted
         case .agentConfigured: self = .agentConfigured
+        case .agentCreditsRecorded: self = .agentCreditsRecorded
+        case .runCostRecorded: self = .runCostRecorded
         case .runFinished: self = .runFinished
         case .changeSubmitted: self = .changeSubmitted
         case .actualChangedFilesRecorded: self = .actualChangedFilesRecorded
@@ -102,6 +113,7 @@ public enum LedgerEventKind: String, Hashable, CaseIterable, Sendable {
         case .ticketReopened: self = .ticketReopened
         case .readinessScanned: self = .readinessScanned
         case .baselineChecked: self = .baselineChecked
+        case .mainFetchWarningChanged: self = .mainFetchWarningChanged
         case .catchUpConflicted: self = .catchUpConflicted
         case .catchUpSucceeded: self = .catchUpSucceeded
         case .caughtUp: self = .caughtUp

@@ -163,6 +163,8 @@ public actor Ledger: HarnessLedgerRefreshSource {
         switch event.kind {
         case .gateOpened:
             guard event.by.isHuman else { throw LedgerError.notAllowed("only humans can open gates") }
+        case .testUpdatesApproved:
+            guard event.by.isHuman else { throw LedgerError.notAllowed("only humans can approve test updates") }
         case .requirementVerificationRetryRequested:
             guard event.by.isHuman else { throw LedgerError.notAllowed("only humans can retry final verification") }
         case .requirementPublicationRetryRequested:

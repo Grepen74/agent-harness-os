@@ -129,8 +129,10 @@ extension Reconciler {
         if let changedFiles { changed = changedFiles }
         else { changed = try await workspace.changedFiles(in: directory) }
         let own = workspace.testFolder(for: node.spec) + "/"
+        // Approval alone grants the implementer nothing: only the author's fingerprinted updates are allowed.
+        let allowed = Set(allowedOtherTestUpdates(node.updatedOtherTests, of: node))
         let others = changed.filter {
-            workspace.isInUpdatableTestArea($0) && !$0.hasPrefix(own) && !node.updatedOtherTests.contains($0)
+            workspace.isInUpdatableTestArea($0) && !$0.hasPrefix(own) && !allowed.contains($0)
         }
         if !others.isEmpty { return "Changed other nodes' tests (not allowed): \(others.joined(separator: ", "))" }
         let protected = policy.protectedPathViolations(changed)

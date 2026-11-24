@@ -30,8 +30,10 @@ requirement was escalated and the ledger chain is intact. It uses a temporary fo
 Tests use the native build system for now: with Xcode 27.2's default build system, timing-sensitive tests
 fail at random.
 
-If `swift test` crashes with a signal right after a change to a Core type, the test build is stale:
-`rm -rf .build` and run it again.
+Every target in `Package.swift` lists every module of this package it imports, even one it already gets
+through another dependency (`PackageDependencyTests` checks this). SwiftPM only recompiles a target when a
+listed dependency changes, so an unlisted one can change a type's layout under it: the stale test code
+then crashes with signal 11 or fails to link. If that still happens, `rm -rf .build` and run it again.
 
 ## How it works
 

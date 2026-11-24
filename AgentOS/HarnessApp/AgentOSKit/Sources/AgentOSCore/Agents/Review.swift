@@ -154,11 +154,14 @@ public struct ReviewRequest: Sendable {
     /// Questions people answered for this work or its parents. An answer may allow changing code outside what the
     /// work touches.
     public let clarifications: [Clarification]
+    /// Tests a person approved for this ticket's test author to update.
+    public let approvedTestUpdates: [String]
 
     public init(stage: ReviewStage, spec: NodeSpec, acceptanceTests: [String: String],
                 context: ReviewContext, instructions: String = "", directory: URL = URL(filePath: "."),
                 earlierFindings: [[String]] = [], testFolder: String = "", log: URL? = nil,
-                brokenTestReports: [String] = [], clarifications: [Clarification] = []) {
+                brokenTestReports: [String] = [], clarifications: [Clarification] = [],
+                approvedTestUpdates: [String] = []) {
         self.stage = stage
         self.spec = spec
         self.acceptanceTests = acceptanceTests
@@ -170,6 +173,7 @@ public struct ReviewRequest: Sendable {
         self.log = log
         self.brokenTestReports = brokenTestReports
         self.clarifications = clarifications
+        self.approvedTestUpdates = approvedTestUpdates
     }
 
     /// 1 for the first review of this work at this stage.

@@ -35,7 +35,7 @@ extension Reconciler {
                 try? await write(node?.id, by: .reconciler, [
                     .signalRejected(ticket: signal.ticket, command: signal.command, reason: rejection.reason)])
                 let state = await ledger.workingState()
-                let steps = Self.nextSteps(for: signal.ticket, in: state, allowed: policy.allowedSignals)
+                let steps = await nextSteps(for: signal.ticket, in: state)
                 await tracker.consume(signal, reply: "❌ \(signal.command.label): \(rejection.reason)" + Self.whatYouCanDo(steps))
                 report.actions.append("\(signal.ticket): \(signal.command.label) rejected")
             } catch {
@@ -134,7 +134,7 @@ extension Reconciler {
         // These can discard or rewrite a working copy, so not while a step is reserved or running below the
         // node, including one that hasn't recorded its claim yet. A diagnosis only advises a person, and this
         // person is acting now: it's stopped rather than waited for.
-        if [.retry, .retest, .replan].contains(signal.command), let current = node {
+        if [.retry, .retest, .replan, .updateTest].contains(signal.command), let current = node {
             let busy = state.subtree(of: current.id).filter { busyNodes.contains($0.id) || $0.activeRun != nil }
             if let working = busy.first(where: { $0.activeRun?.role != .diagnoser }) {
                 throw Rejection(reason: "An agent is working on \(workLink(working)) right now. Wait for it to finish, " +
@@ -240,6 +240,9 @@ extension Reconciler {
 
         case .retest:
             return try await retest(node, ticket: ticket, by: person)
+
+        case .updateTest:
+            return try await approveConflictingTest(node, ticket: ticket, by: person, in: state)
 
         case .replan:
             return try await replan(node, ticket: ticket, by: person)

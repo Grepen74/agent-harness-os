@@ -69,7 +69,7 @@ public struct LedgerPane: View {
                                      + (batch.detail.map { "\n\($0)" } ?? ""))
                                     .font(.body)
                                     .fixedSize(horizontal: false, vertical: true)
-                            } else if record.event.kind.isLandingBatchPartition {
+                            } else if record.event.kind.isLandingBatchPartition || record.event.kind.isTestUpdateApproval {
                                 Text(record.event.kind.summary)
                                     .font(.body)
                                     .fixedSize(horizontal: false, vertical: true)
@@ -111,6 +111,11 @@ public struct LedgerPane: View {
 }
 
 private extension EventKind {
+    var isTestUpdateApproval: Bool {
+        if case .testUpdatesApproved = self { return true }
+        return false
+    }
+
     var isLandingBatchPartition: Bool {
         switch self {
         case .landingBatchSplit, .landingBatchOwnersRemoved: true

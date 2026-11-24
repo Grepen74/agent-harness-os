@@ -83,12 +83,15 @@ public enum EventKind: Codable, Sendable {
     // Work
     case requirementBranchCreated(branch: String, from: String)
     case requirementBranchObserved(branch: String, tip: String, main: String, containedInMain: Bool)
+    case requirementBranchContainmentObserved(branch: String, tip: String, main: String, containsMain: Bool)
     case requirementCatchUpConflicted(branch: String, main: String, files: [String], tickets: [String])
     case requirementVerificationStarted
     case requirementVerificationFinished(Evidence)
     case requirementVerificationRetryRequested
     case requirementMerged(commit: String)
     case requirementPushed(branch: String, commit: String)
+    case requirementVerificationStatusPosted(commit: String, state: RequirementVerificationStatus)
+    case requirementVerificationStatusPostFailed(commit: String, error: String)
     case requirementPublicationStarted
     case requirementPullRequestOpened(number: Int, url: String)
     case requirementPullRequestMerged(number: Int, url: String)
@@ -100,6 +103,8 @@ public enum EventKind: Codable, Sendable {
     case acceptanceCriterionProofsRecorded([AcceptanceCriterionProof])
     /// Fingerprint of the node's acceptance tests; nobody may change them afterwards.
     case testsFixed(digest: String)
+    /// Repository-relative tests a person permits this node's test author to update.
+    case testUpdatesApproved(files: [String])
     /// Other work's tests the acceptance tests changed (written after `testsFixed`), with their fingerprint: they
     /// are locked like the node's own tests.
     case otherTestsUpdated(files: [String], digest: String)
@@ -114,6 +119,10 @@ public enum EventKind: Codable, Sendable {
     /// The model and reasoning effort an agent run starts with; written with its `runStarted`. Written again with
     /// `settings.fallback` set when the run fell back to others, e.g. a model that doesn't support the effort.
     case agentConfigured(run: RunID, settings: AgentRunSettings)
+    /// The sum of the incremental AI credits reported during an agent run, including failed runs.
+    case agentCreditsRecorded(run: RunID, credits: Double)
+    /// Credits charged to this event's node for a run, including failed or retried work.
+    case runCostRecorded(run: RunID, aiCredits: Double)
     case runFinished(run: RunID, outcome: String)
     case changeSubmitted(run: RunID, commit: String)
     case actualChangedFilesRecorded(files: [String])
@@ -166,6 +175,7 @@ public enum EventKind: Codable, Sendable {
     // The repo (doc 01): what the harness knew about it when it started, and whenever that changed.
     case readinessScanned(ReadinessScan)
     case baselineChecked(Baseline)
+    case mainFetchWarningChanged(warning: String?)
     case catchUpConflicted(main: String, files: [String], tickets: [String])
     case catchUpSucceeded(main: String, newAgentOSMainTip: String, method: CatchUpMethod)
     case caughtUp(
@@ -231,6 +241,11 @@ public struct RecordedEvent: Codable, Sendable, Identifiable {
 }
 
 extension EventKind {
+    /// Records a cost while preserving the existing ledger encoding's `aiCredits` label.
+    public static func runCostRecorded(run: RunID, credits: Double) -> EventKind {
+        .runCostRecorded(run: run, aiCredits: credits)
+    }
+
     /// One line for humans (ledger views, logs).
     public var summary: String {
         switch self {
@@ -267,7 +282,12 @@ extension EventKind {
             "overlap hold ended: waited for \(waitingFor); " +
                 (paths.isEmpty ? "components \(components.joined(separator: ", "))" : "paths \(paths.joined(separator: ", "))")
         case .testsFixed(let digest): "acceptance tests fixed (\(digest.prefix(8)))"
+        case .testUpdatesApproved(let files): "test updates approved: \(files.joined(separator: ", "))"
         case .requirementPushed(let branch, let commit): "pushed \(branch) at \(commit)"
+        case .requirementVerificationStatusPosted(let commit, let state):
+            "posted agentos/verified \(state.rawValue) at \(commit)"
+        case .requirementVerificationStatusPostFailed(let commit, let error):
+            "agentos/verified status post failed at \(commit): \(error)"
         case .requirementPublicationStarted: "requirement publication started"
         case .requirementPullRequestOpened(let number, let url): "opened pull request #\(number): \(url)"
         case .requirementPullRequestMerged(let number, let url): "merged pull request #\(number): \(url)"
@@ -280,6 +300,8 @@ extension EventKind {
         case .requirementBranchCreated(let branch, let from): "created \(branch) from \(from)"
         case .requirementBranchObserved(let branch, let tip, let main, let contained):
             "observed \(branch) at \(tip), \(contained ? "contained" : "not contained") in main \(main)"
+        case .requirementBranchContainmentObserved(let branch, let tip, let main, let containsMain):
+            "observed \(branch) at \(tip), contains main \(main): \(containsMain)"
         case .requirementCatchUpConflicted(let branch, let main, let files, let tickets):
             "\(branch) catch-up to \(main) conflicted in \(files.joined(separator: ", ")); requirements: \(tickets.joined(separator: ", "))"
         case .requirementVerificationStarted: "final requirement verification started"
@@ -308,6 +330,8 @@ extension EventKind {
             settings.fallback.map { "\(run) ran with \(settings.model), reasoning effort \(settings.effort) instead: \($0)" }
                 ?? "\(run) uses \(settings.model), reasoning effort \(settings.effort)"
         case .runFinished(let run, let outcome): "run \(run) finished: \(outcome)"
+        case .agentCreditsRecorded(let run, let credits): "\(run) used \(credits) AI credits"
+        case .runCostRecorded(let run, let credits): "\(run) used \(credits) AI credits"
         case .changeSubmitted(let run, let commit): "change submitted by \(run) (\(commit.prefix(8)))"
         case .actualChangedFilesRecorded(let files): "actual changed files: \(files.joined(separator: ", "))"
         case .predictedPathsExpanded(let files): "predicted paths expanded: \(files.joined(separator: ", "))"
@@ -349,6 +373,8 @@ extension EventKind {
             "readiness scan of \(scan.branch ?? "?") at \((scan.commit ?? "?").prefix(8)): \(scan.summary)"
         case .baselineChecked(let baseline):
             "baseline at \(baseline.commit.prefix(8)) \(baseline.passed ? "passed" : "FAILED") in \(baseline.seconds)s – \(baseline.summary)"
+        case .mainFetchWarningChanged(let warning):
+            warning ?? "Default branch fetch warning cleared"
         case .catchUpConflicted(let main, let files, let tickets):
             "catch-up to \(main.prefix(8)) conflicted in \(files.joined(separator: ", ")) (tickets: \(tickets.joined(separator: ", ")))"
         case .catchUpSucceeded(let main, let tip, let method):

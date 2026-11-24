@@ -84,11 +84,31 @@ Disabling a signal the harness doesn't know is a warning.
 
 ### Final requirement verification
 
+Whenever a composite becomes proven, the harness posts one cost comment on its ticket after
+**✅ Proven**. Linked leaves appear in depth-first current breakdown order, each with its recorded
+run credits. **Breakdown** sums recorded credits on that composite and all nested composites;
+**Total** adds those credits and the leaf rows. Amounts have at most two decimals and no trailing zeros
+(for example `3 AI credits` or `1.5 AI credits`). Failed and retried runs and earlier runs of retained
+nodes count; nodes removed by replanning do not. Later rounds and ledger replay do not repost the
+comment, but a new transition to proven after replanning posts a fresh summary.
+
+If a leaf has runs without reported usage, its credits end with `(N runs without a reported cost)`
+(or `(1 run without a reported cost)`). **Breakdown** uses the same marker for unreported runs on
+the composite and its nested composites. When any row has missing costs, the total is a lower bound,
+for example `Total: at least 4.5 AI credits`. Explicitly reported zero counts as a known cost;
+when every run reports a cost, neither the markers nor `at least` appear.
+
+After the last leaf is proven, the harness checks a disposable checkout of the requirement branch tip:
 After the last leaf is proven, and once the step that marked the requirement proven has finished, the harness checks a disposable checkout of the requirement branch tip:
 the full test command (no leaf-suite filter) and all configured checks, including build preparation.
 The requirement's ledger records the result, commit, full log artifact and SHA-256. A prior leaf landing
 check does not replace this check. Completed verification survives a restart without rerunning. While it
-runs, the requirement is **In progress** and the check is listed with the running agents.
+runs before a pull request is opened, the requirement is **In progress** and the check is listed with
+the running agents. An open pull request keeps the ticket **In review** during verification.
+
+A failed check runs once more in full, as a landing's does, after every other agent and preview has finished
+and with none starting meanwhile: other agents' builds and tests may be what failed it. The evidence keeps both
+logs. Only a second failure counts.
 
 Failure or interruption waits for a person; no agent rework or automatic retry starts. Fix the problem
 and add `harness:retry` to the requirement ticket to run final verification again. With **Push / open pull
@@ -99,6 +119,20 @@ With publishing on, passing final verification pushes `agentos/<ticket key>` to 
 pull request into `main`. Later catch-ups and landings push new tips and update that same pull request,
 including across restarts. Only requirement branches are pushed, never with force; the harness does not
 push tags or leaf branches and never merges a pull request.
+
+With **Push / open pull requests** on, each round starts by fetching the default branch from `origin`,
+before reading ticket signals. The main baseline, requirement catch-up, cross-requirement dependency
+checks, merge detection and new requirement branches all use that fetched **`origin/<default branch>`**
+commit. A requirement merged on origin is detected as **Done** and unblocks its dependants without you
+pulling. Fetching never moves your local default branch, changes your checked-out branch, index or files,
+or interrupts an agent already running in its leaf checkout.
+
+If fetching fails (for example, offline or authentication rejected), **Needs attention** shows the git
+error and explains that the **last fetched commit** is used. The round continues using that commit,
+retries fetching on the next round, and clears the warning after a successful fetch. If there is no
+previously fetched default commit, the round stops and asks you to restore origin access instead of
+silently using a different branch. With publishing off, nothing is fetched: the local default branch
+remains the source for the baseline, catch-up, dependencies, merge detection and new branches.
 
 The description carries the requirement and breakdown, acceptance criteria with their reported proving
 tests, and each check's result, commit, summary and failing tests. Evidence stays local: artifact file names
@@ -111,6 +145,41 @@ waits without automatic retries or agent rework: its error appears in a ticket c
 attention**. Fix it and add `harness:retry` to push again and open or update the same pull request, including
 when GitHub created it but its response was lost.
 
+With publishing on, every requirement commit the harness successfully pushes gets the GitHub commit
+status **`agentos/verified`**, posted to `POST repos/{owner}/{repo}/statuses/{sha}`. Its state describes
+final requirement verification of that exact commit, never a leaf check or a different branch tip:
+
+| State | Description |
+|---|---|
+| `pending` | `Waiting for final verification`, when that commit has no recorded final result |
+| `pending` | `Final verification running`, before checks start on that commit |
+| `success` | `Final verification passed` |
+| `failure` | The start of the verification summary, at most 140 characters; longer summaries end with `…` |
+
+If the final result already exists at push time, the harness posts that result instead of `pending`.
+A later result updates its own pushed commit even if the branch has moved. No status is posted on a
+commit the harness did not push, or while publishing is off.
+
+After catch-up merges main, a later leaf lands, or a person commits to a published requirement branch
+(including resolving a catch-up conflict), the harness pushes the new tip in that round and posts
+`pending` without requiring a signal. It runs full final verification on that exact checkout commit.
+Only one final verification runs at a time: requirements with pull requests go first in ascending pull
+request number, then requirements without a pull request in creation order. An unchanged tip with a
+recorded final result is not checked again. A failure waits for a person, with **Needs attention** and a
+ticket comment, never agent rework; `harness:retry` verifies the current tip again. A new tip without a
+result is verified automatically even after a failure.
+
+If main moves during verification, the harness still records and posts the result for the commit it
+checked. The next round catches the requirement branch up with main and verifies the new tip.
+
+Each successful status post records its commit and state in the ledger; recorded commit/state pairs
+are not posted again when nothing changes. A human retry posts a new pending/running lifecycle and result.
+After a restart, missing statuses are recovered from pushed commits and recorded
+final results without rerunning verification or repushing the branch. A failed status post shows its
+error in **Needs attention** until posting succeeds and is retried automatically next round, at most
+once per round, without `harness:retry`. It does not block updating the pull request, change the ticket's
+status, or start agent rework. This automatic retry is separate from push/publication failures above.
+
 The requirement's ticket follows its pull request: **In review** while open, **Done** when merged,
 and **Needs input** when closed without merging. These statuses appear in ticket labels and comments,
 and in the board's status field when `tracker.project` is configured, using `tracker.project.statusMap`.
@@ -118,6 +187,74 @@ A close posts the pull request link and waits for a person: `harness:retry` push
 reopens that same pull request, never a replacement. Opening, closing, reopening and merging are durable
 ledger events. After a merge, `harness:retry` and other build signals are refused with the merged pull
 request link and instructions to open a follow-up ticket.
+
+In the app, the **work tree** row and **Tracker pane** add the open pull request number and its
+verification state: `In review · #110 verified`, `In review · #110 waiting for verification (2nd)`,
+`In review · #110 verifying`, or `In review · #110 verification failed`. Verified and failed results
+describe the current requirement branch tip; a new tip waits for verification. Waiting positions
+count only eligible waiting open pull requests, in ascending pull request number, with the next shown
+as `1st`. Closed tickets, unfinished requirements, catch-up conflicts and old pull requests without a
+published commit are not in that queue until eligible for verification (an explicit verification
+retry can recover an old pull request).
+The suffix is app-only: ticket labels and the Projects board stay **In review** through verification.
+Other blockers retain their usual status, such as **Needs human** for a catch-up conflict or
+**Needs input** for failed publication; verification detail never hides those statuses or counts
+these rows in the displayed queue. This app display does not change the reconciler's verification
+schedule: flags and publication failures do not themselves prevent an initial verification or an
+explicit verification retry.
+Merged and closed pull requests show plain **Done** and **Needs input**, without a pull request suffix.
+
+Turning off **Show Done and closed items** in the work tree keeps requirements with open pull requests
+visible even when all their leaves are proven. It hides merged and closed requirements, and any
+requirement whose status is **Done**, even if it still has attention entries. Other unfinished
+requirements needing a person remain visible. Turning the toggle on shows all requirements.
+
+Select a requirement with a pull request to see its **Pull request** details section. Its **#number**
+is a link to the recorded GitHub URL. Labelled rows show the **Last pushed commit**, that exact commit's
+**agentos/verified** state (**Pending**, **Success**, **Failure**, or **Not posted**), the **Last verified
+commit** with **Passed** or **Failed**, and whether the branch **Contains latest main** (**Yes**, **No**,
+or **Unknown** when no current observation exists). The last completed verification stays visible while
+another runs; it need not describe the last pushed commit. **Last catch-up** shows this requirement's
+latest caught-up main commit and recorded time. **Verification queue** shows its one-based position,
+or **Not waiting**. Requirements without a pull request have no such section.
+
+Below **Running now**, **Running agents** also shows **Waiting for final verification**, even when
+no agent is running. Rows follow the shared verification queue: eligible pull requests in ascending
+number, then unpublished requirements in creation order. Each shows its ticket, its own pull request
+number when present, and numeric position. Completed, currently verifying, closed, merged or blocked
+requirements are not waiting.
+
+### One-time GitHub branch protection setup
+
+A person, not the harness or its agents, must protect the repository's default branch. In GitHub's
+branch protection settings (or an equivalent branch ruleset), require the status check
+**`agentos/verified`** and enable **Require branches to be up to date before merging**. Together these
+prevent merging a pull request until the harness has verified its commit against the latest main.
+No GitHub Actions workflow or GitHub merge queue is needed.
+
+For example, after authenticating `gh` with an account allowed to manage repository protection, run:
+
+```sh
+gh api --method PUT repos/OWNER/REPO/branches/DEFAULT_BRANCH/protection --input - <<'JSON'
+{
+  "required_status_checks": {
+    "strict": true,
+    "contexts": ["agentos/verified"]
+  },
+  "enforce_admins": false,
+  "required_pull_request_reviews": null,
+  "restrictions": null
+}
+JSON
+```
+
+Replace `OWNER`, `REPO` and `DEFAULT_BRANCH` with your repository and default branch (usually `main`).
+This PUT sets branch protection, so first review existing protection and preserve any other required
+checks, review requirements or restrictions rather than replacing them with this minimal example.
+GitHub administrators **can bypass** this configuration because `enforce_admins` is false; rulesets can
+also grant bypass permissions. Do not bypass it for ordinary merges. To apply protection to admins too,
+use `enforce_admins: true` and review any ruleset bypass list. Availability depends on GitHub's plan and
+repository visibility.
 
 The optional boolean `pullRequests` repo key inherits the saved harness setting when absent. `false`
 switches publishing off for the repo. `true` while the harness setting is off has no effect and adds a
@@ -223,7 +360,7 @@ is configured, Copilot CLI chooses its own default. Display titles are not confi
 | `leafTests` | Object naming the existing acceptance-test target and folder | Missing is a blocker for agents; not required for baseline alone | Agents need an existing test target; the harness does not restructure the repo |
 | `leafTests.target` | String: existing acceptance-test target name | Required when `leafTests` is present | Must identify the target leaves add their tests to |
 | `leafTests.folder` | String: repository-relative path to the acceptance-test folder | Required when `leafTests` is present | Each leaf writes only its own suite subfolder; approved tests are protected |
-| `leafTests.updatable` | Array of repository-relative folders holding other existing tests (say, other test targets) | Only `leafTests.folder` | Where the test author may update other work's tests a criterion deliberately changes; nobody else may change tests there. The repo's top folder, absolute paths and `..` are ignored |
+| `leafTests.updatable` | Array of repository-relative folders holding other existing tests (say, other test targets) | Only `leafTests.folder` | Where the test author may update other work's tests a criterion deliberately changes or a person approved for this ticket; nobody else may change tests there. The repo's top folder, absolute paths and `..` are ignored |
 | `components` | Array of strings naming source components or repository paths for touch sets | Empty component list | None; declares existing components available to breakdown |
 | `landing` | Retired landing configuration object | Requirement-scoped branches | Remove this obsolete object |
 | `landing.branch` | String branch name; ignored, with no effect | Always `agentos/<ticket key>` | A warning says the key is ignored and its value has no effect; remove it |
@@ -370,17 +507,48 @@ against them, and its own helpers (fakes, renderers) must work. The harness then
 changed outside the leaf's test folder (ignored build output stays) and commits only the tests. So helper
 defects are found while writing the tests, not one implementer run at a time.
 The one exception is other work's existing tests that this ticket's criteria deliberately supersede (say a
-default that flips): the test author may update them with the smallest change and list them in
-`updatedTests`. It changes only the lines the criterion requires, leaving the rest as it is even where it
+default that flips), or tests a person explicitly approved for this node. The test author's prompt lists those
+approved tests: it may update them where this ticket's change requires it, even when no criterion names them.
+Unapproved tests still require a ticket criterion deliberately changing what they check. The test author makes
+the smallest change and lists every updated file in `updatedTests`. It changes only the lines this ticket requires, leaving the rest as it is even where it
 breaks the rules for new tests (a fixed sleep, say), and restores anything it was asked to from git history
 rather than from memory. Only listed files that aren't protected and lie in the test area, or in a folder
 `leafTests.updatable` names, are kept; the implementer may change none of those. They're committed with
 the acceptance tests, fingerprinted and locked like them, and named in the ticket comment. Work landing on
 the requirement branch meanwhile may change them too: when the harness moves the leaf onto it (before building,
 at landing, when catching up) and they were as locked just before, uncommitted changes aside, their lock
-moves along. The reviewer rejects any such change no criterion requires. So the decomposer gives such
+moves along. Both retention and verification use one Core rule for the updatable areas and protected paths;
+approval never bypasses those boundaries or lets an implementer change any other work's tests. The test review
+treats approved updates as in scope without a naming criterion. The change review lists approved tests the
+branch changed and reports any weakened or removed check as a finding. For unapproved tests, the reviewer
+rejects any change no criterion requires. So the decomposer gives such
 updates to the child whose change breaks those tests, as a criterion naming them and their new
 expectation; it never makes the work wait for a person to change the repo first.
+Each breakdown child can also carry `affectedTests`: existing test names (for example
+`FlowTests.someTest`) or repository-relative test files whose behaviour that child deliberately changes.
+Without explicit approval, the child still needs a criterion naming those tests and their new expectations. Missing or null
+`affectedTests` means none; empty entries are dropped when the proposal becomes a node spec.
+The field is retained in previews and the ledger. Changing a nonempty list changes the spec fingerprint,
+so replanning does not reuse the older child's tests or approvals; an empty list preserves older fingerprints.
+Before approving a breakdown with `harness:go`, request `harness:preview` to review each child's
+affected tests at the end of its line, after `affected tests:`. The **Broken down** and
+**No breakdown needed** comments use the same suffix; children without affected tests have no suffix.
+Select a node in the **Work** pane to see its **Affected tests** row, one entry per line or **–** when empty.
+
+When `harness:breakdown` or `harness:go` accepts the matching preview the person saw, the harness records
+one `testUpdatesApproved` ledger event per affected child, listing resolved repository-relative test files
+and authored by the person who opened the breakdown gate. If the leaf check passes, that event belongs
+to the original node instead. The Ledger pane lists every approved file with its approving person.
+A fresh breakdown without a matching preview grants no test-update approval: each child's affected tests
+are marked **not approved** in its breakdown comment.
+
+An affected file inside another node's test folder is excluded while that node has not landed. The
+comment names the owning ticket and says its work is still in progress; neighboring folder names do not
+count as ownership. Tests that cannot be resolved to a file are also marked **not approved**. Once the
+owning work lands (or the affected test name is corrected), use `harness:replan`, then `harness:preview`
+and approve the new preview. These events record permission for the test author, never the implementer;
+they do not remove protected-path or test-area restrictions.
+
 When the implementer reports a broken test (its own or, by `Suite.testName`, another item's that conflicts
 with this ticket), the ticket goes back to the test author without charging an attempt. Since each report
 costs a round, the implementer is told to run the whole suite first and report every conflicting test at once
@@ -393,7 +561,7 @@ the comment says how many files were kept. Feedback with `harness:retry` after a
 If it can't be kept, the tests aren't sent back: the ticket goes to
 a person with the worktree unchanged. A person is asked
 only on the third report about the same test, or the fifth about any tests, since a person last stepped in
-(an answer, `harness:retry` or `harness:retest`): settled reports about other tests don't use up a test's
+(an answer, `harness:retry`, `harness:retest` or `harness:update-test`): settled reports about other tests don't use up a test's
 tries. The "Needs input" lists every report. A conflicting test that lives outside the test area and the
 `leafTests.updatable` folders (a general test of the app, say) goes to a person on the first report: no
 agent may change it, so a return can't settle it. On `harness:retry`, a conflicting test the test author
@@ -700,12 +868,17 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
   `agentConfigured` with what ran and why. Falling back doesn't extend the run's timeout: all its attempts share
   it. A preview's breakdown is recorded the same way (without a claim, since a preview adopts nothing), keeps its
   log, and its comment names the model; a review records what it ran with in its review result.
+- **AI credits.** Each agent run's AI credits, as reported by the Copilot CLI, are recorded in the ledger.
+  Credits are added across model and reasoning-effort fallback attempts, including unsuccessful attempts
+  that report usage. Nested reviewer attempts count toward the enclosing run's credits, but their fallback
+  settings stay in the review result. Without reported usage (for example after a crash or timeout), credits
+  remain unknown, not zero or an estimate from tokens.
 - **Your git state** is fingerprinted before and compared after each test-author and implementer run: refs
   outside `agentos/` (tags, remote-tracking refs, the stash; for local branches only whether they exist,
   since you may commit while agents work), and the shared git config, hooks and `info/` files (not `info/refs`, which git's own housekeeping —
   `gc --auto` after a commit — rewrites). Origin's tracking refs for `agentos/` branches (wherever its fetch refspec
   puts them) don't count either: the harness's own push moves them when it publishes a requirement while agents
-  work. Worktrees share all of these with your repo. Any change escalates the leaf instead of retrying it, naming what
+  work; nor does `origin/<default branch>` moving to a commit the harness's own fetch brought in. Worktrees share all of these with your repo. Any change escalates the leaf instead of retrying it, naming what
   changed; if it was you (e.g. you fetched meanwhile), add `harness:retry`. When agents ran side by side,
   the change can't be pinned on one: each of them is escalated and names the others it ran with.
 - **Parallel work.** Up to *max parallel agents* nodes take their step at the same time (breakdown,
@@ -845,7 +1018,9 @@ Agent processes also get a clean environment and restricted tools (see the works
 run that changes your refs or git config anyway is escalated. Branch refs and worktree records do live in
 the repo's `.git`. Removing the `agentos/` branches and the harness's storage removes every trace of it.
 
-The harness itself never fetches or creates your branches. If the remote's default branch (`origin/HEAD`)
+The harness never creates or moves your local default branch. With publishing on it fetches only origin's
+default branch each round, without fetching tags or changing your checkout; its own ref updates do not
+escalate running agents. With publishing off it does not fetch. If the remote's default branch (`origin/HEAD`)
 has no local copy, the scan, baseline and landing read **`origin/<branch>`** as of your last fetch; the
 scan shows when that was and suggests `git fetch` or `git branch <branch> origin/<branch>`. The landing
 branch is created with `--no-track`, so no upstream is written to your config.
@@ -957,6 +1132,17 @@ Each phase is usable on its own.
      makes from them (`### …` headings, `_No response_` for empty fields, `#12` meaning `GH-12`).
    - Signals are `harness:` labels, created in the repo on first use. Who set a label comes from the issue's
      events, so only people's labels count, as before. The status is an `agentos: <status>` label.
+   - **`harness:update-test`** applies when a ticket is waiting because **another test conflicts with this
+     ticket**. It records `testUpdatesApproved(files:)` for the reported test's exact file, authored by the
+     approving person. An optional human comment after the harness asked is recorded as the answer to
+     **How to proceed with the conflicting test** and reaches the test author's restarted prompt. The signal
+     clears **Needs input** and any escalation, resets escalated attempts and both broken-test return
+     budgets, and returns the node to the specified phase for test authoring. The author lists the change
+     in `updatedTests`; it is kept and fingerprinted on this ticket's branch. The implementer still may
+     not change it. Approval cannot reach outside the updatable test areas or into protected paths:
+     no agent may change those tests. A test inside another unlanded node's test folder is also refused;
+     the reply names its ticket and asks you to wait for it to land. Alternatively, change the test on
+     the default branch and commit, then add `harness:retry` after the harness catches up.
    - The harness talks to GitHub through `gh api` with your login, or the account set in Settings
      (*GitHub account*; `--github-account` for `agentos work`). Agents never get the token. Since it acts as
      you, everything it writes carries a hidden `<!-- agentos -->` marker. A comment counts as the
@@ -1012,7 +1198,7 @@ Each phase is usable on its own.
      proven, final verification passed, and merged: its pull request merged or its tip in `main`; squashing
      or rebasing it into `main` without a pull request leaves it *In review*, so merge it instead).
      Until then the ticket shows *Blocked* with "Waiting for GH-12", or "… to be merged into main" once it's
-     Done but its work isn't in the local `main` yet (e.g. a merged pull request not pulled); merge it (and let
+     Done but its work isn't in the selected default commit yet; merge it (and let
      catch-up bring it into the requirement branch) and it unblocks by itself. Within one requirement, proven
      is enough: the work is already on that requirement's branch.
    - **Projects board (opt-in).** With `tracker.project` (owner, number, optional `statusField` and
@@ -1032,8 +1218,12 @@ Each phase is usable on its own.
    merged). Leaves in progress then rebase as usual; conflicts go to rework, as at landing. Leaves whose
    agent is running or about to start are left alone and catch up on a later round. Catch-up runs at the
    start of every round, so work started or retried in that round begins from the latest `main`; an
-   unresolved catch-up conflict stays the status of its tickets after the round. Nothing is fetched:
-   `main` is whatever your clone has.
+   unresolved catch-up conflict stays the status of its tickets after the round. With **Push / open pull
+   requests** on, the round first fetches the default branch from `origin`; the baseline, catch-up,
+   cross-requirement dependencies, merge detection and new requirement branches use
+   `origin/<default branch>`, leaving local branches and your checkout untouched. A failed fetch shows
+   its git error in **Needs attention** and continues with the last fetched commit; the next successful
+   fetch clears the warning. With publishing off, nothing is fetched and the local default branch is used.
 9. **Publishing pull requests.** The way out to the world, and the end state of concept docs 04 and 08 (every
    change a reviewed pull request). One pull request per **requirement** (a top-level ticket, or a
    composite node), opened once all its leaves are proven; single leaves are too small to review on their

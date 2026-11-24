@@ -136,7 +136,8 @@ struct PolicyTests {
         let old = #"{"landingBranch":"mine","maxAttempts":2,"maxReworks":3,"maxParallelAgents":2,"offeredSignals":["go"]}"#
         let settings = try JSONDecoder().decode(HarnessSettings.self, from: Data(old.utf8))
         #expect(settings.landingBranch == "mine")
-        #expect(settings.offeredSignals == [.go, .replan]) // a signal newer than the settings is offered
+        #expect(settings.offeredSignals.isSuperset(of: [.go, .replan, .updateTest])) // newer signals are offered
+        #expect(settings.offeredSignals.isDisjoint(with: [.preview, .breakdown, .build, .retry, .retest]))
         #expect(settings.offeredModels.isEmpty)
         #expect(settings.models == AgentModels())
 

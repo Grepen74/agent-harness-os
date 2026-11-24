@@ -113,7 +113,7 @@ public actor CatchUpCoordinator {
     func reconcileRequirement(force: Bool, busy: Set<NodeID>) async -> String? {
         do {
             try await workspace.prepare()
-            let main = try await revision(workspace.defaultBranch)
+            let main = try await workspace.localMainTip()
             let landing = try await revision(landingBranch)
             let state = await ledger.workingState()
             let currentConflict = requirement.flatMap { state.nodes[$0.nodeID]?.catchUpConflict }

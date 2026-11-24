@@ -85,6 +85,25 @@ results and outcome; see [real-repo mode](docs/real-repo-mode.md) for the full d
 
 ## Open a real repo
 
+A breakdown child can include `affectedTests`, listing existing test names (such as
+`FlowTests.someTest`) or repository-relative test files whose behaviour it deliberately changes.
+Its criteria must still say what those tests should expect now. The field is optional and is retained
+in previews and the ledger; an omitted, null or empty list means no affected tests. Adding or changing
+affected tests changes the child's spec fingerprint, so replanning does not keep its old tests and approvals.
+
+Before approving a breakdown with `harness:go`, use `harness:preview`: each child's line ends with
+`affected tests:` and its entries when present. The **Broken down** and **No breakdown needed** comments
+show them too. In the **Work** pane, select a node to see **Affected tests**, one entry per line,
+or **–** when there are none.
+
+Approving a matching preview with `harness:breakdown` or `harness:go` records a **test updates approved**
+ledger event for each affected child, authored by the person who opened the breakdown gate. Test names
+are resolved to repository-relative files; a leaf check records the approval on the original ticket.
+The Ledger pane names every approved file. Without a matching preview, affected tests are **not approved**.
+The breakdown comment also marks unresolved tests, or tests owned by another ticket that has not landed,
+as **not approved**, naming the owner whose work is still in progress. Land that work first, then use
+`harness:replan` and `harness:preview` before approving again.
+
 **File → Open Repository…** (⌘O) and choose a git repo. The window runs the **readiness scan** (doc 01)
 and lists its findings: blockers must be fixed before agents may work there, warnings can be accepted.
 **File → Show Simulator** (⇧⌘N) opens the simulator; it's only created when you first open it.
@@ -125,6 +144,13 @@ pushes tags or leaf branches, or merges pull requests. The description includes 
 mapping, checks and local artifact names with SHA-256 hashes; no evidence is uploaded. Publication errors
 appear on the ticket and under **Needs attention**; only a human `harness:retry` resumes publication.
 
+Each publishing round first fetches origin's default branch. The baseline, requirement catch-up,
+cross-requirement dependencies, merge detection and new branches use `origin/<default branch>`, without
+changing your local branches, checkout, index or files. Origin-only merges are detected without pulling.
+A fetch failure shows the git error in **Needs attention** and uses the last fetched commit; fetching
+retries next round and a successful fetch clears the warning. With publishing off, nothing is fetched
+and the local default branch is used.
+
 The requirement follows its pull request: open is **In review**, merged is **Done**, and closed without
 merging is **Needs input**, on ticket labels and comments and the configured board's mapped status.
 After a close, `harness:retry` pushes again and reopens the same pull request. After a merge, build signals
@@ -160,6 +186,13 @@ Breakdown previews list each leaf's predicted files or directory prefixes after 
 provided. The work pane shows them in **Paths**, or **–** when there are no predictions. Replanning
 refreshes predictions even for leaves whose tickets, tests and approvals are kept.
 
+Each time a parent becomes proven, its ticket gets one cost comment after **✅ Proven**, without
+reposting in later rounds or after restarting. It lists linked leaves at every depth in current breakdown
+order, followed by **Breakdown** (recorded credits on the parent and nested parents) and **Total**.
+Amounts use up to two decimals without trailing zeros, such as `1.5 AI credits`. All recorded runs count,
+including failed attempts, retries and earlier runs of retained nodes; removed nodes are excluded.
+A parent proven again after a replan gets a new summary without changing its historical comments.
+
 With overlap avoidance on, a ready leaf waits for overlapping work that is building, being checked,
 in review or landing. The harness compares predicted paths with the active work's changed files when
 known, or its predictions otherwise; missing paths fall back to shared touch-set components. The leaf
@@ -178,6 +211,25 @@ and unoffered models block starting. The Policy pane shows the effective level a
 Findings return to the test author or implementer; repeated findings escalate with `harness:retry` as the
 next step. Reviews and findings appear on the node and in the ledger. At `agent+human`, a passing candidate
 waits **In review** for a fresh human `harness:build`, even if building was already approved.
+
+The test author's prompt lists tests a person approved for the node. It may update them where the ticket's
+change requires it, even without a criterion naming them; unapproved tests still need a criterion deliberately
+changing what they check. It lists changed files in `updatedTests`; only files inside the updatable test areas
+and outside protected paths are kept and fingerprinted. The implementer still may not change them, approved
+or not. Test review treats approved updates as in scope; change review lists approved tests the branch changed
+and reports weakened or removed checks as findings.
+
+When a ticket waits because **another test conflicts with this ticket**, add `harness:update-test` to
+approve updating the reported test on this ticket's branch. An optional guidance comment made after the
+harness asked is recorded as the answer to **How to proceed with the conflicting test** and reaches the
+restarted test author. The ledger records the exact approved file and the approving person; the signal
+clears the input wait and any escalation, resets escalated attempts and broken-test return counts, and
+returns the ticket to test authoring. Only tests inside the updatable test areas and outside protected
+paths qualify, and another node's test must wait until its owner lands. The test author lists its change
+in `updatedTests`; it is kept and fingerprinted on this branch, never editable by the implementer.
+Alternatively, change the test on the default branch and commit, then add `harness:retry` once the
+harness catches up.
+
 UI changes require snapshots and evidence that windows open and close; human UI review also requires
 before and after screenshots. Implementers report actual evidence in `.agentos-ui-evidence.json` at the
 worktree root; evidence files are retained in the repository's artifact storage.

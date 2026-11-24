@@ -89,6 +89,10 @@ extension Reconciler {
         }
         let note = Self.assumptionsNote("Assumptions the decomposer made", shownAssumptions)
         let (children, revision) = try await revise(node, proposed: proposed, in: state)
+        let approver = await breakdownTestApprover(node, in: state)
+        let testUpdates = try await breakdownTestUpdates(children, of: node, approvedBy: approver, in: state)
+        let description = Planner.describe(children, under: node.spec.title,
+                                           testApprovalNotes: testUpdates.mapValues(\.description))
 
         // Leaf check (doc 02 §4): a "breakdown" into one piece is the node itself, so it becomes the leaf.
         // Production: the decomposer runs the full leaf check before proposing children at all.
@@ -98,17 +102,26 @@ extension Reconciler {
             let needs = Set(node.spec.dependsOn + (children.first?.dependsOn ?? [])).sorted()
             try await write(node.id, by: author, [.becameLeaf(touches: touches, predictedPaths: paths.isEmpty ? nil : paths)]
                 + needs.map { .linkAdded(TypedLink(from: node.id, type: .dependsOn, to: $0)) })
+            if let approver, let updates = children.first.flatMap({ testUpdates[$0.id] }), !updates.files.isEmpty {
+                try await write(node.id, by: approver, [.testUpdatesApproved(files: updates.files)])
+            }
             await tracker.comment(on: node.ticket, """
                 🍃 No breakdown needed: small enough to build as it is (leaf check passed).
-                \(Planner.describe(children, under: node.spec.title))\(note)\(revision)
+                \(description)\(note)\(revision)
                 This ticket gets its own branch and acceptance tests next; then add harness:build.
                 """)
             return "\(node.displayName) passed the leaf check: built as one leaf"
         }
 
         for var spec in children {
+            let updates = testUpdates[spec.id]
             // Revision matches existing children independently of their ticket-derived IDs.
-            if await ledger.workingState().nodes[spec.id] != nil { continue }
+            if await ledger.workingState().nodes[spec.id] != nil {
+                if let approver, let updates, !updates.files.isEmpty {
+                    try await write(spec.id, by: approver, [.testUpdatesApproved(files: updates.files)])
+                }
+                continue
+            }
             let key: String
             do {
                 key = try await tracker.createChildTicket(parent: node.ticket, spec: spec, by: author)
@@ -121,11 +134,14 @@ extension Reconciler {
             }
             let links = spec.dependsOn.map { TypedLink(from: spec.id, type: .dependsOn, to: $0) }
             try await write(spec.id, by: author, [.nodeCreated(spec: spec, ticket: key)] + links.map { .linkAdded($0) })
+            if let approver, let updates, !updates.files.isEmpty {
+                try await write(spec.id, by: approver, [.testUpdatesApproved(files: updates.files)])
+            }
         }
         try await write(node.id, by: .reconciler, [.phaseChanged(to: .split)])
         await tracker.comment(on: node.ticket, """
             🌳 Broken down. Each leaf gets its own branch and acceptance tests next; then add harness:build.
-            \(Planner.describe(children, under: node.spec.title))\(note)\(revision)
+            \(description)\(note)\(revision)
             """)
         return "\(node.displayName) broken down into \(children.count) leaves"
     }
