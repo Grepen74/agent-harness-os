@@ -70,7 +70,50 @@ public struct CommandCheckRunner: CheckRunner {
     /// Without `test.only`, a run of one suite runs all tests.
     public var selectsSuites: Bool { config.test.only != nil }
 
+    /// The checks check what's committed, so tracked files they change (a project the prepare step generates
+    /// differently from the committed one, say) are put back afterwards: otherwise the checkout is no longer
+    /// clean, and landing it stops. Files already changed before the checks are left alone.
     public func runChecks(in directory: URL, only suite: String?) async -> CheckOutput {
+        let changedBefore = await Self.trackedChanges(in: directory)
+        let output = await runSteps(in: directory, only: suite)
+        guard let changedBefore else { return output }
+        // Not cancelled with the checks: the checkout is put back either way.
+        let note = await Task { await Self.restoreTrackedFiles(changedSince: changedBefore, in: directory) }.value
+        guard let note else { return output }
+        return CheckOutput(passed: output.passed, summary: output.summary, log: output.log + note + "\n",
+                           failingTargets: output.failingTargets, failureKind: output.failureKind, checks: output.checks)
+    }
+
+    /// Tracked files with staged or unstaged changes, or nil when the directory isn't the top of a git checkout.
+    static func trackedChanges(in directory: URL) async -> Set<String>? {
+        guard let prefix = try? await ProcessRunner.run("/usr/bin/env", ["git", "rev-parse", "--show-prefix"],
+                                                        in: directory, timeout: .seconds(60)),
+              prefix.status == 0, prefix.output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let status = try? await ProcessRunner.run(
+                  "/usr/bin/env", ["git", "status", "--porcelain=v1", "-z", "--untracked-files=no", "--no-renames"],
+                  in: directory, timeout: .seconds(60)),
+              status.status == 0 else { return nil }
+        // Each entry is "XY path": X for the index, Y for the working tree.
+        return Set(status.output.split(separator: "\0").filter { $0.count > 3 }.map { String($0.dropFirst(3)) })
+    }
+
+    /// Puts back the tracked files changed since `before`. Returns a line for the log, or nil if none changed.
+    static func restoreTrackedFiles(changedSince before: Set<String>, in directory: URL) async -> String? {
+        guard let after = await trackedChanges(in: directory) else { return nil }
+        let changed = after.subtracting(before).sorted()
+        guard !changed.isEmpty else { return nil }
+        let files = changed.joined(separator: ", ")
+        let restore = try? await ProcessRunner.run(
+            "/usr/bin/env", ["git", "restore", "--source=HEAD", "--staged", "--worktree", "--"] + changed.map { ":(literal)" + $0 },
+            in: directory, timeout: .seconds(60))
+        guard let restore, restore.status == 0 else {
+            return "Couldn't put back the tracked files the checks changed (\(files)): "
+                + (restore?.output.trimmingCharacters(in: .whitespacesAndNewlines) ?? "git restore didn't run")
+        }
+        return "Put back \(changed.count) tracked file(s) the checks changed, so the checkout stays as committed: \(files)"
+    }
+
+    private func runSteps(in directory: URL, only suite: String?) async -> CheckOutput {
         var log = ""
         var completed: [CheckResult] = []
         var cleaned = false

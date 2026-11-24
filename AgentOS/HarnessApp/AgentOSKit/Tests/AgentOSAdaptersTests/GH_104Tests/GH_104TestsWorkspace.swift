@@ -25,6 +25,11 @@ extension GH_104Tests {
         private(set) var reworked: [NodeID] = []
         private(set) var singleLandings: [NodeID] = []
         private(set) var batchLandings: [[NodeID]] = []
+        private var dirty: Set<NodeID> = []
+        private var unavailable = false
+
+        func makeDirty(_ id: NodeID) { dirty.insert(id) }
+        func makeUnavailable(_ value: Bool) { unavailable = value }
 
         init(root: URL, audit: Audit, conflicting: NodeID?) {
             self.root = root
@@ -56,7 +61,9 @@ extension GH_104Tests {
             try store(Tree(commit: "candidate-\(id)", nodes: [id], files: files, batch: false), in: worktree(for: id))
         }
 
-        func prepare() async throws {}
+        func prepare() async throws {
+            if unavailable { throw AgentFailure("repository is gone") }
+        }
         func prepareRequirementBranch(for requirement: NodeIdentity, leaves: [NodeID]) async throws -> String? {
             #expect(requirement.nodeID == Fixture.parent)
             return nil
@@ -90,6 +97,9 @@ extension GH_104Tests {
         }
 
         func reviewContext(in directory: URL, against branch: String) async throws -> ReviewContext {
+            if dirty.contains(where: { worktree(for: $0) == directory }) {
+                throw AgentFailure("couldn't read the worktree's status")
+            }
             let tree = try tree(in: directory)
             return ReviewContext(baseBranch: branch, commit: tree.commit,
                                  fullDiff: tree.nodes.flatMap { nodeFiles($0) }.joined(separator: "\n"),

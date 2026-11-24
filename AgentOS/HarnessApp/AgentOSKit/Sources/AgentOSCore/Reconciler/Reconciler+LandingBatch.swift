@@ -15,7 +15,13 @@ extension Reconciler {
             }
             let state = await ledger.workingState()
             guard let node = state.nodes[queued.id], eligibleForLanding(node, in: state) else { continue }
-            if try await needsHumanLandingReview(node) {
+            guard let needsReview = try await checkingLanding(node, &report, {
+                try await needsHumanLandingReview(node)
+            }) else {
+                considered.insert(node.id)
+                continue
+            }
+            if needsReview {
                 guard quietLandings == 0, shutdownReason == nil, !Task.isCancelled else { break }
                 considered.insert(node.id)
                 if let action = await step(node.id, landing: true) { report.actions.append(action) }
@@ -27,14 +33,23 @@ extension Reconciler {
                 guard members.count < policy.landingBatchSize else { break }
                 guard let current = state.nodes[candidate.id], eligibleForLanding(current, in: state),
                       await requirementBranch(for: current.id) == branch else { continue }
-                guard try await !needsHumanLandingReview(current) else { continue }
+                guard let needsReview = try await checkingLanding(current, &report, {
+                    try await needsHumanLandingReview(current)
+                }) else {
+                    considered.insert(current.id)
+                    continue
+                }
+                guard !needsReview else { continue }
                 members.append(current)
             }
             considered.formUnion(members.map(\.id))
             if members.count > 1 {
                 var ready: [NodeState] = []
                 for member in members {
-                    if let reason = try await workspace.whyLandingMustWait(for: member.id) {
+                    guard let wait = try await checkingLanding(member, &report, {
+                        try await workspace.whyLandingMustWait(for: member.id)
+                    }) else { continue }
+                    if let reason = wait {
                         if let action = await waitToLand(member, because: reason) { report.actions.append(action) }
                     } else {
                         ready.append(member)
@@ -59,6 +74,26 @@ extension Reconciler {
                 tasks[node.id] = task
                 if let action = await task.value { report.actions.append(action) }
             }
+        }
+    }
+
+    /// A queued node's own landing checks look at its worktree. When one fails (the worktree isn't clean, say),
+    /// only that node stops: it's escalated, and the rest of the queue goes on.
+    private func checkingLanding<T>(_ node: NodeState, _ report: inout RoundReport,
+                                    _ check: () async throws -> T) async throws -> T? {
+        do {
+            return try await check()
+        } catch let error as LedgerError {
+            throw error
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            var reason = "Couldn't check whether \(node.displayName) can land: \(error)"
+            if !reason.contains("harness:retry") { reason += " Check the worktree, then add harness:retry." }
+            try await write(node.id, by: .reconciler, [.flagSet(.escalated, reason: reason)])
+            await tracker.comment(on: node.ticket, "⚠️ Needs a human: \(reason)")
+            report.actions.append(reason)
+            return nil
         }
     }
 

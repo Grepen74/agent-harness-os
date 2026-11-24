@@ -26,7 +26,7 @@ public enum LedgerEventKind: String, Hashable, CaseIterable, Sendable {
     case landingBatchSplit, landingBatchOwnersRemoved
     case questionsRaised, assumptionsReported, suggestionsReported, questionsAnswered, externalDependencyResolved
     case ticketClosed, ticketReopened, readinessScanned, baselineChecked
-    case mainFetchWarningChanged
+    case mainFetchWarningChanged, safeStopChanged
     case catchUpConflicted, catchUpSucceeded, caughtUp
 
     public init(_ kind: EventKind) {
@@ -114,6 +114,7 @@ public enum LedgerEventKind: String, Hashable, CaseIterable, Sendable {
         case .readinessScanned: self = .readinessScanned
         case .baselineChecked: self = .baselineChecked
         case .mainFetchWarningChanged: self = .mainFetchWarningChanged
+        case .safeStopChanged: self = .safeStopChanged
         case .catchUpConflicted: self = .catchUpConflicted
         case .catchUpSucceeded: self = .catchUpSucceeded
         case .caughtUp: self = .caughtUp

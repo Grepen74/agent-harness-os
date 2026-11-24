@@ -196,6 +196,8 @@ public struct WorkingState: Sendable {
     /// The latest baseline run on the default branch.
     public private(set) var baseline: Baseline?
     public private(set) var mainFetchWarning: String?
+    /// Why the last round stopped the harness, until a later round runs without stopping.
+    public private(set) var safeStop: String?
     public private(set) var catchUpConflict: CatchUpConflict?
     public private(set) var lastCatchUpSuccess: CatchUpSuccess?
 
@@ -371,6 +373,8 @@ public struct WorkingState: Sendable {
             baseline = result
         case .mainFetchWarningChanged(let warning):
             mainFetchWarning = warning
+        case .safeStopChanged(let reason):
+            safeStop = reason
         case .catchUpConflicted(let main, let files, let tickets):
             catchUpConflict = CatchUpConflict(mainSHA: main, files: files, tickets: tickets)
         case .catchUpSucceeded(let main, let tip, let method):

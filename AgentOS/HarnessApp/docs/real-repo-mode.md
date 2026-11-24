@@ -192,6 +192,10 @@ commit. A requirement merged on origin is detected as **Done** and unblocks its 
 pulling. Fetching never moves your local default branch, changes your checked-out branch, index or files,
 or interrupts an agent already running in its leaf checkout.
 
+When a round has to stop the harness (a safe stop), **Run** turns off. The reason is recorded in the ledger
+and shown as **Run stopped: …** under **Needs attention**, also after a restart, until a round runs without
+stopping. A broken ledger chain is the exception: no more records can be added to it.
+
 If fetching fails (for example, offline or authentication rejected), **Needs attention** shows the git
 error and explains that the **last fetched commit** is used. The round continues using that commit,
 retries fetching on the next round, and clears the warning after a successful fetch. If there is no
@@ -415,7 +419,7 @@ is configured, Copilot CLI chooses its own default. Display titles are not confi
 | Config path | Accepted type / values | Omission default / required status | Harness restriction |
 |---|---|---|---|
 | `build` | Object containing optional prepare and build commands | No build steps | None beyond command safety below |
-| `build.prepare` | String: shell command to prepare or generate the project | No prepare command | Runs before build, test and checks; failure stops the check run |
+| `build.prepare` | String: shell command to prepare or generate the project | No prepare command | Runs before build, test and checks; failure stops the check run. Tracked files that the prepare step or any check changes are put back afterwards, and the check log names them. Files changed before the checks started are left alone. Commit generated files as the generator writes them, so this stays rare |
 | `build.command` | String: shell command to build the repo | No separate build command | Runs after prepare, before test; failure stops the check run |
 | `test` | Object containing the test command and optional suite selector | Required | Must supply `test.command` |
 | `test.command` | String: shell command to run the full test suite | Required, including for the baseline | Must succeed; cannot replace required harness safety checks |
@@ -864,7 +868,9 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
   size. Agent-reviewed nodes are rebased onto the requirement branch and reviewed individually before
   joining a batch; a failed review returns its findings and keeps that node out. Only agent-and-human
   review requires individual landing, waiting In review for `harness:build` approval of the exact
-  candidate commit. A separate detached working copy starts at the latest requirement tip and applies
+  candidate commit. Some nodes can't be checked before they join a batch: their checkout has uncommitted
+  changes, say. Such a node is escalated on its own, with a ticket comment asking for `harness:retry`,
+  and the rest of the queue goes on. A separate detached working copy starts at the latest requirement tip and applies
   each node's commits in queue order. A conflicting node is removed and sent to merge-conflict rework
   without counting a failed attempt; newly discovered conflicting files expand its predicted paths.
   After each node is applied, the single-landing protected-tests rule checks its acceptance tests and

@@ -176,6 +176,8 @@ public enum EventKind: Codable, Sendable {
     case readinessScanned(ReadinessScan)
     case baselineChecked(Baseline)
     case mainFetchWarningChanged(warning: String?)
+    /// Why the harness stopped running on its own (a safe stop), or nil once a round ran without one.
+    case safeStopChanged(reason: String?)
     case catchUpConflicted(main: String, files: [String], tickets: [String])
     case catchUpSucceeded(main: String, newAgentOSMainTip: String, method: CatchUpMethod)
     case caughtUp(
@@ -375,6 +377,8 @@ extension EventKind {
             "baseline at \(baseline.commit.prefix(8)) \(baseline.passed ? "passed" : "FAILED") in \(baseline.seconds)s – \(baseline.summary)"
         case .mainFetchWarningChanged(let warning):
             warning ?? "Default branch fetch warning cleared"
+        case .safeStopChanged(let reason):
+            reason.map { "harness stopped: \($0)" } ?? "harness ran a round without stopping"
         case .catchUpConflicted(let main, let files, let tickets):
             "catch-up to \(main.prefix(8)) conflicted in \(files.joined(separator: ", ")) (tickets: \(tickets.joined(separator: ", ")))"
         case .catchUpSucceeded(let main, let tip, let method):

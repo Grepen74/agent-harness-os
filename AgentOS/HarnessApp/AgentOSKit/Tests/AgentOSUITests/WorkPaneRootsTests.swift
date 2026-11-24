@@ -86,4 +86,21 @@ struct WorkPaneRootsTests {
         #expect(RenderedUI.shows("\(node.displayName): \(reason)", in: text),
                 "Ordinary attention reasons must identify their node: \(text)")
     }
+
+    @Test func aRecordedSafeStopTellsWhyRunStoppedUntilARoundRunsWithoutOne() async throws {
+        let reason = "Couldn't reconcile work: the worktree isn't clean"
+        let ledger = try Ledger()
+        try await ledger.append([LedgerEvent(node: nil, by: .reconciler, kind: .safeStopChanged(reason: reason))])
+        let model = HarnessViewModel()
+        model.state = await ledger.workingState()
+
+        let text = try RenderedUI.text(of: AttentionList().environment(model), size: CGSize(width: 1000, height: 120))
+
+        #expect(RenderedUI.shows("Needs attention", in: text))
+        #expect(RenderedUI.shows("Run stopped: \(reason)", in: text), "\(text)")
+
+        try await ledger.append([LedgerEvent(node: nil, by: .reconciler, kind: .safeStopChanged(reason: nil))])
+        model.state = await ledger.workingState()
+        #expect(model.state.safeStop == nil)
+    }
 }

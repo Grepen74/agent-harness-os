@@ -189,9 +189,15 @@ struct AttentionList: View {
 
     var body: some View {
         let items = model.state.attentionList
-        if !items.isEmpty || model.state.mainFetchWarning != nil {
+        if !items.isEmpty || model.state.mainFetchWarning != nil || model.state.safeStop != nil {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Needs attention").font(.caption.bold())
+                if let stop = model.state.safeStop {
+                    Label("Run stopped: \(stop)", systemImage: "stop.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 if let warning = model.state.mainFetchWarning {
                     Label(warning, systemImage: "exclamationmark.triangle.fill")
                         .font(.caption)

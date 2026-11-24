@@ -151,6 +151,22 @@ public actor Reconciler {
     /// With waiting, the round first waits for steps from earlier rounds, then for every step it starts
     /// (the simulator's Step and tests that expect each round to finish its work).
     public func runRound(waitForAgents: Bool) async -> RoundReport {
+        let report = await playRound(waitForAgents: waitForAgents)
+        await recordSafeStop(report.safeStop)
+        return report
+    }
+
+    /// A safe stop turns Run off. The ledger keeps its reason, so it's still there after the app's activity
+    /// list is gone, until a later round runs without stopping.
+    private func recordSafeStop(_ reason: String?) async {
+        guard shutdownReason == nil, !Task.isCancelled,
+              reason != (await ledger.workingState()).safeStop else { return }
+        // A broken chain takes no more records; the round reports its stop anyway.
+        guard await ledger.verifyIncrementally().problem == nil else { return }
+        _ = try? await ledger.append([LedgerEvent(node: nil, by: .reconciler, kind: .safeStopChanged(reason: reason))])
+    }
+
+    private func playRound(waitForAgents: Bool) async -> RoundReport {
         var report = RoundReport()
         guard shutdownReason == nil, !Task.isCancelled else { return finish(report) }
         guard !isVerifyingRequirements, !isObservingPullRequests else { return finish(report) }
