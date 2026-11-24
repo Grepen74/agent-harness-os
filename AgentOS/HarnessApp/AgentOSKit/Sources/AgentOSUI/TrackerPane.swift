@@ -130,6 +130,12 @@ struct TicketDetail: View {
                 ForEach(ticket.comments) { comment in
                     VStack(alignment: .leading, spacing: 2) {
                         Label(comment.author.label, systemImage: comment.author.icon).font(.caption.bold())
+                        if comment.writeAccess == .denied {
+                            Text(comment.at.formatted(date: .abbreviated, time: .shortened))
+                                .font(.caption).foregroundStyle(.secondary)
+                            Text("Ignored: from someone without write access")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
                         Text(comment.text).font(.callout.monospaced()).textSelection(.enabled)
                     }
                     .padding(8).frame(maxWidth: .infinity, alignment: .leading)

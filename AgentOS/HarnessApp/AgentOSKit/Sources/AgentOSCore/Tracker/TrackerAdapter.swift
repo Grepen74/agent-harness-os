@@ -17,6 +17,8 @@ public struct Signal: Sendable {
 public protocol TrackerAdapter: Sendable {
     /// Whether child ticket keys determine node IDs; false keeps positional child IDs.
     var createsChildTickets: Bool { get }
+    /// Connect durable tracker observations before reading the next round's input.
+    func connectLedger(_ ledger: Ledger) async throws
     func pendingSignals() async -> [Signal]
     func ticket(_ key: String) async -> Ticket?
     /// Available ticket snapshots for one-level relationships and sibling titles.
@@ -37,6 +39,7 @@ public protocol TrackerAdapter: Sendable {
 }
 
 extension TrackerAdapter {
+    public func connectLedger(_ ledger: Ledger) async throws {}
     public var createsChildTickets: Bool { true }
     public func contextTickets() async -> [Ticket] { [] }
     public var contextRepository: String { "" }

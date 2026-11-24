@@ -1145,10 +1145,34 @@ Each phase is usable on its own.
      the default branch and commit, then add `harness:retry` after the harness catches up.
    - The harness talks to GitHub through `gh api` with your login, or the account set in Settings
      (*GitHub account*; `--github-account` for `agentos work`). Agents never get the token. Since it acts as
-     you, everything it writes carries a hidden `<!-- agentos -->` marker, which is how its comments and
-     issues are told apart from yours.
+     you, everything it writes carries a hidden `<!-- agentos -->` marker. A comment counts as the
+     harness's own only when it carries that marker **and** was written by the login the harness posts
+     with (read from the authenticated GitHub connection). Anyone can type the marker, so a marked
+     comment from another login remains that author's comment, used or ignored according to their
+     permission; it cannot ask harness questions or change which replies count as answers.
    - Polling, kept small: open issues at most every 10 seconds and after the harness's own changes;
      comments and label events only when an issue changed. Failed requests show in the activity log.
+   - Only comments by people with **write, maintain or admin** repository permission count as ticket or
+     parent context, answers, corrections, escalation replies or preview feedback. Bot comments and comments
+     by authors with read, triage or no access are ignored, but stay on GitHub. Anyone can comment on a
+     public repository, so otherwise strangers could steer agents through prompt injection. Each author's
+     permission is cached for five minutes per tracker session, then refreshed even for unchanged issues.
+     Failed permission requests exclude that author's input for that read and are retried on the next read;
+     failures appear in the activity log. Comments written in the local app continue to count as input.
+   - Description approval is saved in the ledger: the accepted body is the one current when a person
+     with **write, maintain or admin** access last added a `harness:` label or edited the description
+     (GitHub's `Issue.editor`). Issue authors can edit their own descriptions without write access even
+     after a maintainer approved them. Later outside edits therefore do not change agent context,
+     previews, adoption or replanning, including after a restart. For an adopted ticket, *Needs attention*
+     names the editor and asks a person with write access to edit the description or add `harness:replan`
+     to accept it. Any description edit by a person with **write, maintain or admin** access, including
+     a whitespace-only change, confirms the current description. Alternatively, that person can add
+     `harness:replan` without editing or commenting: the harness accepts the current description before
+     replanning. Either route clears the held-edit *Needs attention* entry and updates the description
+     used by subsequent agent context and previews; replanning does not approve any gates.
+     When editor permission is unreadable, the accepted body is kept for the round and
+     checked again next round. Before any trusted approval the current body is read as it is; the next
+     trusted `harness:` label accepts it. The local tracker always reads its current description.
    - A tracker that refuses a child ticket escalates the breakdown; `harness:retry` creates the rest.
    - **Closing an issue** stops the harness's work on it: no new steps, no landing, no status updates, and
      it leaves *Needs attention* (status *Closed*, unless already proven). A running agent finishes but its

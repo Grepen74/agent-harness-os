@@ -97,6 +97,7 @@ private actor FakeGitHub: GitHubTransport {
             return try json(graphql(sent["query"] as! String, sent["variables"] as! [String: Any]))
         }
         switch (method, parts.count, parts.last) {
+        case ("GET", 1, "user"): return try json(["login": "harness-user", "type": "User"])
         case ("GET", 4, "issues"): return try json(page ? issues.filter { $0["state"] as? String == "open" } : [])
         case ("GET", 6, "comments"): return try json(page ? comments[Int(parts[4])!] ?? [] : [])
         case ("GET", 6, "events"): return try json(page ? events[Int(parts[4])!] ?? [] : [])

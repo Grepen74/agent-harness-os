@@ -105,9 +105,11 @@ struct AttentionList: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 // A node can have several flags at once.
-                ForEach(items.map { (id: "\($0.node.id) \($0.flag.rawValue)", item: $0) }, id: \.id) { entry in
+                ForEach(items.map { (id: "\($0.node.id) \($0.flag.rawValue) \($0.reason)", item: $0) }, id: \.id) { entry in
                     let item = entry.item
-                    Label("\(item.node.displayName): \(item.reason)", systemImage: item.flag.symbol)
+                    let message = item.reason.hasPrefix("\(item.node.ticket): ")
+                        ? item.reason : "\(item.node.displayName): \(item.reason)"
+                    Label(message, systemImage: item.flag.symbol)
                         .font(.caption)
                         .foregroundStyle(item.flag.color)
                 }

@@ -187,6 +187,7 @@ public struct WorkingState: Sendable {
     public private(set) var previews: [String: Preview] = [:]
     /// Previews running now, by ticket.
     public private(set) var runningPreviews: [String: RunningPreview] = [:]
+    public private(set) var ticketDescriptions: [String: TicketDescription] = [:]
     private var pendingBreakdownWarnings: [String: [BreakdownFinding]] = [:]
     public private(set) var resolvedExternal: Set<String> = []
     /// The latest recorded readiness scan of the repo.
@@ -251,6 +252,9 @@ public struct WorkingState: Sendable {
                 if let failure = node.verificationStatusPostFailures[commit] {
                     items.append((node, .needsInput, failure))
                 }
+            }
+            if let reason = ticketDescriptions[node.ticket]?.attentionReason(ticket: node.ticket) {
+                items.append((node, .needsInput, reason))
             }
             return items
         }
@@ -343,6 +347,8 @@ public struct WorkingState: Sendable {
         switch event.kind {
         case .breakdownChecked(let ticket, let check):
             pendingBreakdownWarnings[ticket] = check.findings
+        case .ticketDescriptionObserved(let ticket, let description):
+            ticketDescriptions[ticket] = description
         case .previewRecorded(let ticket, let number, let specHash, let proposal):
             previews[ticket] = Preview(number: number, specHash: specHash, proposal: proposal,
                                       breakdownWarnings: pendingBreakdownWarnings.removeValue(forKey: ticket) ?? [],
