@@ -101,6 +101,8 @@ public enum EventKind: Codable, Sendable {
     case requirementPublicationFailed(error: String)
     case requirementPublicationRetryRequested
     case acceptanceCriterionProofsRecorded([AcceptanceCriterionProof])
+    /// The leaf's committed acceptance-test candidate, before preflight and review.
+    case testsRecorded(files: [String], suite: String)
     /// Fingerprint of the node's acceptance tests; nobody may change them afterwards.
     case testsFixed(digest: String)
     /// Repository-relative tests a person permits this node's test author to update.
@@ -283,6 +285,8 @@ extension EventKind {
         case .overlapHoldEnded(let waitingFor, let paths, let components):
             "overlap hold ended: waited for \(waitingFor); " +
                 (paths.isEmpty ? "components \(components.joined(separator: ", "))" : "paths \(paths.joined(separator: ", "))")
+        case .testsRecorded(let files, let suite):
+            "recorded acceptance tests \(suite): \(files.joined(separator: ", "))"
         case .testsFixed(let digest): "acceptance tests fixed (\(digest.prefix(8)))"
         case .testUpdatesApproved(let files): "test updates approved: \(files.joined(separator: ", "))"
         case .requirementPushed(let branch, let commit): "pushed \(branch) at \(commit)"

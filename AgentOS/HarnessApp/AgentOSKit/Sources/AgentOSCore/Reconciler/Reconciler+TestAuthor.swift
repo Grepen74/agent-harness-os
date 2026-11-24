@@ -87,7 +87,7 @@ extension Reconciler {
                     : "no tests written: it reported questions with suggested answers but didn't write tests on them"
                 throw AgentFailure(changed == nil ? none : "wrote outside its own test folder \(own): \(outside.joined(separator: ", "))")
             }
-            testFiles = try await workspace.changedFiles(in: directory).filter { $0.hasPrefix(own) }
+            testFiles = try committedTestFiles(in: directory, folder: workspace.testFolder(for: node.spec))
             // Committed: the draft is in the branch now.
             try? await workspace.forgetTestDraft(for: node.id)
         } catch {
@@ -96,6 +96,8 @@ extension Reconciler {
                 .flagSet(.escalated, reason: "Couldn't write acceptance tests: \(error)")])
             return "\(node.displayName) test authoring failed → escalated"
         }
+
+        try await write(node.id, by: author, [.testsRecorded(files: testFiles, suite: node.spec.testTarget)])
 
         let otherTestsEvent = EventKind.otherTestsUpdated(
             files: updatedOtherTests, digest: Hashing.digest(ofFiles: updatedOtherTests, in: directory))
@@ -164,7 +166,7 @@ extension Reconciler {
             or comment what to change and add harness:retry.
             """ : ""
         await tracker.comment(on: node.ticket, """
-            🧪 Acceptance tests written on branch \(workspace.branch(for: node.id)):
+            🧪 Acceptance tests written on branch \(workspace.branch(for: node.id)) in suite \(node.spec.testTarget):
             \(Self.testListing(testFiles, in: directory))\(Self.updatedTestsNote(updatedOtherTests))\(Self.assumptionsNote("Assumptions this work rests on", await ledger.workingState().assumptions(for: node.id)))\(reviewNote)
             """)
         return "\(node.displayName) acceptance tests written on branch \(workspace.branch(for: node.id)) → " + (review ? "waiting for review" : "Ready")
@@ -409,6 +411,14 @@ extension Reconciler {
         return reachedLimit
             ? "\(node.displayName) acceptance tests \(problem) → Needs input"
             : "\(node.displayName) acceptance tests \(problem) → returned to test author"
+    }
+
+    private func committedTestFiles(in directory: URL, folder: String) throws -> [String] {
+        let root = directory.appending(path: folder)
+        guard FileManager.default.fileExists(atPath: root.path) else { return [] }
+        return try FileManager.default.subpathsOfDirectory(atPath: root.path).filter {
+            try root.appending(path: $0).resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true
+        }.map { "\(folder)/\($0)" }.sorted()
     }
 
     /// Each test file with the tests in it, so a person can review them before build.
