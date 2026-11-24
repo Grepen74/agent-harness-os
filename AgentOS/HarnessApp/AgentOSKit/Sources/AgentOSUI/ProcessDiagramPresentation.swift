@@ -31,10 +31,7 @@ struct ProcessStageKey: Hashable {
 
     var id: String { kind.map { "\($0.rawValue)/\(stageID)" } ?? stageID }
 
-    var title: String {
-        let base = WorkflowCatalog.standard.stages.first { $0.id == stageID }?.title ?? stageID
-        return kind.map { base + ($0 == .leaf ? " (leaf)" : " (requirement)") } ?? base
-    }
+    var title: String { ProcessStageWording.title(self) }
 
     func matches(_ node: NodeState, at stage: WorkflowStageID) -> Bool {
         stage == stageID && (kind == nil || node.spec.kind == kind)
@@ -48,6 +45,8 @@ public struct ProcessDiagramPresentation {
     /// Parent–child links: a requirement's children follow their own workflows and report back
     /// when proven. They are not transitions, so they are neither selectable nor in menus.
     let childLinks: [ProcessChildLink]
+    /// The policy's landing batch size when it lands in batches, otherwise 1.
+    let landingBatchSize: Int
 
     init(policy: EffectivePolicy, state: WorkingState, node: NodeState? = nil) {
         let catalog = WorkflowCatalog.standard
@@ -61,6 +60,8 @@ public struct ProcessDiagramPresentation {
             .filter { requirementKinds.contains($0.kind) }.flatMap(\.stages).map(\.id))
         let leafIDs = Set(catalog.workflows.filter { $0.kind == .leaf }.flatMap(\.stages).map(\.id))
         let laneKinds: [NodeKind] = node.map { [$0.spec.kind] } ?? [.composite, .leaf]
+        let batchSize = projection.stages.contains { $0.id == .batchChecks } ? policy.policy.landingBatchSize : 1
+        landingBatchSize = batchSize
 
         var cards = projection.stages.flatMap { stage -> [ProcessStagePresentation] in
             let keys = ProcessStageKey.perLaneStages.contains(stage.id)
@@ -76,7 +77,9 @@ public struct ProcessDiagramPresentation {
                 case nil: requirementIDs.contains(stage.id) ? .requirement
                     : leafIDs.contains(stage.id) ? .leaf : .recovery
                 }
-                return ProcessStagePresentation(stage: stage, key: key, nodeIDs: Set(nodeIDs), workflow: workflow)
+                return ProcessStagePresentation(
+                    stage: stage, key: key, nodeIDs: Set(nodeIDs), workflow: workflow,
+                    whatHappens: ProcessStageWording.description(stage.id, kind: key.kind, batchSize: batchSize))
             }
         }
 
@@ -161,38 +164,26 @@ public struct ProcessStagePresentation: Identifiable {
     let key: ProcessStageKey
     let workflow: ProcessWorkflow
     public let nodeIDs: Set<NodeID>
+    /// One or two plain sentences on what happens here, for selection details and hover help.
+    let whatHappens: String
     /// The card ID; differs from the catalog stage ID for a per-lane card such as "leaf/proven".
     public var id: String { key.id }
     public var waitsOnPerson: Bool { stage.actor == .person }
     public var waitingNodeIDs: Set<NodeID> { waitsOnPerson ? nodeIDs : [] }
 
-    init(stage: WorkflowStage, key: ProcessStageKey, nodeIDs: Set<NodeID>, workflow: ProcessWorkflow) {
+    init(stage: WorkflowStage, key: ProcessStageKey, nodeIDs: Set<NodeID>, workflow: ProcessWorkflow,
+         whatHappens: String) {
         self.stage = stage
         self.key = key
         self.nodeIDs = nodeIDs
         self.workflow = workflow
+        self.whatHappens = whatHappens
     }
 
-    public var title: String {
-        switch stage.id {
-        case .breakdownGate: "Breakdown gate"
-        case .acceptanceTests: "Acceptance tests"
-        case .acceptanceTestReview: "Acceptance-test review"
-        case .buildGate: "Build gate"
-        case .implementation: "Implementation"
-        case .singleChangeReview: "Change review"
-        case .landingApproval: "Landing approval"
-        case .finalVerification: "Final verification"
-        case .push: "Push"
-        case .pullRequest: "Pull request"
-        default: stage.title
-        }
-    }
+    public var title: String { ProcessStageWording.title(stage.id) }
 
     /// The title outside its lane (menus, selection details): "Proven (leaf)" for a per-lane card.
-    var qualifiedTitle: String {
-        key.kind.map { title + ($0 == .leaf ? " (leaf)" : " (requirement)") } ?? title
-    }
+    var qualifiedTitle: String { ProcessStageWording.title(key) }
 
     var actor: String {
         switch stage.actor {

@@ -21,6 +21,7 @@ public struct ProcessPane: View {
                     if let selected = model.selectedNodeProcess {
                         ProcessSelectedNode(summary: selected)
                     }
+                    ProcessLegend(batchSize: diagram.landingBatchSize)
                     ViewThatFits(in: .horizontal) {
                         HStack(alignment: .top, spacing: 36) {
                             lane(.requirement, diagram: diagram).frame(minWidth: 280)
@@ -32,10 +33,6 @@ public struct ProcessPane: View {
                         }
                     }
                     lane(.recovery, diagram: diagram)
-                    Text("Root leaves follow the leaf workflow, then the root-only requirement stages. Nested composites follow the requirement workflow again.")
-                        .font(.caption).foregroundStyle(.secondary)
-                    Text("Solid arrows are transitions; dashed arrows link a requirement to its children. Recovery arrows appear when you select a recovery transition or a stage it connects.")
-                        .font(.caption).foregroundStyle(.secondary)
                 }
                 .padding()
                 .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -79,7 +76,10 @@ public struct ProcessPane: View {
 
     private func lane(_ workflow: ProcessWorkflow, diagram: ProcessDiagramPresentation) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(workflow.rawValue).font(.title3.bold())
+            VStack(alignment: .leading, spacing: 2) {
+                Text(workflow.rawValue).font(.title3.bold())
+                Text(workflow.subtitle).font(.caption).foregroundStyle(.secondary)
+            }
             ForEach(diagram.stages.filter { $0.workflow == workflow }) { stage in
                 stageCard(stage, diagram: diagram)
             }
@@ -120,7 +120,8 @@ public struct ProcessPane: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help(stage.waitsOnPerson ? "Waiting on a person. Select for signals and settings." : "Select for actor, limits and settings.")
+            .help(stage.whatHappens.isEmpty ? "Select for actor, limits and settings."
+                  : stage.whatHappens + " Select for actor, limits and settings.")
             let edges = diagram.transitions.filter { $0.from == stage.id }
             if !edges.isEmpty {
                 Menu {
@@ -140,6 +141,13 @@ public struct ProcessPane: View {
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.background, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(alignment: .leading) {
+            if stage.waitsOnPerson {
+                UnevenRoundedRectangle(topLeadingRadius: 8, bottomLeadingRadius: 8)
+                    .fill(Color.orange).frame(width: 4)
+                    .accessibilityHidden(true)
+            }
+        }
         .overlay {
             let shape = RoundedRectangle(cornerRadius: 8)
             if marker.selected {
@@ -165,7 +173,9 @@ public struct ProcessPane: View {
                 case .stage(let id):
                     if let stage = diagram.stages.first(where: { $0.id == id }) {
                         Text(stage.qualifiedTitle).font(.title3.bold())
-                        Text(stage.stage.title)
+                        if !stage.whatHappens.isEmpty {
+                            Text(stage.whatHappens).fixedSize(horizontal: false, vertical: true)
+                        }
                         Text("Who acts: \(stage.actor)")
                         Text(stage.nodeCount)
                         if stage.waitsOnPerson {

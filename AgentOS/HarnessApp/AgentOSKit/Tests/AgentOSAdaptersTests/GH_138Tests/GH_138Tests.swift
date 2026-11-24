@@ -27,15 +27,15 @@ struct GH_138Tests {
         let text = try Self.text(RepositoryInspectorPane(selection: .constant(.process)).environment(model))
 
         Self.expectShown(["Readiness", "Policy", "Ledger", "Process", "Requirement", "Leaf",
-                          "Acceptance-test review", "Change review"], in: text)
+                          "Review the acceptance tests", "Review the code change"], in: text)
     }
 
     @Test
     func defaultProcessDrawsBothWorkflowsIncludingBothAgentReviews() throws {
         let model = Self.model()
         let diagram = model.processDiagram
-        let review = try Self.stage("Acceptance-test review", in: model)
-        let change = try Self.stage("Change review", in: model)
+        let review = try Self.stage("Review the acceptance tests", in: model)
+        let change = try Self.stage("Review the code change", in: model)
         #expect(review.id != change.id)
         #expect(!review.waitsOnPerson)
         #expect(!change.waitsOnPerson)
@@ -46,8 +46,8 @@ struct GH_138Tests {
         }
 
         let text = try Self.text(ProcessPane().environment(model))
-        Self.expectShown(["Process", "Requirement", "Leaf", "Breakdown gate", "Acceptance tests",
-                          "Acceptance-test review", "Build gate", "Implementation", "Change review"], in: text)
+        Self.expectShown(["Process", "Requirement", "Leaf", "Allow breakdown", "Write acceptance tests",
+                          "Review the acceptance tests", "Allow build", "Write the code", "Review the code change"], in: text)
     }
 
     @Test
@@ -59,24 +59,24 @@ struct GH_138Tests {
               "review": { "level": "agent+human" } }
             """).config
         let model = Self.model(harness: harness, repo: repo)
-        let approval = try Self.stage("Landing approval", in: model)
+        let approval = try Self.stage("Approve landing", in: model)
         #expect(approval.waitsOnPerson)
-        Self.expectShown(["Requirement", "Leaf", "Acceptance-test review", "Change review",
-                          "Landing approval", "Final verification"],
+        Self.expectShown(["Requirement", "Leaf", "Review the acceptance tests", "Review the code change",
+                          "Approve landing", "Final check of the requirement branch"],
                          in: try Self.text(ProcessPane().environment(model)))
-        #expect(!model.processDiagram.stages.contains { Self.sameTitle($0.title, "Push") })
-        #expect(!model.processDiagram.stages.contains { Self.sameTitle($0.title, "Pull request") })
+        #expect(!model.processDiagram.stages.contains { Self.sameTitle($0.title, "Push the requirement branch") })
+        #expect(!model.processDiagram.stages.contains { Self.sameTitle($0.title, "Open or update the pull request") })
 
         harness.review.level = .none
         model.policy = EffectivePolicy.resolve(harness: harness, repo: nil, defaultBranch: "main")
-        #expect(!model.processDiagram.stages.contains { Self.sameTitle($0.title, "Acceptance-test review") })
-        #expect(!model.processDiagram.stages.contains { Self.sameTitle($0.title, "Change review") })
-        #expect(!model.processDiagram.stages.contains { Self.sameTitle($0.title, "Landing approval") })
+        #expect(!model.processDiagram.stages.contains { Self.sameTitle($0.title, "Review the acceptance tests") })
+        #expect(!model.processDiagram.stages.contains { Self.sameTitle($0.title, "Review the code change") })
+        #expect(!model.processDiagram.stages.contains { Self.sameTitle($0.title, "Approve landing") })
         let withoutReviews = try Self.text(ProcessPane().environment(model))
-        Self.expectShown(["Requirement", "Leaf", "Final verification"], in: withoutReviews)
-        #expect(!RenderedUI.shows("Acceptance-test review", in: withoutReviews))
-        #expect(!RenderedUI.shows("Change review", in: withoutReviews))
-        #expect(!RenderedUI.shows("Landing approval", in: withoutReviews))
+        Self.expectShown(["Requirement", "Leaf", "Final check of the requirement branch"], in: withoutReviews)
+        #expect(!RenderedUI.shows("Review the acceptance tests", in: withoutReviews))
+        #expect(!RenderedUI.shows("Review the code change", in: withoutReviews))
+        #expect(!RenderedUI.shows("Approve landing", in: withoutReviews))
     }
 
     @Test
@@ -89,22 +89,22 @@ struct GH_138Tests {
         let model = Self.model(repo: repo)
         #expect(model.policy?.problems.isEmpty == true)
 
-        let tests = try Self.stage("Acceptance tests", in: model)
+        let tests = try Self.stage("Write acceptance tests", in: model)
         model.processSelection = .stage(tests.id)
         Self.expectShown(["test author", "maxAgentRuns", "6"],
                          in: try Self.text(ProcessPane().environment(model)))
 
-        let review = try Self.stage("Acceptance-test review", in: model)
+        let review = try Self.stage("Review the acceptance tests", in: model)
         model.processSelection = .stage(review.id)
         Self.expectShown(["Reviewer", "review.maxRounds", "7", "review.level", "agent"],
                          in: try Self.text(ProcessPane().environment(model)))
 
-        let implementation = try Self.stage("Implementation", in: model)
+        let implementation = try Self.stage("Write the code", in: model)
         model.processSelection = .stage(implementation.id)
         Self.expectShown(["implementer", "maxAttempts", "2"],
                          in: try Self.text(ProcessPane().environment(model)))
 
-        let gate = try Self.stage("Build gate", in: model)
+        let gate = try Self.stage("Allow build", in: model)
         model.processSelection = .stage(gate.id)
         Self.expectShown(["Waiting on a person", "guesswork", "assume-and-report", "harness:build"],
                          in: try Self.text(ProcessPane().environment(model)))
@@ -113,8 +113,8 @@ struct GH_138Tests {
     @Test
     func selectingATransitionShowsItsReasonAndGuardInsteadOfStageDetails() throws {
         let model = Self.model()
-        let gate = try Self.stage("Build gate", in: model)
-        let implementation = try Self.stage("Implementation", in: model)
+        let gate = try Self.stage("Allow build", in: model)
+        let implementation = try Self.stage("Write the code", in: model)
         let transition = try #require(model.processDiagram.transitions.first {
             $0.from == gate.id && $0.to == implementation.id
         }, "The diagram must connect the build gate to implementation")
@@ -134,11 +134,11 @@ struct GH_138Tests {
         var harness = HarnessSettings()
         harness.review.level = .agentAndHuman
         let model = Self.model(harness: harness)
-        let approval = try Self.stage("Landing approval", in: model)
+        let approval = try Self.stage("Approve landing", in: model)
         #expect(approval.waitsOnPerson)
 
         let overview = try Self.text(ProcessPane().environment(model))
-        Self.expectShown(["Requirement", "Leaf", "Acceptance-test review", "Change review", "Landing approval"],
+        Self.expectShown(["Requirement", "Leaf", "Review the acceptance tests", "Review the code change", "Approve landing"],
                          in: overview)
         model.processSelection = .stage(approval.id)
         Self.expectShown(["Waiting on a person", "review.level", "agent+human", "harness:build"],
@@ -153,13 +153,13 @@ struct GH_138Tests {
         #expect(Set(counted) == Set(model.state.nodes.keys))
         #expect(counted.count == model.state.nodes.count, "A root leaf must not count in both workflows")
 
-        let build = try Self.stage("Build gate", in: model)
+        let build = try Self.stage("Allow build", in: model)
         #expect(build.nodeIDs == Set(["ready-a", "ready-b"]))
         #expect(build.waitingNodeIDs == build.nodeIDs)
-        let implementation = try Self.stage("Implementation", in: model)
+        let implementation = try Self.stage("Write the code", in: model)
         #expect(implementation.nodeIDs == Set(["building-child", "building-root-leaf"]))
         #expect(implementation.waitingNodeIDs.isEmpty)
-        let breakdown = try Self.stage("Breakdown gate", in: model)
+        let breakdown = try Self.stage("Allow breakdown", in: model)
         #expect(breakdown.nodeIDs == Set(["other-root"]))
         #expect(breakdown.waitingNodeIDs == breakdown.nodeIDs)
         for stage in stages {
@@ -174,8 +174,8 @@ struct GH_138Tests {
         ])
         model.state = await ledger.workingState()
         await model.refreshHistory(from: ledger)
-        #expect(try Self.stage("Build gate", in: model).nodeIDs == Set(["ready-b"]))
-        #expect(try Self.stage("Implementation", in: model).nodeIDs
+        #expect(try Self.stage("Allow build", in: model).nodeIDs == Set(["ready-b"]))
+        #expect(try Self.stage("Write the code", in: model).nodeIDs
                 == Set(["ready-a", "building-child", "building-root-leaf"]))
         let updated = model.processDiagram.stages.flatMap { Array($0.nodeIDs) }
         #expect(updated.count == model.state.nodes.count)
@@ -187,7 +187,7 @@ struct GH_138Tests {
         let (ledger, model) = try await Self.populatedModel()
         Self.expectShown(["2 nodes", "2 waiting on a person"],
                          in: try Self.text(ProcessPane().environment(model)))
-        for (title, count, nodeCount) in [("Breakdown gate", 1, "1 node"), ("Build gate", 2, "2 nodes")] {
+        for (title, count, nodeCount) in [("Allow breakdown", 1, "1 node"), ("Allow build", 2, "2 nodes")] {
             let stage = try Self.stage(title, in: model)
             #expect(stage.waitsOnPerson)
             #expect(stage.waitingNodeIDs.count == count)
@@ -195,10 +195,10 @@ struct GH_138Tests {
             Self.expectShown([title, nodeCount, "\(count) waiting on a person"],
                              in: try Self.text(ProcessPane().environment(model)))
         }
-        let implementation = try Self.stage("Implementation", in: model)
+        let implementation = try Self.stage("Write the code", in: model)
         #expect(!implementation.waitsOnPerson)
         model.processSelection = .stage(implementation.id)
-        Self.expectShown(["Implementation", "2 nodes"], in: try Self.text(ProcessPane().environment(model)))
+        Self.expectShown(["Write the code", "2 nodes"], in: try Self.text(ProcessPane().environment(model)))
 
         try await ledger.append([
             Self.event("ready-a", .gateOpened(.build), by: .human("Reviewer")),
@@ -207,11 +207,11 @@ struct GH_138Tests {
         ])
         model.state = await ledger.workingState()
         await model.refreshHistory(from: ledger)
-        Self.expectShown(["Implementation", "3 nodes"], in: try Self.text(ProcessPane().environment(model)))
-        let gate = try Self.stage("Build gate", in: model)
+        Self.expectShown(["Write the code", "3 nodes"], in: try Self.text(ProcessPane().environment(model)))
+        let gate = try Self.stage("Allow build", in: model)
         #expect(gate.waitingNodeIDs == Set(["ready-b"]))
         model.processSelection = .stage(gate.id)
-        Self.expectShown(["Build gate", "1 waiting on a person"],
+        Self.expectShown(["Allow build", "1 waiting on a person"],
                          in: try Self.text(ProcessPane().environment(model)))
     }
 

@@ -1,13 +1,15 @@
+import AgentOSTestSupport
 import CoreGraphics
+import SwiftUI
 import Testing
 @testable import AgentOSCore
 @testable import AgentOSUI
 
 @MainActor
 struct ProcessDiagramTests {
-    private static func diagram() -> ProcessDiagramPresentation {
+    private static func diagram(_ settings: HarnessSettings = HarnessSettings()) -> ProcessDiagramPresentation {
         let model = HarnessViewModel()
-        model.policy = EffectivePolicy.resolve(harness: HarnessSettings(), repo: nil, defaultBranch: "main")
+        model.policy = EffectivePolicy.resolve(harness: settings, repo: nil, defaultBranch: "main")
         return model.processDiagram
     }
 
@@ -209,5 +211,85 @@ struct ProcessDiagramTests {
         #expect(Set([back.points[1].x, entry.points[1].x]).isDisjoint(with: [solidRail]))
         #expect(try #require(back.points.last).y > children.midY)
         #expect(try #require(entry.points.first).y < children.midY)
+    }
+
+    @Test func everyProjectedCardSaysWhatHappensUnderEachPolicy() {
+        var human = HarnessSettings()
+        human.review.level = .agentAndHuman
+        var publishing = HarnessSettings()
+        publishing.pullRequests = true
+        var single = HarnessSettings()
+        single.landingBatchSize = 1
+        single.review.level = .none
+        var seen: Set<String> = []
+        for settings in [HarnessSettings(), human, publishing, single] {
+            for stage in Self.diagram(settings).stages {
+                seen.insert(stage.id)
+                #expect(!stage.whatHappens.isEmpty, "\(stage.id) has no description")
+            }
+        }
+        #expect(seen.isSuperset(of: [.landing, .escalated, .diagnosis, .batchChecks, .landingApproval, .push,
+                                     .pullRequest, "leaf/proven", "composite/proven"]))
+    }
+
+    @Test func provenAndBatchWordingFollowTheNodeKindAndTheEffectiveBatchSize() {
+        var settings = HarnessSettings()
+        settings.landingBatchSize = 3
+        let stages = Self.diagram(settings).stages
+        func text(_ id: String) -> String { stages.first { $0.id == id }?.whatHappens ?? "" }
+        #expect(text("leaf/proven").contains("landed on the top-level requirement's branch"))
+        #expect(text("composite/proven").contains("Every child is proven"))
+        #expect(text("composite/proven").contains("not merged into main"))
+        #expect(text(.batchChecks).contains("Up to 3 waiting changes"))
+        #expect(text(.landingQueue).contains("up to 3"))
+        #expect(Self.diagram(settings).landingBatchSize == 3)
+    }
+
+    @Test func changesThatNeedAPersonsReviewAreNeverDescribedAsBatched() throws {
+        var settings = HarnessSettings()
+        settings.landingBatchSize = 3
+        settings.review.level = .agentAndHuman
+        let diagram = Self.diagram(settings)
+        let queue = try #require(diagram.stages.first { $0.id == .landingQueue }?.whatHappens)
+
+        #expect(diagram.landingBatchSize == 1)
+        #expect(queue.contains("one change at a time"))
+        #expect(!diagram.stages.contains { $0.whatHappens.contains("batch of up to") })
+    }
+
+    @Test func workFilterAndSelectedNodeUseTheCardsPlainTitles() async throws {
+        let spec = NodeSpec(id: Self.root, parent: nil, kind: .composite, title: "GH-1",
+                            intent: "I", acceptanceCriteria: ["a"])
+        let ledger = try Ledger()
+        try await ledger.append([
+            LedgerEvent(node: spec.id, by: .reconciler, kind: .nodeCreated(spec: spec, ticket: "GH-1")),
+        ])
+        let model = HarnessViewModel()
+        model.policy = EffectivePolicy.resolve(harness: HarnessSettings(), repo: nil, defaultBranch: "main")
+        model.state = await ledger.workingState()
+
+        let summary = try #require(model.processSummary(for: Self.root))
+        #expect(summary.stageID == .breakdownGate)
+        #expect(summary.stageTitle == "Allow breakdown")
+        #expect(model.processDiagram.stages.first { $0.id == .breakdownGate }?.title == "Allow breakdown")
+        model.workStageFilterID = .children
+        #expect(model.workStageFilterTitle == "Wait for child work to finish")
+    }
+
+    @Test func theLegendExplainsLanesAndLinesWithTheGlossaryCollapsed() throws {
+        let model = HarnessViewModel()
+        model.policy = EffectivePolicy.resolve(harness: HarnessSettings(), repo: nil, defaultBranch: "main")
+        let suite = "ProcessDiagramTests.legend.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let pane = ProcessPane().environment(model).defaultAppStorage(defaults)
+        let text = try RenderedUI.text(of: pane, size: CGSize(width: 1_400, height: 1_000))
+        for label in ["How to read this", "A ticket too big to build in one go", "small enough to build directly",
+                      "Side paths when something goes wrong", "A ticket moves to the next stage",
+                      "Nothing moves along it", "A person may need to act", "Words used here",
+                      "Split into child tickets and wait for their work", "Tests first, then code, then land"] {
+            #expect(RenderedUI.shows(label, in: text), "Missing \(label) in:\n\(text)")
+        }
+        #expect(!RenderedUI.shows("Lands: the requirement branch moves forward", in: text))
     }
 }

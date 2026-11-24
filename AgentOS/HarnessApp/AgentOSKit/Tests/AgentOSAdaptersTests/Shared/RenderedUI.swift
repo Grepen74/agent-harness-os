@@ -61,6 +61,11 @@ public enum RenderedUI {
             let smaller = min(box.width * box.height, other.box.width * other.box.height)
             return shared.width * shared.height > 0.5 * smaller
         }
+
+        /// Whether `other` is a piece of this line's row: its middle lies within this line, which is no taller.
+        func sharesRow(with other: Line) -> Bool {
+            (box.minY...box.maxY).contains(other.box.midY) && box.height <= 1.5 * other.box.height
+        }
     }
 
     /// The text recognised in `image`, one entry per line, in the order of `lines(in:)`.
@@ -73,8 +78,8 @@ public enum RenderedUI {
     /// image (for example every value in a detail grid), and now and then a short word. So this reads the part of
     /// `image` that isn't blank, which finds nearly everything, and then the whole image for words the first
     /// reading skipped. Recognition also scales a tall image down and then misreads small text ("guesswork" as
-    /// "auesswork"), so tall content is read again in overlapping bands, and a band's complete reading of a line
-    /// replaces the scaled-down one.
+    /// "auesswork"), so tall content is read again in overlapping bands: a band's complete reading of a line
+    /// replaces the scaled-down one, and adds a line no other reading found.
     public static func lines(in image: CGImage) throws -> [Line] {
         let whole = CGRect(x: 0, y: 0, width: image.width, height: image.height)
         guard let content = inkRect(of: image, margin: 16), content != whole else { return try read(image, area: whole) }
@@ -83,8 +88,14 @@ public enum RenderedUI {
             for line in try read(image, area: band) where isInside(line, band: band, content: content, image: image) {
                 let matches = lines.indices.filter { lines[$0].overlaps(line) }
                 // A fragment, or a reading that spans several lines, would reorder or merge text: keep the first.
-                if matches.count == 1, line.box.width >= 0.8 * lines[matches[0]].box.width {
+                // A whole line read where the first reading split it in pieces replaces those pieces.
+                if matches.isEmpty {
+                    lines.append(line)
+                } else if matches.count == 1, line.box.width >= 0.8 * lines[matches[0]].box.width {
                     lines[matches[0]] = line
+                } else if matches.count > 1, matches.allSatisfy({ line.sharesRow(with: lines[$0]) }) {
+                    lines[matches[0]] = line
+                    for index in matches.dropFirst().reversed() { lines.remove(at: index) }
                 }
             }
         }
@@ -94,10 +105,10 @@ public enum RenderedUI {
         return lines
     }
 
-    /// Overlapping bands about as tall as `content` is wide; none when `content` isn't tall.
+    /// Overlapping bands no taller than `maxBandHeight` or than `content` is wide; none when `content` fits in one.
     private static func bands(of content: CGRect) -> [CGRect] {
-        guard content.height > content.width * 1.25 else { return [] }
-        let height = content.width.rounded(), overlap: CGFloat = 200
+        let height = min(content.width, maxBandHeight).rounded(), overlap: CGFloat = 200
+        guard content.height > height * 1.25 else { return [] }
         var bands: [CGRect] = []
         var top = content.minY
         while top < content.maxY {
@@ -109,6 +120,9 @@ public enum RenderedUI {
         }
         return bands
     }
+
+    /// Pixels. Recognition still scales a band as tall as a wide pane down and skips small text in it.
+    private static let maxBandHeight: CGFloat = 1_200
 
     /// Whether `line` lies clear of a cut edge of `band`, so the band read it whole.
     private static func isInside(_ line: Line, band: CGRect, content: CGRect, image: CGImage) -> Bool {

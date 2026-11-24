@@ -50,7 +50,8 @@ extension HarnessViewModel {
             reviewStage: reviewStage, failedReviews: failures.count, reviewMaxRounds: policy.review.maxRounds,
             reviewRoundAllowance: ReviewBudget.allowance(for: failures, maxRounds: policy.review.maxRounds))
         return ProcessNodeSummary(
-            nodeID: nodeID, stageID: current.stage, stageTitle: stage.title, status: state.status(of: node),
+            nodeID: nodeID, stageID: current.stage, stageTitle: ProcessStageWording.title(stage.id),
+            status: state.status(of: node),
             waitReason: processWaitReason(for: node, stage: stage), interrupted: current.interrupted,
             reviewLevel: policy.review.level(for: node.spec.touches + (node.actualChangedFiles ?? [])),
             counters: counters)

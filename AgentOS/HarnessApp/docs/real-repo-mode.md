@@ -39,21 +39,35 @@ Its source of stages and guarded transitions is `WorkflowCatalog.standard` in `A
 `WorkflowProjection` applies the effective policy, and the catalog's current-stage mapping reads
 the replayed working state. Root leaves count once, and nested composites use the requirement workflow.
 
+Cards use plain titles, such as **Allow breakdown** and **Allow build** for the breakdown and build gates,
+**Wait for child work to finish** for following child workflows, and **Run repository checks on the batch**
+for the combined batch's full checks. The same titles appear in the outgoing menus, selection details, the
+Work stage filter and the selected node's current stage. Catalog IDs and titles, the ledger and tracker
+comments keep the catalog's wording. A **How to read this** key above the lanes, open by default, explains
+the lanes (Requirement: split into child tickets; Leaf: built directly; Recovery: side paths), solid and
+dashed lines and the card marks; its **Words used here** glossary (repository checks, lands, batch with the
+effective landing batch size, proven) starts collapsed. Each lane has a one-line subtitle.
+
 Both workflows end in the catalog's one Proven stage, but Process draws a Proven card in each lane:
 leaves count in the Leaf lane's card and requirements in the Requirement lane's, and each lane's
 arrows into Proven end at its own card. Root transitions out of Proven (final verification, catch-up)
 leave from both, since a root leaf hands off from its own Proven. Dashed arrows are not transitions:
-they link **Follow child workflows** to each child workflow's entry (Acceptance tests for a leaf,
-Breakdown gate for a nested composite) and each Proven card back to it, because a requirement waits
+they link **Wait for child work to finish** to each child workflow's entry (**Write acceptance tests**
+for a leaf, **Allow breakdown** for a nested composite) and each Proven card back to it, because a requirement waits
 there until every child is proven. Dashed links can't be selected and aren't in the menus.
 
-Select a stage to see its actor, current loop limits, shaping settings and enabled signals.
+Select a stage to see what happens there, in a sentence or two that depends on the lane (a leaf's and a
+requirement's Proven differ) and on the policy (the batch size), plus its actor, current loop limits,
+shaping settings and enabled signals. Hovering a card shows the same sentence.
 Use its outgoing-arrow menu to select a transition and read its reason and condition.
 Recovery arrows reach most stages, so they are drawn only while a recovery transition or a stage
 at either end of one is selected; highlighting a node selected in **Work** doesn't reveal them.
 The outgoing-arrow menus always list every transition. Arrows between side-by-side lanes run
 through the gap between them, never behind another lane's cards.
-Person stages carry a person mark; occupied ones also show how many nodes wait on a person.
+Person stages carry a person mark and an orange stripe on their leading edge, the only colour with a
+meaning of its own: a person may need to act there. `harness:go` opens only the breakdown and build
+gates for a subtree; questions, landing approval and merging still need a person. Occupied person stages
+also show how many nodes wait on a person.
 Every stage shows its repository node count. Policy changes reshape the diagram, including
 acceptance-test and change review, landing approval under `agent+human`, and publishing stages.
 Opening the tab, selecting details and clearing a selection change only UI state: they neither
