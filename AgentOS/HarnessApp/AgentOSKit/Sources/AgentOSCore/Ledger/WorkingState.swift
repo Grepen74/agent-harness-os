@@ -128,6 +128,7 @@ public struct NodeState: Sendable, Identifiable {
     public var openTestProblem: String?
     /// The claim: at most one agent run per node at a time.
     public var activeRun: ActiveRun?
+    public var latestRun: WorkflowRunState?
     public fileprivate(set) var recordedAICredits: Double = 0
     fileprivate var startedAgentRuns: Set<RunID> = []
     fileprivate var runsWithRecordedCost: Set<RunID> = []
@@ -309,6 +310,7 @@ public struct WorkingState: Sendable {
             // Kept: the answers people gave on the ticket, and the children until the next breakdown decides.
             var node = NodeState(spec: spec, ticket: old.ticket, version: record.position)
             node.clarifications = old.clarifications
+            node.latestRun = old.latestRun
             node.children = old.children
             node.overlapHold = old.overlapHold
             node.requirementBranch = old.requirementBranch
@@ -528,11 +530,17 @@ public struct WorkingState: Sendable {
             node.openTestProblem = report.reason
         case .runStarted(let run, let role):
             node.activeRun = ActiveRun(run: run, role: role, since: event.at)
+            node.latestRun = WorkflowRunState(
+                run: run, role: role, phase: node.phase,
+                isFinalVerification: node.spec.parent == nil && node.phase == .proven
+                    && node.requirementVerificationStarted)
             if role != .verifier { node.startedAgentRuns.insert(run) }
             if role == .testAuthor || role == .implementer { node.agentRunsSinceHuman += 1 }
             // The new run took the draft over: it keeps its own if it fails too.
             if role == .testAuthor { node.testDraft = nil }
-        case .runFinished: node.activeRun = nil
+        case .runFinished(let run, let outcome):
+            if node.latestRun?.run == run { node.latestRun?.outcome = outcome }
+            node.activeRun = nil
         case .agentCreditsRecorded(let run, let credits), .runCostRecorded(let run, let credits):
             node.recordedAICredits += credits
             node.runsWithRecordedCost.insert(run)

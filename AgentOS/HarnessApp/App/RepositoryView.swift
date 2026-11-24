@@ -5,13 +5,8 @@ import SwiftUI
 /// A window for one real repo: the local tracker, the work tree, and the readiness findings, effective policy
 /// and ledger in tabs. Step / Run start Copilot agents once nothing blocks them.
 struct RepositoryView: View {
-    enum Tab: String, CaseIterable, Identifiable {
-        case findings = "Readiness", policy = "Policy", ledger = "Ledger"
-        var id: String { rawValue }
-    }
-
     @State private var model: RepositoryModel
-    @State private var tab = Tab.findings
+    @State private var tab = RepositoryInspectorTab.readiness
     @Environment(SettingsModel.self) private var settings
 
     var showProgressIndicator: Bool {
@@ -24,20 +19,8 @@ struct RepositoryView: View {
         HSplitView {
             TrackerPane().frame(minWidth: 340, idealWidth: 400)
             WorkPane().frame(minWidth: 380, idealWidth: 460)
-            VStack(spacing: 0) {
-                Picker("", selection: $tab) {
-                    ForEach(Tab.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .padding(8)
-                switch tab {
-                case .findings: FindingsPane()
-                case .policy: PolicyPane()
-                case .ledger: LedgerPane()
-                }
-            }
-            .frame(minWidth: 420, idealWidth: 520)
+            RepositoryInspectorPane(selection: $tab)
+                .frame(minWidth: 420, idealWidth: 520)
         }
         .environment(model.view)
         .frame(minWidth: 1200, minHeight: 600)

@@ -31,6 +31,41 @@ requests, and several repos forming one system are planned (phases 8, 9 and 10).
 6. Proven work lands on the local requirement branch **`agentos/<ticket key>`**, for example `agentos/GH-12`.
    You review, merge and push it yourself. Nothing is pushed automatically.
 
+## Process inspector
+
+The repository window's **Process** tab sits beside Readiness, Policy and Ledger. It draws the
+requirement and leaf workflows for the current effective policy, with recovery paths below them.
+Its source of stages and guarded transitions is `WorkflowCatalog.standard` in `AgentOSCore`;
+`WorkflowProjection` applies the effective policy, and the catalog's current-stage mapping reads
+the replayed working state. Root leaves count once, and nested composites use the requirement workflow.
+
+Select a stage to see its actor, current loop limits, shaping settings and enabled signals.
+Use its outgoing-arrow menu to select a transition and read its reason and condition.
+Person stages carry a person mark; occupied ones also show how many nodes wait on a person.
+Every stage shows its repository node count. Policy changes reshape the diagram, including
+acceptance-test and change review, landing approval under `agent+human`, and publishing stages.
+Opening the tab, selecting details and clearing a selection change only UI state: they neither
+open gates nor append ledger events.
+
+Select a node in **Work** to project Process for that node's effective review policy (including
+its touched areas and changed files). Process highlights its current stage and shows the harness
+status and why it waits. An interrupted run stays at its original stage, marked **Interrupted**,
+until another run starts. Clear the node selection to return to the repository-wide diagram.
+
+The selected-node counters show failed attempts / `maxAttempts`, landing reworks / `maxReworks`,
+and test-author and implementer runs since a person last acted / `maxAgentRuns`; verifier and
+diagnoser runs do not consume that budget. Failed reviews are counted only for the current review
+stage, against `review.maxRounds`. That stage's count starts over after a passing review,
+`harness:retry`, `harness:replan`, a person moving the node back to specified, or a person answering
+its questions. Reviews with no repeated findings and no increase in findings can converge beyond
+the usual limit; the counter then shows the bounded allowance of up to **2 × maxRounds**.
+
+Selecting a Process stage also filters **Work** to nodes currently in that stage. Ancestors stay
+expanded for context and are labelled **Context**, but do not count as matches. **Clear stage filter**
+restores the full tree. Filtering never clears a selected node: even a hidden selection remains
+highlighted in Process. Node selection and the stage filter are shared window UI state in
+`HarnessViewModel`, not ledger events or tracker commands.
+
 ## What changes compared to the simulator
 
 | | Simulator | Real repo |

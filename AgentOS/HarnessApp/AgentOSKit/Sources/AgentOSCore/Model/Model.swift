@@ -43,7 +43,7 @@ public enum Participant: Codable, Sendable, Hashable {
     }
 }
 
-public enum AgentRole: String, Codable, Sendable {
+public enum AgentRole: String, Codable, Sendable, CaseIterable {
     case decomposer, testAuthor, implementer, verifier
     /// Reads why a ticket went to a person and suggests what to do; never changes the work.
     case diagnoser
@@ -54,7 +54,7 @@ public enum AgentRole: String, Codable, Sendable {
 
 /// Lifecycle phases (doc 02 §6).
 /// Omitted in the mock: draft, closed, cancelled, superseded.
-public enum Phase: String, Codable, Sendable {
+public enum Phase: String, Codable, Sendable, CaseIterable {
     /// `checking`: own tests on the leaf's branch. `landing`: in the landing queue (doc 08).
     case specified, split, ready, building, checking, landing, proven
 }

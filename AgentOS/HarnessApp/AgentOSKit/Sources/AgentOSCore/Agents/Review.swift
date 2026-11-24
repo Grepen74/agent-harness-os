@@ -53,12 +53,16 @@ public struct ReviewPolicy: Sendable, Equatable {
     public var requiresReview: Bool { level != .none || areas.values.contains { $0 != .none } }
 
     public func level(for areas: [String]) -> ReviewLevel {
-        self.areas.reduce(level) { strictest, entry in
+        matchingAreaRules(for: areas).values.reduce(level, max)
+    }
+
+    func matchingAreaRules(for areas: [String]) -> [String: ReviewLevel] {
+        self.areas.filter { entry in
             areas.contains(where: {
                 $0 == entry.key || $0.hasPrefix(entry.key + "/")
                     || $0.split(separator: "/").contains(Substring(entry.key))
                     || Policy.matches($0, entry.key)
-            }) ? max(strictest, entry.value) : strictest
+            })
         }
     }
 }
