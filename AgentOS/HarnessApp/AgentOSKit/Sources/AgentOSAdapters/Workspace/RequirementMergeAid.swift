@@ -1,19 +1,28 @@
 import AgentOSCore
 import Foundation
 
+/// Leftovers of the `merge=union` aids older harness versions wrote for catch-up conflicts
+/// (`.git/info/attributes` blocks and `branch.agentos/….mergeOptions = --no-commit`).
 enum RequirementMergeAid {
+    static let blockStart = "# agentos catch-up conflict "
+
     static func unmanagedAttributes(_ text: String) -> String {
         var end: String?
+        var block: [String] = []
         var lines: [String] = []
         for line in text.components(separatedBy: "\n") {
             if let marker = end {
-                if line == marker { end = nil }
-            } else if line.hasPrefix("# agentos catch-up conflict ") {
+                block.append(line)
+                if line == marker { end = nil; block = [] }
+            } else if line.hasPrefix(blockStart) {
                 end = line.replacingOccurrences(of: "# agentos", with: "# end agentos")
+                block = [line]
             } else {
                 lines.append(line)
             }
         }
+        // Without its end marker a block isn't ours to remove: keep what follows the start.
+        lines += block
         while lines.last == "" { lines.removeLast() }
         return lines.isEmpty ? "" : lines.joined(separator: "\n") + "\n"
     }
@@ -39,28 +48,5 @@ extension RepositoryWorkspace {
         let common = try await git(["rev-parse", "--path-format=absolute", "--git-common-dir"], in: root)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return URL(filePath: common).appending(path: "info/attributes")
-    }
-
-    /// Manual union drivers are shared by all worktrees. Never let one requirement's aid resolve
-    /// another requirement's automatic merge.
-    func withoutCatchUpMergeAids<T: Sendable>(
-        _ operation: @Sendable () async throws -> T
-    ) async throws -> T {
-        try await mergeAidLock.withPermit {
-            let file = try await catchUpAttributesFile()
-            guard FileManager.default.fileExists(atPath: file.path) else { return try await operation() }
-            let original = try String(contentsOf: file, encoding: .utf8)
-            let unmanaged = RequirementMergeAid.unmanagedAttributes(original)
-            guard unmanaged != original else { return try await operation() }
-            try unmanaged.write(to: file, atomically: true, encoding: .utf8)
-            do {
-                let result = try await operation()
-                try original.write(to: file, atomically: true, encoding: .utf8)
-                return result
-            } catch {
-                try original.write(to: file, atomically: true, encoding: .utf8)
-                throw error
-            }
-        }
     }
 }

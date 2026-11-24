@@ -37,6 +37,7 @@ public actor Ledger: HarnessLedgerRefreshSource {
     private var records: [RecordedEvent] = []
     private var recordsByNode: [NodeID: [RecordedEvent]] = [:]
     private var knownIDs: Set<UUID> = []
+    private var ignoredCommentIDs: [String: Set<UUID>] = [:]
     private var state = WorkingState()
     private var subscribers: [UUID: AsyncStream<RecordedEvent>.Continuation] = [:]
     private var verification = LedgerVerification()
@@ -48,6 +49,9 @@ public actor Ledger: HarnessLedgerRefreshSource {
             records.append(record)
             if let node = record.event.node { recordsByNode[node, default: []].append(record) }
             knownIDs.insert(record.event.id)
+            if case .commentIgnored(let ticket, let commentID, _) = record.event.kind {
+                ignoredCommentIDs[ticket, default: []].insert(commentID)
+            }
             state.apply(record)
         }
         _ = verification.check(stored, expectedCount: records.count)
@@ -118,7 +122,14 @@ public actor Ledger: HarnessLedgerRefreshSource {
     @discardableResult
     public func append(_ events: [LedgerEvent], expecting: [NodeID: Int] = [:]) throws -> [RecordedEvent] {
         var seen: Set<UUID> = []
-        let fresh = events.filter { !knownIDs.contains($0.id) && seen.insert($0.id).inserted }
+        var ignored = ignoredCommentIDs
+        let fresh = events.filter { event in
+            guard !knownIDs.contains(event.id), seen.insert(event.id).inserted else { return false }
+            if case .commentIgnored(let ticket, let commentID, _) = event.kind {
+                return ignored[ticket, default: []].insert(commentID).inserted
+            }
+            return true
+        }
         guard !fresh.isEmpty else { return [] }
 
         for (node, expected) in expecting {
@@ -136,6 +147,7 @@ public actor Ledger: HarnessLedgerRefreshSource {
         }
 
         try store.append(new)
+        ignoredCommentIDs = ignored
         for record in new {
             records.append(record)
             if let node = record.event.node { recordsByNode[node, default: []].append(record) }
@@ -151,6 +163,8 @@ public actor Ledger: HarnessLedgerRefreshSource {
         switch event.kind {
         case .gateOpened:
             guard event.by.isHuman else { throw LedgerError.notAllowed("only humans can open gates") }
+        case .testUpdatesApproved:
+            guard event.by.isHuman else { throw LedgerError.notAllowed("only humans can approve test updates") }
         case .requirementVerificationRetryRequested:
             guard event.by.isHuman else { throw LedgerError.notAllowed("only humans can retry final verification") }
         case .requirementPublicationRetryRequested:

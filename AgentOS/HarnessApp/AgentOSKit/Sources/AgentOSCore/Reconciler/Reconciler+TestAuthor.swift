@@ -291,21 +291,7 @@ extension Reconciler {
     /// Files the test author says it updated in other work's tests: only test files of the updatable test areas,
     /// never protected ones. Anything else it changed is thrown away.
     private func updatableOtherTests(_ files: [String], of node: NodeState) -> [String] {
-        let own = workspace.testFolder(for: node.spec)
-        let areas = workspace.updatableTestAreas
-        let candidates = Set(files.map { (file: String) -> String in
-            var file = file
-            while file.hasPrefix("./") { file.removeFirst(2) }
-            while file.hasSuffix("/") { file.removeLast() }
-            return file
-        }).filter { (file: String) -> Bool in
-            // Something inside an area, never a whole area, the own folder or a folder holding it.
-            areas.contains { !$0.isEmpty && file.hasPrefix($0) && file.count > $0.count }
-                && file != own && !file.hasPrefix(own + "/") && !own.hasPrefix(file + "/")
-                && !file.split(separator: "/").contains("..")
-        }
-        let protected = Set(policy.protectedPathViolations(Array(candidates)))
-        return candidates.subtracting(protected).sorted()
+        allowedOtherTestUpdates(files, of: node)
     }
 
     static func updatedTestsNote(_ files: [String]) -> String {

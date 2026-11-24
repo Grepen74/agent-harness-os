@@ -67,6 +67,8 @@ extension GH_113Tests {
             let item = "\(issues)/215"
             let result: Any
             switch (method, route) {
+            case ("GET", "user"):
+                result = ["login": "harness", "type": "User"]
             case ("GET", issues):
                 result = issueClosed ? [] : [issue()]
             case ("GET", item):
@@ -103,6 +105,12 @@ extension GH_113Tests {
         private func graphql(_ sent: [String: Any]) throws -> [String: Any] {
             let query = try #require(sent["query"] as? String)
             let variables = try #require(sent["variables"] as? [String: Any])
+            if query.contains("editor") {
+                let description = try #require(issue()["body"] as? String)
+                return ["data": ["repository": ["issue": [
+                    "body": description, "editor": NSNull(), "lastEditedAt": NSNull()
+                ]]]]
+            }
             if query.contains("repositoryOwner") {
                 return ["data": ["repositoryOwner": ["projectV2": [
                     "id": "project-7", "title": "Delivery",

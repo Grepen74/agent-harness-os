@@ -1,10 +1,12 @@
 /// Payload-independent event cases used by ledger filters.
 public enum LedgerEventKind: String, Hashable, CaseIterable, Sendable {
     case signalAccepted, signalRejected, previewRecorded, previewStarted, previewFinished, breakdownChecked, breakdownRetryRequested
+    case commentIgnored
+    case ticketDescriptionObserved
     case nodeCreated, linkAdded, becameLeaf, replanned, breakdownRevised
     case gateOpened, phaseChanged, flagSet, flagCleared, attemptsReset
     case overlapHoldStarted, overlapHoldEnded
-    case testsFixed, otherTestsUpdated, reviewRecorded, humanReviewRequested, humanReviewApproved
+    case testsFixed, testUpdatesApproved, otherTestsUpdated, reviewRecorded, humanReviewRequested, humanReviewApproved
     case requirementBranchCreated
     case requirementBranchObserved, requirementCatchUpConflicted
     case requirementBranchContainmentObserved
@@ -15,6 +17,8 @@ public enum LedgerEventKind: String, Hashable, CaseIterable, Sendable {
     case requirementPublicationStarted
     case requirementPublicationFailed, requirementPublicationRetryRequested, acceptanceCriterionProofsRecorded
     case expectedAPIReported, brokenTestReported, brokenTestRouted, runStarted, agentConfigured, runFinished
+    case agentCreditsRecorded
+    case runCostRecorded
     case changeSubmitted, attemptFailed, testDraftKept, diagnosisRecorded, acceptanceTestPreflightFailed, passingCheckRecorded, mainMovedRework
     case actualChangedFilesRecorded, predictedPathsExpanded
     case evidenceRecorded, landingReworkNeeded, landingRerunRequested, reworkNeeded, landed
@@ -29,6 +33,8 @@ public enum LedgerEventKind: String, Hashable, CaseIterable, Sendable {
         switch kind {
         case .signalAccepted: self = .signalAccepted
         case .signalRejected: self = .signalRejected
+        case .commentIgnored: self = .commentIgnored
+        case .ticketDescriptionObserved: self = .ticketDescriptionObserved
         case .previewRecorded: self = .previewRecorded
         case .previewStarted: self = .previewStarted
         case .previewFinished: self = .previewFinished
@@ -47,6 +53,7 @@ public enum LedgerEventKind: String, Hashable, CaseIterable, Sendable {
         case .overlapHoldStarted: self = .overlapHoldStarted
         case .overlapHoldEnded: self = .overlapHoldEnded
         case .testsFixed: self = .testsFixed
+        case .testUpdatesApproved: self = .testUpdatesApproved
         case .requirementBranchCreated: self = .requirementBranchCreated
         case .requirementBranchObserved: self = .requirementBranchObserved
         case .requirementBranchContainmentObserved: self = .requirementBranchContainmentObserved
@@ -76,6 +83,8 @@ public enum LedgerEventKind: String, Hashable, CaseIterable, Sendable {
         case .brokenTestRouted: self = .brokenTestRouted
         case .runStarted: self = .runStarted
         case .agentConfigured: self = .agentConfigured
+        case .agentCreditsRecorded: self = .agentCreditsRecorded
+        case .runCostRecorded: self = .runCostRecorded
         case .runFinished: self = .runFinished
         case .changeSubmitted: self = .changeSubmitted
         case .actualChangedFilesRecorded: self = .actualChangedFilesRecorded

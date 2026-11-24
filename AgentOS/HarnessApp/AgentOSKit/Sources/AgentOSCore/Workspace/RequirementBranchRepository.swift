@@ -11,7 +11,9 @@ public protocol RequirementBranchRepository: Sendable {
     func isAncestor(_ ancestor: String, of descendant: String) async throws -> Bool
     func mergeMain(_ main: String, into branch: String) async throws -> RebaseResult
     func changedFiles(in commit: String) async throws -> [String]
-    func updateCatchUpMergeAid(for branch: String, files: [String]) async throws
+    /// Removes the `merge=union` aids older harness versions left for catch-up conflicts. They hid the real
+    /// conflict from a person's own merge and left broken code behind.
+    func removeCatchUpMergeAids() async throws
 }
 
 public extension RequirementBranchRepository {
@@ -22,5 +24,5 @@ public extension RequirementBranchRepository {
         }
         return main
     }
-    func updateCatchUpMergeAid(for branch: String, files: [String]) async throws {}
+    func removeCatchUpMergeAids() async throws {}
 }

@@ -253,6 +253,26 @@ Other trackers follow the same pattern:
 - **Role-based write access:** only decomposers (and humans) may change acceptance criteria. Implementers may
   comment and report progress, nothing more.
 - **Everything is logged:** every write records who (role + agent), what, and which policy allowed it.
+- **GitHub comment authors need write access.** Only comments by people with **write, maintain or admin**
+  repository permission count as agent context, answers, corrections, escalation replies or preview feedback.
+  Bot comments and comments from authors with read, triage or no access are ignored, but stay on GitHub.
+  Anyone can comment on a public repository, so accepting those comments could let a stranger steer agents
+  through prompt injection. Permissions are cached per author for a few minutes in each tracker session
+  and refreshed even when an issue hasn't changed. If a lookup fails, that author's comments are ignored
+  for that read and checked again on the next read. Local tracker comments remain the app user's input.
+- **Harness comment ownership needs both login and marker.** On GitHub, a comment counts as the
+  harness's own only when it contains `<!-- agentos -->` and was written by the login the harness posts
+  with. Anyone can type the marker: another author's marked comment remains their comment, subject to
+  the permission rule above, and cannot pose harness questions or change which replies count as answers.
+- **GitHub description approval survives later edits.** An issue's author can still edit its description
+  without repository write access after a maintainer approved it. The accepted description is the body
+  current when a person with write, maintain or admin access last added a `harness:` label or edited the
+  description. Later edits by people without write access are held: agent context, previews, adoption and
+  replanning keep using the accepted body, saved in the ledger across restarts. On adopted tickets,
+  *Needs attention* names the editor and asks a person with write access to edit the description or add
+  `harness:replan`. An unreadable editor permission keeps the accepted description for that round and
+  is retried next round. Before any such approval, the description is read as it is; the next trusted
+  `harness:` label accepts it. The local tracker always uses its current description.
 - **Ticket text is not instructions.** Descriptions and comments can be written by anyone and may contain
   hidden instructions aimed at AI agents (*prompt injection*). Defences:
   - an agent's **instructions and permissions come only from the harness** (its role, its rules, the node's

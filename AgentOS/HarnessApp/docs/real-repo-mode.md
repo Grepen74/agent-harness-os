@@ -119,6 +119,21 @@ Disabling a signal the harness doesn't know is a warning.
 
 ### Final requirement verification
 
+Whenever a composite becomes proven, the harness posts one cost comment on its ticket after
+**✅ Proven**. Linked leaves appear in depth-first current breakdown order, each with its recorded
+run credits. **Breakdown** sums recorded credits on that composite and all nested composites;
+**Total** adds those credits and the leaf rows. Amounts have at most two decimals and no trailing zeros
+(for example `3 AI credits` or `1.5 AI credits`). Failed and retried runs and earlier runs of retained
+nodes count; nodes removed by replanning do not. Later rounds and ledger replay do not repost the
+comment, but a new transition to proven after replanning posts a fresh summary.
+
+If a leaf has runs without reported usage, its credits end with `(N runs without a reported cost)`
+(or `(1 run without a reported cost)`). **Breakdown** uses the same marker for unreported runs on
+the composite and its nested composites. When any row has missing costs, the total is a lower bound,
+for example `Total: at least 4.5 AI credits`. Explicitly reported zero counts as a known cost;
+when every run reports a cost, neither the markers nor `at least` appear.
+
+After the last leaf is proven, the harness checks a disposable checkout of the requirement branch tip:
 After the last leaf is proven, and once the step that marked the requirement proven has finished, the harness checks a disposable checkout of the requirement branch tip:
 the full test command (no leaf-suite filter) and all configured checks, including build preparation.
 The requirement's ledger records the result, commit, full log artifact and SHA-256. A prior leaf landing
@@ -380,7 +395,7 @@ is configured, Copilot CLI chooses its own default. Display titles are not confi
 | `leafTests` | Object naming the existing acceptance-test target and folder | Missing is a blocker for agents; not required for baseline alone | Agents need an existing test target; the harness does not restructure the repo |
 | `leafTests.target` | String: existing acceptance-test target name | Required when `leafTests` is present | Must identify the target leaves add their tests to |
 | `leafTests.folder` | String: repository-relative path to the acceptance-test folder | Required when `leafTests` is present | Each leaf writes only its own suite subfolder; approved tests are protected |
-| `leafTests.updatable` | Array of repository-relative folders holding other existing tests (say, other test targets) | Only `leafTests.folder` | Where the test author may update other work's tests a criterion deliberately changes; nobody else may change tests there. The repo's top folder, absolute paths and `..` are ignored |
+| `leafTests.updatable` | Array of repository-relative folders holding other existing tests (say, other test targets) | Only `leafTests.folder` | Where the test author may update other work's tests a criterion deliberately changes or a person approved for this ticket; nobody else may change tests there. The repo's top folder, absolute paths and `..` are ignored |
 | `components` | Array of strings naming source components or repository paths for touch sets | Empty component list | None; declares existing components available to breakdown |
 | `landing` | Retired landing configuration object | Requirement-scoped branches | Remove this obsolete object |
 | `landing.branch` | String branch name; ignored, with no effect | Always `agentos/<ticket key>` | A warning says the key is ignored and its value has no effect; remove it |
@@ -527,17 +542,48 @@ against them, and its own helpers (fakes, renderers) must work. The harness then
 changed outside the leaf's test folder (ignored build output stays) and commits only the tests. So helper
 defects are found while writing the tests, not one implementer run at a time.
 The one exception is other work's existing tests that this ticket's criteria deliberately supersede (say a
-default that flips): the test author may update them with the smallest change and list them in
-`updatedTests`. It changes only the lines the criterion requires, leaving the rest as it is even where it
+default that flips), or tests a person explicitly approved for this node. The test author's prompt lists those
+approved tests: it may update them where this ticket's change requires it, even when no criterion names them.
+Unapproved tests still require a ticket criterion deliberately changing what they check. The test author makes
+the smallest change and lists every updated file in `updatedTests`. It changes only the lines this ticket requires, leaving the rest as it is even where it
 breaks the rules for new tests (a fixed sleep, say), and restores anything it was asked to from git history
 rather than from memory. Only listed files that aren't protected and lie in the test area, or in a folder
 `leafTests.updatable` names, are kept; the implementer may change none of those. They're committed with
 the acceptance tests, fingerprinted and locked like them, and named in the ticket comment. Work landing on
 the requirement branch meanwhile may change them too: when the harness moves the leaf onto it (before building,
 at landing, when catching up) and they were as locked just before, uncommitted changes aside, their lock
-moves along. The reviewer rejects any such change no criterion requires. So the decomposer gives such
+moves along. Both retention and verification use one Core rule for the updatable areas and protected paths;
+approval never bypasses those boundaries or lets an implementer change any other work's tests. The test review
+treats approved updates as in scope without a naming criterion. The change review lists approved tests the
+branch changed and reports any weakened or removed check as a finding. For unapproved tests, the reviewer
+rejects any change no criterion requires. So the decomposer gives such
 updates to the child whose change breaks those tests, as a criterion naming them and their new
 expectation; it never makes the work wait for a person to change the repo first.
+Each breakdown child can also carry `affectedTests`: existing test names (for example
+`FlowTests.someTest`) or repository-relative test files whose behaviour that child deliberately changes.
+Without explicit approval, the child still needs a criterion naming those tests and their new expectations. Missing or null
+`affectedTests` means none; empty entries are dropped when the proposal becomes a node spec.
+The field is retained in previews and the ledger. Changing a nonempty list changes the spec fingerprint,
+so replanning does not reuse the older child's tests or approvals; an empty list preserves older fingerprints.
+Before approving a breakdown with `harness:go`, request `harness:preview` to review each child's
+affected tests at the end of its line, after `affected tests:`. The **Broken down** and
+**No breakdown needed** comments use the same suffix; children without affected tests have no suffix.
+Select a node in the **Work** pane to see its **Affected tests** row, one entry per line or **–** when empty.
+
+When `harness:breakdown` or `harness:go` accepts the matching preview the person saw, the harness records
+one `testUpdatesApproved` ledger event per affected child, listing resolved repository-relative test files
+and authored by the person who opened the breakdown gate. If the leaf check passes, that event belongs
+to the original node instead. The Ledger pane lists every approved file with its approving person.
+A fresh breakdown without a matching preview grants no test-update approval: each child's affected tests
+are marked **not approved** in its breakdown comment.
+
+An affected file inside another node's test folder is excluded while that node has not landed. The
+comment names the owning ticket and says its work is still in progress; neighboring folder names do not
+count as ownership. Tests that cannot be resolved to a file are also marked **not approved**. Once the
+owning work lands (or the affected test name is corrected), use `harness:replan`, then `harness:preview`
+and approve the new preview. These events record permission for the test author, never the implementer;
+they do not remove protected-path or test-area restrictions.
+
 When the implementer reports a broken test (its own or, by `Suite.testName`, another item's that conflicts
 with this ticket), the ticket goes back to the test author without charging an attempt. Since each report
 costs a round, the implementer is told to run the whole suite first and report every conflicting test at once
@@ -550,7 +596,7 @@ the comment says how many files were kept. Feedback with `harness:retry` after a
 If it can't be kept, the tests aren't sent back: the ticket goes to
 a person with the worktree unchanged. A person is asked
 only on the third report about the same test, or the fifth about any tests, since a person last stepped in
-(an answer, `harness:retry` or `harness:retest`): settled reports about other tests don't use up a test's
+(an answer, `harness:retry`, `harness:retest` or `harness:update-test`): settled reports about other tests don't use up a test's
 tries. The "Needs input" lists every report. A conflicting test that lives outside the test area and the
 `leafTests.updatable` folders (a general test of the app, say) goes to a person on the first report: no
 agent may change it, so a return can't settle it. On `harness:retry`, a conflicting test the test author
@@ -857,6 +903,11 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
   `agentConfigured` with what ran and why. Falling back doesn't extend the run's timeout: all its attempts share
   it. A preview's breakdown is recorded the same way (without a claim, since a preview adopts nothing), keeps its
   log, and its comment names the model; a review records what it ran with in its review result.
+- **AI credits.** Each agent run's AI credits, as reported by the Copilot CLI, are recorded in the ledger.
+  Credits are added across model and reasoning-effort fallback attempts, including unsuccessful attempts
+  that report usage. Nested reviewer attempts count toward the enclosing run's credits, but their fallback
+  settings stay in the review result. Without reported usage (for example after a crash or timeout), credits
+  remain unknown, not zero or an estimate from tokens.
 - **Your git state** is fingerprinted before and compared after each test-author and implementer run: refs
   outside `agentos/` (tags, remote-tracking refs, the stash; for local branches only whether they exist,
   since you may commit while agents work), and the shared git config, hooks and `info/` files (not `info/refs`, which git's own housekeeping —
@@ -1116,12 +1167,47 @@ Each phase is usable on its own.
      makes from them (`### …` headings, `_No response_` for empty fields, `#12` meaning `GH-12`).
    - Signals are `harness:` labels, created in the repo on first use. Who set a label comes from the issue's
      events, so only people's labels count, as before. The status is an `agentos: <status>` label.
+   - **`harness:update-test`** applies when a ticket is waiting because **another test conflicts with this
+     ticket**. It records `testUpdatesApproved(files:)` for the reported test's exact file, authored by the
+     approving person. An optional human comment after the harness asked is recorded as the answer to
+     **How to proceed with the conflicting test** and reaches the test author's restarted prompt. The signal
+     clears **Needs input** and any escalation, resets escalated attempts and both broken-test return
+     budgets, and returns the node to the specified phase for test authoring. The author lists the change
+     in `updatedTests`; it is kept and fingerprinted on this ticket's branch. The implementer still may
+     not change it. Approval cannot reach outside the updatable test areas or into protected paths:
+     no agent may change those tests. A test inside another unlanded node's test folder is also refused;
+     the reply names its ticket and asks you to wait for it to land. Alternatively, change the test on
+     the default branch and commit, then add `harness:retry` after the harness catches up.
    - The harness talks to GitHub through `gh api` with your login, or the account set in Settings
      (*GitHub account*; `--github-account` for `agentos work`). Agents never get the token. Since it acts as
-     you, everything it writes carries a hidden `<!-- agentos -->` marker, which is how its comments and
-     issues are told apart from yours.
+     you, everything it writes carries a hidden `<!-- agentos -->` marker. A comment counts as the
+     harness's own only when it carries that marker **and** was written by the login the harness posts
+     with (read from the authenticated GitHub connection). Anyone can type the marker, so a marked
+     comment from another login remains that author's comment, used or ignored according to their
+     permission; it cannot ask harness questions or change which replies count as answers.
    - Polling, kept small: open issues at most every 10 seconds and after the harness's own changes;
      comments and label events only when an issue changed. Failed requests show in the activity log.
+   - Only comments by people with **write, maintain or admin** repository permission count as ticket or
+     parent context, answers, corrections, escalation replies or preview feedback. Bot comments and comments
+     by authors with read, triage or no access are ignored, but stay on GitHub. Anyone can comment on a
+     public repository, so otherwise strangers could steer agents through prompt injection. Each author's
+     permission is cached for five minutes per tracker session, then refreshed even for unchanged issues.
+     Failed permission requests exclude that author's input for that read and are retried on the next read;
+     failures appear in the activity log. Comments written in the local app continue to count as input.
+   - Description approval is saved in the ledger: the accepted body is the one current when a person
+     with **write, maintain or admin** access last added a `harness:` label or edited the description
+     (GitHub's `Issue.editor`). Issue authors can edit their own descriptions without write access even
+     after a maintainer approved them. Later outside edits therefore do not change agent context,
+     previews, adoption or replanning, including after a restart. For an adopted ticket, *Needs attention*
+     names the editor and asks a person with write access to edit the description or add `harness:replan`
+     to accept it. Any description edit by a person with **write, maintain or admin** access, including
+     a whitespace-only change, confirms the current description. Alternatively, that person can add
+     `harness:replan` without editing or commenting: the harness accepts the current description before
+     replanning. Either route clears the held-edit *Needs attention* entry and updates the description
+     used by subsequent agent context and previews; replanning does not approve any gates.
+     When editor permission is unreadable, the accepted body is kept for the round and
+     checked again next round. Before any trusted approval the current body is read as it is; the next
+     trusted `harness:` label accepts it. The local tracker always reads its current description.
    - A tracker that refuses a child ticket escalates the breakdown; `harness:retry` creates the rest.
    - **Closing an issue** stops the harness's work on it: no new steps, no landing, no status updates, and
      it leaves *Needs attention* (status *Closed*, unless already proven). A running agent finishes but its
@@ -1167,8 +1253,13 @@ Each phase is usable on its own.
    merged). Leaves in progress then rebase as usual; conflicts go to rework, as at landing. Leaves whose
    agent is running or about to start are left alone and catch up on a later round. Catch-up runs at the
    start of every round, so work started or retried in that round begins from the latest `main`; an
-   unresolved catch-up conflict stays the status of its tickets after the round. With **Push / open pull
-   requests** on, the round first fetches the default branch from `origin`; the baseline, catch-up,
+   unresolved catch-up conflict stays the status of its tickets after the round. A conflict waits for a
+   person: the ticket comment names the files and the commands (`git switch agentos/GH-N`,
+   `git merge <main commit>`), your own merge shows git's usual conflict markers, and the next round
+   recognises it. The harness keeps no merge settings of its own in git (older versions wrote
+   `merge=union` aids to `.git/info/attributes`, which hid the conflict; any left over are removed).
+   With **Push / open pull requests** on, the round first fetches the default branch from `origin`; the
+   baseline, catch-up,
    cross-requirement dependencies, merge detection and new requirement branches use
    `origin/<default branch>`, leaving local branches and your checkout untouched. A failed fetch shows
    its git error in **Needs attention** and continues with the last fetched commit; the next successful

@@ -114,6 +114,8 @@ public struct NodeState: Sendable, Identifiable {
     public var catchUpConflict: CatchUpConflict?
     public var lastCatchUpSuccess: CatchUpSuccess?
     public var lastCaughtUpAt: Date?
+    /// Repository-relative tests a person permits this node's test author, never its implementer, to update.
+    public var approvedTestUpdates: [String] = []
     /// Other work's tests this node's acceptance tests changed, locked by `updatedOtherTestsDigest`.
     public var updatedOtherTests: [String] = []
     public var updatedOtherTestsDigest: String?
@@ -127,6 +129,13 @@ public struct NodeState: Sendable, Identifiable {
     /// The claim: at most one agent run per node at a time.
     public var activeRun: ActiveRun?
     public var latestRun: WorkflowRunState?
+    public fileprivate(set) var recordedAICredits: Double = 0
+    fileprivate var startedAgentRuns: Set<RunID> = []
+    fileprivate var runsWithRecordedCost: Set<RunID> = []
+    /// Includes unfinished agent runs, but not the harness's non-agent verifier runs.
+    public var runsWithoutRecordedCost: Int {
+        startedAgentRuns.subtracting(runsWithRecordedCost).count
+    }
     public var lastSubmission: Submission?
     /// The submitted branch diff; nil until submission or after a reset, and [] for a known empty diff.
     public var actualChangedFiles: [String]?
@@ -179,6 +188,7 @@ public struct WorkingState: Sendable {
     public private(set) var previews: [String: Preview] = [:]
     /// Previews running now, by ticket.
     public private(set) var runningPreviews: [String: RunningPreview] = [:]
+    public private(set) var ticketDescriptions: [String: TicketDescription] = [:]
     private var pendingBreakdownWarnings: [String: [BreakdownFinding]] = [:]
     public private(set) var resolvedExternal: Set<String> = []
     /// The latest recorded readiness scan of the repo.
@@ -244,6 +254,9 @@ public struct WorkingState: Sendable {
                     items.append((node, .needsInput, failure))
                 }
             }
+            if let reason = ticketDescriptions[node.ticket]?.attentionReason(ticket: node.ticket) {
+                items.append((node, .needsInput, reason))
+            }
             return items
         }
     }
@@ -308,6 +321,9 @@ public struct WorkingState: Sendable {
             node.pullRequestURL = old.pullRequestURL
             node.pullRequestState = old.pullRequestState
             node.publishedCommit = old.publishedCommit
+            node.recordedAICredits = old.recordedAICredits
+            node.startedAgentRuns = old.startedAgentRuns
+            node.runsWithRecordedCost = old.runsWithRecordedCost
             nodes[id] = node
             return
         }
@@ -333,6 +349,8 @@ public struct WorkingState: Sendable {
         switch event.kind {
         case .breakdownChecked(let ticket, let check):
             pendingBreakdownWarnings[ticket] = check.findings
+        case .ticketDescriptionObserved(let ticket, let description):
+            ticketDescriptions[ticket] = description
         case .previewRecorded(let ticket, let number, let specHash, let proposal):
             previews[ticket] = Preview(number: number, specHash: specHash, proposal: proposal,
                                       breakdownWarnings: pendingBreakdownWarnings.removeValue(forKey: ticket) ?? [],
@@ -471,6 +489,10 @@ public struct WorkingState: Sendable {
             node.openTestProblem = nil
             node.updatedOtherTests = []
             node.updatedOtherTestsDigest = nil
+        case .testUpdatesApproved(let files):
+            if event.by.isHuman {
+                node.approvedTestUpdates = Array(Set(node.approvedTestUpdates + files)).sorted()
+            }
         case .otherTestsUpdated(let files, let digest):
             node.updatedOtherTests = files
             node.updatedOtherTestsDigest = digest
@@ -512,12 +534,16 @@ public struct WorkingState: Sendable {
                 run: run, role: role, phase: node.phase,
                 isFinalVerification: node.spec.parent == nil && node.phase == .proven
                     && node.requirementVerificationStarted)
+            if role != .verifier { node.startedAgentRuns.insert(run) }
             if role == .testAuthor || role == .implementer { node.agentRunsSinceHuman += 1 }
             // The new run took the draft over: it keeps its own if it fails too.
             if role == .testAuthor { node.testDraft = nil }
         case .runFinished(let run, let outcome):
             if node.latestRun?.run == run { node.latestRun?.outcome = outcome }
             node.activeRun = nil
+        case .agentCreditsRecorded(let run, let credits), .runCostRecorded(let run, let credits):
+            node.recordedAICredits += credits
+            node.runsWithRecordedCost.insert(run)
         case .changeSubmitted(let run, let commit):
             node.latestReviewFeedback = nil
             node.pendingHumanReview = nil

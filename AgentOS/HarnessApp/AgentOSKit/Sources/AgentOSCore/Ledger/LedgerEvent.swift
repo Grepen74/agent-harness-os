@@ -46,6 +46,8 @@ public enum EventKind: Codable, Sendable {
     // Signals (doc 05): recorded whether accepted or not, for the audit trail.
     case signalAccepted(ticket: String, command: HarnessCommand, reply: String)
     case signalRejected(ticket: String, command: HarnessCommand, reason: String)
+    case commentIgnored(ticket: String, commentID: UUID, author: Participant)
+    case ticketDescriptionObserved(ticket: String, description: TicketDescription)
     /// A dry-run breakdown. Nothing is created; accepting it later creates exactly this.
     case previewRecorded(ticket: String, number: Int, specHash: String, proposal: [NodeSpec])
     /// A preview's decomposer started; it runs in the background and claims nothing. `node` is the ID the
@@ -101,6 +103,8 @@ public enum EventKind: Codable, Sendable {
     case acceptanceCriterionProofsRecorded([AcceptanceCriterionProof])
     /// Fingerprint of the node's acceptance tests; nobody may change them afterwards.
     case testsFixed(digest: String)
+    /// Repository-relative tests a person permits this node's test author to update.
+    case testUpdatesApproved(files: [String])
     /// Other work's tests the acceptance tests changed (written after `testsFixed`), with their fingerprint: they
     /// are locked like the node's own tests.
     case otherTestsUpdated(files: [String], digest: String)
@@ -115,6 +119,10 @@ public enum EventKind: Codable, Sendable {
     /// The model and reasoning effort an agent run starts with; written with its `runStarted`. Written again with
     /// `settings.fallback` set when the run fell back to others, e.g. a model that doesn't support the effort.
     case agentConfigured(run: RunID, settings: AgentRunSettings)
+    /// The sum of the incremental AI credits reported during an agent run, including failed runs.
+    case agentCreditsRecorded(run: RunID, credits: Double)
+    /// Credits charged to this event's node for a run, including failed or retried work.
+    case runCostRecorded(run: RunID, aiCredits: Double)
     case runFinished(run: RunID, outcome: String)
     case changeSubmitted(run: RunID, commit: String)
     case actualChangedFilesRecorded(files: [String])
@@ -233,11 +241,20 @@ public struct RecordedEvent: Codable, Sendable, Identifiable {
 }
 
 extension EventKind {
+    /// Records a cost while preserving the existing ledger encoding's `aiCredits` label.
+    public static func runCostRecorded(run: RunID, credits: Double) -> EventKind {
+        .runCostRecorded(run: run, aiCredits: credits)
+    }
+
     /// One line for humans (ledger views, logs).
     public var summary: String {
         switch self {
         case .signalAccepted(let ticket, let command, _): "\(command.label) on \(ticket) accepted"
         case .signalRejected(let ticket, let command, let reason): "\(command.label) on \(ticket) rejected: \(reason)"
+        case .commentIgnored(let ticket, _, let author):
+            "\(ticket): ignored comment by \(author.label), from someone without write access"
+        case .ticketDescriptionObserved(let ticket, let description):
+            description.attentionReason(ticket: ticket) ?? "\(ticket): recorded the accepted description"
         case .previewRecorded(let ticket, let number, _, let proposal): "preview #\(number) of \(ticket): \(proposal.count) nodes"
         case .previewStarted(let ticket, _, let run): "preview of \(ticket) started (\(run))"
         case .previewFinished(let ticket, let run, let outcome): "preview of \(ticket) (\(run)) finished: \(outcome)"
@@ -265,6 +282,7 @@ extension EventKind {
             "overlap hold ended: waited for \(waitingFor); " +
                 (paths.isEmpty ? "components \(components.joined(separator: ", "))" : "paths \(paths.joined(separator: ", "))")
         case .testsFixed(let digest): "acceptance tests fixed (\(digest.prefix(8)))"
+        case .testUpdatesApproved(let files): "test updates approved: \(files.joined(separator: ", "))"
         case .requirementPushed(let branch, let commit): "pushed \(branch) at \(commit)"
         case .requirementVerificationStatusPosted(let commit, let state):
             "posted agentos/verified \(state.rawValue) at \(commit)"
@@ -312,6 +330,8 @@ extension EventKind {
             settings.fallback.map { "\(run) ran with \(settings.model), reasoning effort \(settings.effort) instead: \($0)" }
                 ?? "\(run) uses \(settings.model), reasoning effort \(settings.effort)"
         case .runFinished(let run, let outcome): "run \(run) finished: \(outcome)"
+        case .agentCreditsRecorded(let run, let credits): "\(run) used \(credits) AI credits"
+        case .runCostRecorded(let run, let credits): "\(run) used \(credits) AI credits"
         case .changeSubmitted(let run, let commit): "change submitted by \(run) (\(commit.prefix(8)))"
         case .actualChangedFilesRecorded(let files): "actual changed files: \(files.joined(separator: ", "))"
         case .predictedPathsExpanded(let files): "predicted paths expanded: \(files.joined(separator: ", "))"

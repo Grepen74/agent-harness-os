@@ -1,3 +1,5 @@
+import AgentOSTestSupport
+import SwiftUI
 import Testing
 @testable import AgentOSCore
 @testable import AgentOSUI
@@ -30,5 +32,58 @@ struct WorkPaneRootsTests {
 
         #expect(WorkPane.roots(in: state, showingDone: false).map(\.ticket) == ["GH-58"])
         #expect(WorkPane.roots(in: state, showingDone: true).map(\.ticket) == ["GH-58", "GH-57"])
+    }
+
+    @Test func aHeldDescriptionShowsTheExactTicketMessageAlongsideAnotherReasonForTheSameNode() async throws {
+        let spec = NodeSpec(id: "wn-GH-7", parent: nil, kind: .composite, title: "Requirement",
+                            intent: "Accepted requirement", acceptanceCriteria: ["The requirement works"])
+        let message = "GH-7: description edited by outsider, who doesn't have write access; the harness keeps building "
+            + "from the description it accepted. A person with write access must confirm: edit the description, "
+            + "or add harness:replan."
+        let failure = "Publication failed. Fix the problem, then add harness:retry."
+        let ledger = try Ledger()
+        try await ledger.append([
+            LedgerEvent(node: spec.id, by: .human("maintainer"), kind: .nodeCreated(spec: spec, ticket: "GH-7")),
+            LedgerEvent(node: spec.id, by: .reconciler, kind: .flagSet(.needsInput, reason: message)),
+            LedgerEvent(node: spec.id, by: .reconciler, kind: .requirementPublicationFailed(error: failure))
+        ])
+        let model = HarnessViewModel()
+        model.state = await ledger.workingState()
+        let node = try #require(model.state.node(forTicket: "GH-7"))
+
+        let text = try RenderedUI.text(of: AttentionList().environment(model),
+                                       size: CGSize(width: 1800, height: 160))
+
+        #expect(RenderedUI.shows("Needs attention", in: text))
+        // Vision omits sentence-final dots and can read "from"/"confirm" as "trom"/"contirm" at caption size.
+        #expect(RenderedUI.shows(String(message.dropLast()), in: text
+            .replacingOccurrences(of: "trom", with: "from")
+            .replacingOccurrences(of: "contirm", with: "confirm")),
+                "The complete held-edit wording must be visible: \(text)")
+        #expect(!RenderedUI.shows("\(node.displayName): \(node.ticket):", in: text),
+                "The ticket key already in the held-edit message must not get another prefix: \(text)")
+        #expect(RenderedUI.shows("\(node.displayName): \(failure)", in: text),
+                "Another reason for the same node and flag must remain visible with its prefix: \(text)")
+    }
+
+    @Test func anOrdinaryFailureInNeedsAttentionStillShowsItsDisplayNamePrefix() async throws {
+        let spec = NodeSpec(id: "wn-GH-8", parent: nil, kind: .leaf, title: "Build requirement",
+                            intent: "Build it", acceptanceCriteria: ["It builds"])
+        let reason = "Build failed. Fix the problem, then add harness:retry."
+        let ledger = try Ledger()
+        try await ledger.append([
+            LedgerEvent(node: spec.id, by: .human("maintainer"), kind: .nodeCreated(spec: spec, ticket: "GH-8")),
+            LedgerEvent(node: spec.id, by: .reconciler, kind: .flagSet(.escalated, reason: reason))
+        ])
+        let model = HarnessViewModel()
+        model.state = await ledger.workingState()
+        let node = try #require(model.state.node(forTicket: "GH-8"))
+
+        let text = try RenderedUI.text(of: AttentionList().environment(model),
+                                       size: CGSize(width: 1000, height: 120))
+
+        #expect(RenderedUI.shows("Needs attention", in: text))
+        #expect(RenderedUI.shows("\(node.displayName): \(reason)", in: text),
+                "Ordinary attention reasons must identify their node: \(text)")
     }
 }

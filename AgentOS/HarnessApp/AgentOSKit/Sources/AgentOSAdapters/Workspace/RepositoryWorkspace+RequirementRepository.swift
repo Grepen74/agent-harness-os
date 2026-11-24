@@ -40,38 +40,36 @@ extension RepositoryWorkspace: RequirementBranchRepository {
         return files
     }
 
-    public func updateCatchUpMergeAid(for branch: String, files: [String]) async throws {
+    public func removeCatchUpMergeAids() async throws {
         try await mergeAidLock.withPermit {
-            try await updateMergeAid(for: branch, files: files)
-        }
-    }
-
-    private func updateMergeAid(for branch: String, files: [String]) async throws {
-        let attributes = try await catchUpAttributesFile()
-        let start = "# agentos catch-up conflict \(branch)"
-        let end = "# end agentos catch-up conflict \(branch)"
-        let existing = FileManager.default.fileExists(atPath: attributes.path)
-            ? try String(contentsOf: attributes, encoding: .utf8) : ""
-        var lines = existing.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        if let first = lines.firstIndex(of: start), let last = lines[first...].firstIndex(of: end) {
-            lines.removeSubrange(first...last)
-        }
-        while lines.last == "" { lines.removeLast() }
-        if !files.isEmpty {
-            lines.append(start)
-            lines += files.sorted().map { "\($0) merge=union" }
-            lines.append(end)
-            _ = try await git(["config", "branch.\(branch).mergeOptions", "--no-commit"], in: root)
-        } else {
-            let result = try await ProcessRunner.run(
-                "/usr/bin/env", ["git", "config", "--unset", "branch.\(branch).mergeOptions"], in: root)
-            if result.status != 0 && result.status != 5 {
-                throw AgentFailure("Could not clear catch-up merge options: \(result.output)")
+            let attributes = try await catchUpAttributesFile()
+            if FileManager.default.fileExists(atPath: attributes.path) {
+                let text = try String(contentsOf: attributes, encoding: .utf8)
+                let unmanaged = RequirementMergeAid.unmanagedAttributes(text)
+                if text.contains(RequirementMergeAid.blockStart), unmanaged != text {
+                    try unmanaged.write(to: attributes, atomically: true, encoding: .utf8)
+                }
             }
-        }
-        let contents = lines.isEmpty ? "" : lines.joined(separator: "\n") + "\n"
-        if contents != existing {
-            try contents.write(to: attributes, atomically: true, encoding: .utf8)
+            // Only the repository's own config: that's where the harness wrote them and where `--unset` acts.
+            let listed = try await ProcessRunner.run(
+                "/usr/bin/env",
+                ["git", "config", "--local", "--no-includes", "--get-regexp", #"^branch\.agentos/.*\.mergeoptions$"#],
+                in: root)
+            // Status 1: no such settings.
+            guard listed.status == 0 else {
+                if listed.status == 1 { return }
+                throw AgentFailure("Could not read catch-up merge options: \(listed.output)")
+            }
+            var keys: [String] = []
+            for line in listed.output.split(separator: "\n") {
+                let parts = line.split(separator: " ", maxSplits: 1).map(String.init)
+                guard parts.count == 2, parts[1].trimmingCharacters(in: .whitespaces) == "--no-commit",
+                      !keys.contains(parts[0]) else { continue }
+                keys.append(parts[0])
+            }
+            for key in keys {
+                _ = try await git(["config", "--local", "--unset-all", key, "^--no-commit$"], in: root)
+            }
         }
     }
 }

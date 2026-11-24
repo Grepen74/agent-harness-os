@@ -60,8 +60,8 @@ public protocol Workspace: Sendable {
     func reviewContext(in directory: URL, against branch: String) async throws -> ReviewContext
     /// Where every node's acceptance tests live, relative to the repo's top folder, ending in "/".
     var testArea: String { get }
-    /// Where other work's existing tests live, which the test author may update where a criterion of its item
-    /// deliberately changes what they check: `testArea` and any further folders the repo names, each ending in "/".
+    /// Where other work's existing tests live, which the test author may update under a person's approval or
+    /// a criterion deliberately changing what they check: `testArea` and further repo folders, each ending in "/".
     /// Neither the implementer nor anyone else may change them.
     var updatableTestAreas: [String] { get }
     /// The folder with this node's own acceptance tests (inside `testArea`, no trailing "/").

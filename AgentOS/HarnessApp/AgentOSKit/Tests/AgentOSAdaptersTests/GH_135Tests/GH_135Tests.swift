@@ -325,6 +325,14 @@ import Testing
                           without: [.signal(.retest), .flagSet(flag), .fact(.isLeaf), .fact(.notLanded), .fact(.nodeIdle)],
                           actor: .person, effects: [.discardAcceptanceTests])
         }
+        let updateTest: Set<WorkflowPredicate> = [
+            .signal(.updateTest), .flagSet(.needsInput), .fact(.brokenTestReported), .fact(.isLeaf),
+            .fact(.notLanded), .fact(.nodeIdle),
+        ]
+        try Self.edge(flow, .questions, .acceptanceTests, when: updateTest,
+                      without: [.signal(.updateTest), .flagSet(.needsInput), .fact(.brokenTestReported),
+                                .fact(.notLanded), .fact(.nodeIdle)],
+                      addingForbidden: [.fact(.brokenTestReturnAllowed)], actor: .person)
         let replan: Set<WorkflowPredicate> = [
             .signal(.replan), .fact(.isRoot), .fact(.noBuildingInSubtree), .fact(.nodeIdle), .fact(.ticketReady),
         ]

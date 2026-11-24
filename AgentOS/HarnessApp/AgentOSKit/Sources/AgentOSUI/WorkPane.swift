@@ -149,9 +149,11 @@ struct AttentionList: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 // A node can have several flags at once.
-                ForEach(items.map { (id: "\($0.node.id) \($0.flag.rawValue)", item: $0) }, id: \.id) { entry in
+                ForEach(items.map { (id: "\($0.node.id) \($0.flag.rawValue) \($0.reason)", item: $0) }, id: \.id) { entry in
                     let item = entry.item
-                    Label("\(item.node.displayName): \(item.reason)", systemImage: item.flag.symbol)
+                    let message = item.reason.hasPrefix("\(item.node.ticket): ")
+                        ? item.reason : "\(item.node.displayName): \(item.reason)"
+                    Label(message, systemImage: item.flag.symbol)
                         .font(.caption)
                         .foregroundStyle(item.flag.color)
                 }
@@ -241,6 +243,7 @@ struct NodeDetail: View {
             row("Touches", node.spec.touches.isEmpty ? "–" : node.spec.touches.joined(separator: ", "))
             row("Paths", node.spec.predictedPaths.isEmpty ? "–" : node.spec.predictedPaths.joined(separator: "\n"))
             row("Test target", node.spec.kind == .leaf ? node.spec.testTarget : "–")
+            row("Affected tests", node.spec.affectedTests.isEmpty ? "–" : node.spec.affectedTests.joined(separator: "\n"))
             row("Attempts failed", "\(node.failedAttempts)")
             row("Reworks", "\(node.reworks)")
             row("Landed at", node.landedCommit.map { String($0.prefix(8)) } ?? "–")

@@ -26,7 +26,8 @@ extension Reconciler {
             stage: stage, spec: node.spec, acceptanceTests: tests, context: context,
             instructions: instructions, directory: directory, earlierFindings: earlier, testFolder: folder,
             log: try? artifacts.liveFile(named: "\(node.id)-\(run)-\(stage.rawValue)-review.log"),
-            brokenTestReports: reports, clarifications: await ledger.workingState().clarifications(for: node.id))
+            brokenTestReports: reports, clarifications: await ledger.workingState().clarifications(for: node.id),
+            approvedTestUpdates: node.approvedTestUpdates)
         var result = try await watchingUserGitState(node, run: run) { try await reviewer.review(request) }
         try Task.checkCancellation()
         let after = try await workspace.reviewContext(in: directory, against: context.baseBranch)
