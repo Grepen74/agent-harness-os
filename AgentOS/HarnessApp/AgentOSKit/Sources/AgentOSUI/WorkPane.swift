@@ -120,17 +120,64 @@ struct NodeRow: View {
     private var color: Color { closed ? .secondary : node.phase.color }
 
     var body: some View {
-        HStack(spacing: 6) {
+        NodeRowLayout {
             Circle().fill(color).frame(width: 9, height: 9)
             Text(node.displayName).monospaced().lineLimit(1).foregroundStyle(.secondary)
-            Text(node.spec.title).lineLimit(1).layoutPriority(1).foregroundStyle(closed ? .secondary : .primary)
-            Spacer()
-            ForEach(Flag.allCases.filter { !closed && node.flags[$0] != nil }, id: \.self) { flag in
-                Image(systemName: flag.symbol).foregroundStyle(flag.color).help(node.flags[flag] ?? "")
+            Text(node.spec.title).lineLimit(1).foregroundStyle(closed ? .secondary : .primary)
+            HStack(spacing: 6) {
+                ForEach(Flag.allCases.filter { !closed && node.flags[$0] != nil }, id: \.self) { flag in
+                    Image(systemName: flag.symbol).foregroundStyle(flag.color).help(node.flags[flag] ?? "")
+                }
+                if let run = node.activeRun {
+                    Label(run.role.rawValue, systemImage: "cpu").font(.caption).foregroundStyle(.orange)
+                }
+                Text(status).font(.caption).foregroundStyle(color).help("Phase: \(node.phase.rawValue)")
             }
-            if let run = node.activeRun { Label(run.role.rawValue, systemImage: "cpu").font(.caption).foregroundStyle(.orange) }
-            Text(status).font(.caption).foregroundStyle(color).help("Phase: \(node.phase.rawValue)")
         }
+    }
+}
+
+/// A work-tree row: dot, key, title, and the flags and status at the trailing edge. A long title truncates first,
+/// but keeps up to `titleShare` once the status and key have their minimums; after that the status wraps, and the
+/// key gives way only in a very narrow row.
+/// (Layout priorities can't say this: a prioritised title took all the space and left the status one character wide.)
+struct NodeRowLayout: Layout {
+    var spacing: CGFloat = 6
+    var titleShare: CGFloat = 160
+    var keyMinimum: CGFloat = 16
+    var trailingMinimum: CGFloat = 48
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width.flatMap { $0.isFinite ? $0 : nil }
+        let widths = widths(for: width, subviews)
+        let height = zip(subviews, widths).map { $0.sizeThatFits(ProposedViewSize(width: $1, height: nil)).height }
+            .max() ?? 0
+        let gaps = spacing * CGFloat(max(subviews.count - 1, 0))
+        return CGSize(width: width ?? widths.reduce(gaps, +), height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let widths = widths(for: bounds.width, subviews)
+        var x = bounds.minX
+        for (index, subview) in subviews.enumerated() {
+            if index == subviews.count - 1 { x = bounds.maxX - widths[index] }
+            subview.place(at: CGPoint(x: x, y: bounds.midY), anchor: .leading,
+                          proposal: ProposedViewSize(width: widths[index], height: nil))
+            x += widths[index] + spacing
+        }
+    }
+
+    /// Dot, key, title, trailing.
+    private func widths(for width: CGFloat?, _ subviews: Subviews) -> [CGFloat] {
+        let ideal = subviews.map { $0.sizeThatFits(.unspecified).width }
+        guard let width, ideal.count == 4 else { return ideal }
+        let (dot, key, title, trailing) = (ideal[0], ideal[1], ideal[2], ideal[3])
+        let available = max(0, width - dot - spacing * 3)
+        let floor = min(titleShare, max(0, available - min(trailing, trailingMinimum) - min(key, keyMinimum)))
+        let titleWidth = min(title, available, max(available - key - trailing, floor))
+        let rest = available - titleWidth
+        let trailingWidth = min(trailing, max(0, rest - min(key, keyMinimum)))
+        return [dot, min(key, max(0, rest - trailingWidth)), titleWidth, trailingWidth]
     }
 }
 

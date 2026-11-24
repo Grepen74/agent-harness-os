@@ -381,6 +381,31 @@ import Testing
     }
 
     @Test
+    func aLongTitleTruncatesWithoutHidingTheTicketKeyOrWrappingTheStatus() async throws {
+        let ledger = try Ledger()
+        try await ledger.append(Self.treeEvents())
+        let model = await Self.model(ledger)
+        let short = try #require(model.state.nodes[Self.building])
+        var long = short
+        long.spec.title = "Feature layout: carry a leaf's tests forward without overwriting other work, and document "
+            + String(repeating: "both layouts in detail ", count: 6)
+        func height(_ node: NodeState, width: CGFloat) -> CGFloat {
+            NSHostingView(rootView: NodeRow(node: node, status: "Ready").frame(width: width)).fittingSize.height
+        }
+        for width: CGFloat in [480, 200] {
+            #expect(height(long, width: width) == height(short, width: width), "The status must stay on one line")
+        }
+
+        let text = try RenderedUI.text(of: NodeRow(node: long, status: "Ready"), size: CGSize(width: 480, height: 40))
+        #expect(RenderedUI.shows(long.displayName, in: text), "\(text)")
+        #expect(RenderedUI.shows("Ready", in: text), "\(text)")
+        #expect(RenderedUI.shows("Feature layout", in: text), "\(text)")
+        // A deeply indented row: the status still gets its width before the title.
+        let narrow = try RenderedUI.text(of: NodeRow(node: long, status: "Ready"), size: CGSize(width: 200, height: 40))
+        #expect(RenderedUI.shows("Ready", in: narrow), "\(narrow)")
+    }
+
+    @Test
     func renderedProcessShowsTheHiddenSelectedNodesStageStatusAndWaitReason() async throws {
         let ledger = try Ledger()
         let reason = "Confirm the forecast units, then add harness:retry."
