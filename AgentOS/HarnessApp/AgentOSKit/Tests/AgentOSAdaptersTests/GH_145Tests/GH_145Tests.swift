@@ -303,7 +303,7 @@ import Testing
         #expect(await fixture.workspace.committedText(Self.placeholderFile) == Self.originalPlaceholder)
         #expect(try String(contentsOf: fixture.directory.appending(path: Self.placeholderFile), encoding: .utf8)
             == Self.originalPlaceholder)
-        let task = try #require(await fixture.author.tasks.last)
-        #expect(node.testsDigest == Hashing.digest(of: fixture.directory.appending(path: task.testFolder)))
+        let record = try #require(node.recordedTests)
+        #expect(node.testsDigest == Hashing.digest(ofRecordedFiles: record.files, in: fixture.directory))
     }
 }
