@@ -7,6 +7,7 @@ import Synchronization
 ///
 ///     <storage>/                       ~/Library/Application Support/AgentOS/repos/<repo-id>/
 ///       worktrees/<node>/              a leaf's branch `agentos/leaf/<node>`, where its agents work
+///       trash/                         removed worktrees, deleted in the background
 ///       exclude                        build output never committed from a worktree
 ///
 /// Work starts from and lands on its top-level requirement's branch, created from the default branch.
@@ -51,6 +52,7 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
 
     public var worktreesDirectory: URL { storage.appending(path: "worktrees", directoryHint: .isDirectory) }
     public var artifactsDirectory: URL { storage.appending(path: "artifacts", directoryHint: .isDirectory) }
+    var trashDirectory: URL { storage.appending(path: "trash", directoryHint: .isDirectory) }
     var excludeFile: URL { storage.appending(path: "exclude") }
 
     public func worktree(for id: NodeID) -> URL { worktreesDirectory.appending(path: id) }
@@ -64,6 +66,10 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
             try Self.buildOutput.joined(separator: "\n").write(to: excludeFile, atomically: true, encoding: .utf8)
         }
         try await worktreeLock.withPermit { try await git(["worktree", "prune"], in: root) }
+        // Left over when the app quit before deleting them.
+        for item in (try? FileManager.default.contentsOfDirectory(at: trashDirectory, includingPropertiesForKeys: nil)) ?? [] {
+            Self.deleteInBackground(item)
+        }
     }
 
     public func prepareRequirementBranch(for requirement: NodeIdentity, leaves: [NodeID]) async throws -> String? {
@@ -103,7 +109,7 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
             let previous = paths.isEmpty ? nil : (try? await git(["rev-parse", "--verify", "--quiet",
                                                                   branch(for: id) + "^{commit}"], in: root))?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            try? await removeWorktreeNow(for: id)
+            try await removeWorktreeNow(for: id)
             try FileManager.default.createDirectory(at: worktreesDirectory, withIntermediateDirectories: true)
             try await git(["worktree", "add", "-q", "-B", branch(for: id), directory.path, landingBranch], in: root)
             if let previous, !previous.isEmpty {
@@ -126,8 +132,21 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
     private func removeWorktreeNow(for id: NodeID) async throws {
         // A new or removed worktree means the work starts over: unfinished work from before no longer applies.
         _ = try? await git(["update-ref", "-d", unfinishedRef(for: id)], in: root)
-        try await git(["worktree", "remove", "--force", worktree(for: id).path], in: root)
+        let directory = worktree(for: id)
+        // Moved aside rather than `git worktree remove`d: deleting a worktree's build output can outlast git's time
+        // limit on a busy machine, leaving it half deleted and still holding the leaf's branch. Once moved, prune
+        // forgets it, and the files are deleted without a time limit.
+        if FileManager.default.fileExists(atPath: directory.path) {
+            try FileManager.default.createDirectory(at: trashDirectory, withIntermediateDirectories: true)
+            let trash = trashDirectory.appending(path: "\(id)-\(UUID().uuidString)")
+            try FileManager.default.moveItem(at: directory, to: trash)
+            Self.deleteInBackground(trash)
+        }
         try await git(["worktree", "prune"], in: root)
+    }
+
+    private static func deleteInBackground(_ item: URL) {
+        Task.detached(priority: .background) { try? FileManager.default.removeItem(at: item) }
     }
 
     // MARK: Read-only snapshot

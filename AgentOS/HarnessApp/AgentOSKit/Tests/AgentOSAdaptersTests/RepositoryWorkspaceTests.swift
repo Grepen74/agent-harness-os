@@ -752,6 +752,35 @@ struct RepositoryWorkspaceTests {
         #expect(!FileManager.default.fileExists(atPath: directory.appending(path: folder).path))
     }
 
+    @Test("A worktree git can't delete (say, too big to delete in time) still makes way for a new one")
+    func aWorktreeGitCantDeleteMakesWayForANewOne() async throws {
+        let repo = try await makeRepo()
+        let storage = FileManager.default.temporaryDirectory.appending(path: "agentos-storage-\(UUID().uuidString)")
+        let workspace = try RepositoryWorkspace(root: repo, storage: storage, config: Self.config,
+                                                landingBranch: "agentos/GH-1", defaultBranch: "main")
+        try await workspace.prepare()
+        _ = try await workspace.prepareRequirementBranch(for: NodeIdentity(ticketKey: "GH-1", nodeID: "wn-1"), leaves: ["wn-1"])
+        var directory = try await workspace.createWorktree(for: "wn-1")
+        let locked = directory.appending(path: ".build/locked")
+        try FileManager.default.createDirectory(at: locked, withIntermediateDirectories: true)
+        try "binary".write(to: locked.appending(path: "out.o"), atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: locked.path)
+        defer {
+            let trashed = (try? FileManager.default.contentsOfDirectory(at: workspace.trashDirectory, includingPropertiesForKeys: nil)) ?? []
+            for item in trashed {
+                try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: item.appending(path: ".build/locked").path)
+            }
+            try? FileManager.default.removeItem(at: storage)
+        }
+
+        directory = try await workspace.createWorktree(for: "wn-1")
+
+        #expect(!FileManager.default.fileExists(atPath: directory.appending(path: ".build").path))
+        #expect(try await git(["rev-parse", "HEAD"], in: directory) == git(["rev-parse", "agentos/GH-1"], in: repo))
+        let worktrees = try await git(["worktree", "list", "--porcelain"], in: repo)
+        #expect(worktrees.components(separatedBy: "branch refs/heads/agentos/leaf/wn-1").count == 2)
+    }
+
     @Test("An implementer that fails before submitting leaves its unfinished work to the next attempt")
     func theNextAttemptContinuesUnfinishedWork() async throws {
         let repo = try await makeRepo()

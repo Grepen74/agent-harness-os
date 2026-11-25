@@ -791,6 +791,7 @@ The harness's state for a repo is private and lives outside the repo:
                    <node>-<run>-agent.log, written as it runs
   baseline/src/    the export of main the baseline last ran on
   worktrees/       one working copy per leaf, on branch agentos/leaf/<node>
+  trash/           removed working copies, moved aside at once and deleted in the background
   snapshots/       detached main checkouts for decomposition, requirement checkouts for landing diagnosis
   exclude          files git ignores in worktrees (.build/, DerivedData/, xcuserdata/, .DS_Store…)
 ```

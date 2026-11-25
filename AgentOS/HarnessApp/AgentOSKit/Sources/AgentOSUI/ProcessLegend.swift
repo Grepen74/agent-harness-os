@@ -44,7 +44,7 @@ struct ProcessLegend: View {
                         Text("The stage you clicked.")
                     }
                     GridRow {
-                        Image(systemName: "location.fill").foregroundStyle(.secondary)
+                        Image(systemName: "location.fill").foregroundStyle(.teal)
                         Text("Where the node selected in Work is (dashed border).")
                     }
                 }
