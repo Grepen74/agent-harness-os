@@ -17,6 +17,13 @@ private actor FakeGitHub: GitHubTransport {
     var boardError: String?
     var cards: [Int: String?] = [:]
     var moves: [String] = []
+    /// Answers the issue-description query (body, last edit) instead of the board's.
+    var answersEdits = false
+    /// The most requests answered at the same time.
+    private var inFlight = 0
+    private(set) var mostInFlight = 0
+    /// How long each request takes, in yields, so requests can overlap.
+    var yieldsPerRequest = 0
 
     func add(issue number: Int, title: String = "Title", body: String, labels: [String] = [], by login: String = "alice") {
         issues.append(["id": 1000 + number, "number": number, "title": title, "body": body, "state": "open",
@@ -44,6 +51,10 @@ private actor FakeGitHub: GitHubTransport {
     }
 
     func setFailCreating(_ value: Bool) { failCreating = value }
+    func answerEdits(yieldsPerRequest yields: Int = 0) {
+        answersEdits = true
+        yieldsPerRequest = yields
+    }
     func setBoard(options: [String]? = nil, error: String? = nil) {
         if let options { boardOptions = options }
         boardError = error
@@ -70,6 +81,10 @@ private actor FakeGitHub: GitHubTransport {
             return ["data": ["addProjectV2ItemById": ["item": ["id": "CARD_\(number)"]]]]
         }
         let number = variables["number"] as! Int
+        if answersEdits, query.contains("lastEditedAt") {
+            let issue = issues.first { $0["number"] as? Int == number } ?? [:]
+            return ["data": ["repository": ["issue": ["body": issue["body"] ?? "", "lastEditedAt": NSNull(), "editor": NSNull()]]]]
+        }
         let nodes: [[String: Any]] = cards[number].map { option in
             [["id": "CARD_\(number)", "project": ["id": "PVT_1"], "fieldValueByName": option.map { ["name": $0] } as Any]]
         } ?? []
@@ -87,6 +102,10 @@ private actor FakeGitHub: GitHubTransport {
 
     func request(_ method: String, _ path: String, body: Data?) async throws -> Data {
         requests.append(Request(method: method, path: path, body: body.map { String(decoding: $0, as: UTF8.self) }))
+        inFlight += 1
+        mostInFlight = max(mostInFlight, inFlight)
+        for _ in 0..<yieldsPerRequest { await Task.yield() }
+        inFlight -= 1
         let route = path.split(separator: "?").first.map(String.init) ?? path
         let parts = route.split(separator: "/").map(String.init)
         let page = path.contains("page=1") || !path.contains("page=")
@@ -131,6 +150,79 @@ private actor FakeGitHub: GitHubTransport {
 @Suite struct GitHubIssuesTrackerTests {
     private func tracker(_ github: FakeGitHub) -> GitHubIssuesTracker {
         GitHubIssuesTracker(repo: "o/r", transport: github, listInterval: .zero)
+    }
+
+    /// The per-issue reads: comments, label events and the description's last edit.
+    private func issueReads(_ github: FakeGitHub) async -> [String] {
+        await github.requests.compactMap { request in
+            if request.path == "graphql" {
+                return (request.body ?? "").contains("lastEditedAt") ? "edit \((request.body ?? "").contains("\"number\":8") ? 8 : 7)" : nil
+            }
+            let parts = request.path.split(separator: "?")[0].split(separator: "/")
+            guard parts.count == 6, ["comments", "events"].contains(parts[5]), request.method == "GET" else { return nil }
+            return "\(parts[5]) \(parts[4])"
+        }
+    }
+
+    @Test func aNewLaunchReadsAgainOnlyTheIssuesThatChanged() async throws {
+        let cache = FileManager.default.temporaryDirectory.appending(path: "agentos-github-cache-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: cache) }
+        let github = FakeGitHub()
+        await github.answerEdits()
+        await github.add(issue: 7, body: "Work")
+        await github.add(issue: 8, body: "Other")
+        await github.comment(8, "A question", by: "bob")
+        func launch() -> GitHubIssuesTracker {
+            GitHubIssuesTracker(repo: "o/r", transport: github, listInterval: .zero, cacheDirectory: cache)
+        }
+
+        let first = await launch().tickets()
+        #expect(Set(await issueReads(github)) == ["edit 7", "edit 8", "events 7", "events 8", "comments 7", "comments 8"])
+        #expect(await issueReads(github).count == 6)
+        #expect(FileManager.default.fileExists(atPath: cache.appending(path: "comments.json").path))
+        #expect(FileManager.default.fileExists(atPath: cache.appending(path: "descriptions.json").path))
+
+        let before = await github.requests.count
+        let second = await launch().tickets()
+        #expect(second.map(\.id) == first.map(\.id))
+        #expect(second.first { $0.id == "GH-8" }?.comments.map(\.text) == ["A question"])
+        #expect(await Array(issueReads(github).dropFirst(6)).isEmpty)
+        #expect(await github.requests.count > before)
+
+        await github.comment(8, "Another", by: "bob")
+        let third = await launch().tickets()
+        #expect(Set(await issueReads(github).dropFirst(6)) == ["edit 8", "events 8", "comments 8"])
+        #expect(third.first { $0.id == "GH-8" }?.comments.map(\.text) == ["A question", "Another"])
+    }
+
+    @Test func aCacheThatCantBeReadIsReadAgainFromGitHub() async throws {
+        let cache = FileManager.default.temporaryDirectory.appending(path: "agentos-github-cache-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: cache) }
+        try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+        try Data("not json".utf8).write(to: cache.appending(path: "comments.json"))
+        try Data("{".utf8).write(to: cache.appending(path: "descriptions.json"))
+        let github = FakeGitHub()
+        await github.answerEdits()
+        await github.add(issue: 7, body: "Work")
+        await github.comment(7, "Hello", by: "bob")
+
+        let tickets = await GitHubIssuesTracker(repo: "o/r", transport: github, listInterval: .zero, cacheDirectory: cache).tickets()
+        #expect(tickets.first?.comments.map(\.text) == ["Hello"])
+        #expect(Set(await issueReads(github)) == ["edit 7", "events 7", "comments 7"])
+    }
+
+    @Test func issuesAreReadSeveralAtATimeAndTheLoginOnce() async {
+        let github = FakeGitHub()
+        await github.answerEdits(yieldsPerRequest: 20)
+        for number in 1...12 {
+            await github.add(issue: number, body: "Work \(number)")
+            await github.comment(number, "\(GitHubIssuesTracker.marker)\nStatus", by: "harness-user")
+        }
+        let tickets = await tracker(github).tickets()
+        #expect(tickets.count == 12)
+        #expect(await github.mostInFlight > 1)
+        #expect(await github.mostInFlight <= GitHubIssuesTracker.parallelReads)
+        #expect(await github.paths("GET").filter { $0 == "user" }.count == 1)
     }
 
     @Test func anIssueClosedOnGitHubIsReportedClosedUntilItIsReopened() async {

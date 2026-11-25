@@ -752,6 +752,170 @@ struct RepositoryWorkspaceTests {
         #expect(!FileManager.default.fileExists(atPath: directory.appending(path: folder).path))
     }
 
+    /// A workspace whose leaf wn-1 has a worktree with a file in it.
+    private func workspaceWithAWorktree() async throws -> (repo: URL, workspace: RepositoryWorkspace, directory: URL) {
+        let repo = try await makeRepo()
+        let storage = FileManager.default.temporaryDirectory.appending(path: "agentos-storage-\(UUID().uuidString)")
+        let workspace = try RepositoryWorkspace(root: repo, storage: storage, config: Self.config,
+                                                landingBranch: "agentos/GH-1", defaultBranch: "main")
+        try await workspace.prepare()
+        _ = try await workspace.prepareRequirementBranch(for: NodeIdentity(ticketKey: "GH-1", nodeID: "wn-1"), leaves: ["wn-1"])
+        let directory = try await workspace.createWorktree(for: "wn-1")
+        try "work\n".write(to: directory.appending(path: "work.txt"), atomically: true, encoding: .utf8)
+        return (repo, workspace, directory)
+    }
+
+    private func leafWorktrees(in repo: URL) async throws -> Int {
+        try await git(["worktree", "list", "--porcelain"], in: repo)
+            .components(separatedBy: "branch refs/heads/agentos/leaf/wn-1").count - 1
+    }
+
+    @Test("A worktree git can't delete (say, too big to delete in time) still makes way for a new one; what can't be deleted is logged")
+    func aWorktreeGitCantDeleteMakesWayForANewOne() async throws {
+        var (repo, workspace, directory) = try await workspaceWithAWorktree()
+        let locked = directory.appending(path: ".build/locked")
+        try FileManager.default.createDirectory(at: locked, withIntermediateDirectories: true)
+        try "binary".write(to: locked.appending(path: "out.o"), atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: locked.path)
+        defer {
+            let trashed = (try? FileManager.default.contentsOfDirectory(at: workspace.trashDirectory, includingPropertiesForKeys: nil)) ?? []
+            for item in trashed {
+                try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: item.appending(path: ".build/locked").path)
+            }
+            try? FileManager.default.removeItem(at: workspace.storage)
+        }
+
+        directory = try await workspace.createWorktree(for: "wn-1")
+        await workspace.trash.emptied()
+
+        #expect(!FileManager.default.fileExists(atPath: directory.appending(path: ".build").path))
+        #expect(try await git(["rev-parse", "HEAD"], in: directory) == git(["rev-parse", "agentos/GH-1"], in: repo))
+        #expect(try await leafWorktrees(in: repo) == 1)
+        let failures = await workspace.trash.failures
+        #expect(failures.count == 1)
+        let log = try String(contentsOf: workspace.trash.log, encoding: .utf8)
+        #expect(log.contains(workspace.trashDirectory.lastPathComponent + "/wn-1-"), "\(log)")
+    }
+
+    @Test("A worktree someone locked with git worktree lock is left as it is, and nothing new is created")
+    func aGitLockedWorktreeIsLeftAlone() async throws {
+        let (repo, workspace, directory) = try await workspaceWithAWorktree()
+        defer { try? FileManager.default.removeItem(at: workspace.storage) }
+        try await git(["worktree", "lock", "--reason", "a person is looking", directory.path], in: repo)
+
+        // A workspace problem, so the leaf is tried again by itself later.
+        await #expect(throws: WorkspaceProblem.self) { try await workspace.createWorktree(for: "wn-1") }
+        await #expect(throws: (any Error).self) { try await workspace.removeWorktree(for: "wn-1") }
+
+        #expect(try String(contentsOf: directory.appending(path: "work.txt"), encoding: .utf8) == "work\n")
+        #expect(try await leafWorktrees(in: repo) == 1)
+        let trashed = (try? FileManager.default.contentsOfDirectory(atPath: workspace.trashDirectory.path)) ?? []
+        #expect(trashed.isEmpty)
+    }
+
+    @Test("When git can't forget a worktree, its files are moved back instead of deleted")
+    func aWorktreeGitCantForgetIsMovedBack() async throws {
+        let (repo, workspace, directory) = try await workspaceWithAWorktree()
+        let administration = repo.appending(path: ".git/worktrees/wn-1")
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: administration.path)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: administration.path)
+            try? FileManager.default.removeItem(at: workspace.storage)
+        }
+
+        await #expect(throws: (any Error).self) { try await workspace.createWorktree(for: "wn-1") }
+        await workspace.trash.emptied()
+
+        #expect(try String(contentsOf: directory.appending(path: "work.txt"), encoding: .utf8) == "work\n")
+        #expect(try await leafWorktrees(in: repo) == 1)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: workspace.trashDirectory.path).isEmpty)
+    }
+
+    @Test("Files to keep come back after a try that failed once git had moved the branch back")
+    func keptFilesSurviveAHalfFinishedTry() async throws {
+        var (repo, workspace, directory) = try await workspaceWithAWorktree()
+        defer { try? FileManager.default.removeItem(at: workspace.storage) }
+        let folder = "Tests/Leaf"
+        try FileManager.default.createDirectory(at: directory.appending(path: folder), withIntermediateDirectories: true)
+        try "check\n".write(to: directory.appending(path: "\(folder)/check.sh"), atomically: true, encoding: .utf8)
+        try #require(try await workspace.commitAll(in: directory, message: "tests", author: "run-1") != nil)
+        let tests = try await git(["rev-parse", "HEAD"], in: directory)
+        // What the failed try left: the commit held, the branch back on the landing branch.
+        try await git(["update-ref", "refs/agentos/keeping/wn-1", tests], in: repo)
+        try await git(["reset", "-q", "--hard", "agentos/GH-1"], in: directory)
+
+        directory = try await workspace.createWorktree(for: "wn-1", keeping: [folder])
+
+        #expect(try String(contentsOf: directory.appending(path: "\(folder)/check.sh"), encoding: .utf8) == "check\n")
+        #expect(try await git(["for-each-ref", "refs/agentos/keeping"], in: repo).isEmpty)
+    }
+
+    @Test("A locked worktree on a disk that isn't there doesn't keep the trash from being emptied")
+    func theTrashIsEmptiedBesideALockedMissingWorktree() async throws {
+        let (repo, workspace, directory) = try await workspaceWithAWorktree()
+        let away = FileManager.default.temporaryDirectory.appending(path: "agentos-away-\(UUID().uuidString)")
+        defer {
+            try? FileManager.default.removeItem(at: away)
+            try? FileManager.default.removeItem(at: workspace.storage)
+        }
+        try await git(["worktree", "lock", directory.path], in: repo)
+        try FileManager.default.moveItem(at: directory, to: away)
+        let leftOver = workspace.trashDirectory.appending(path: "wn-2-left-over")
+        try FileManager.default.createDirectory(at: leftOver, withIntermediateDirectories: true)
+
+        try await workspace.prepare()
+        await workspace.trash.emptied()
+
+        #expect(!FileManager.default.fileExists(atPath: leftOver.path))
+        #expect(await workspace.trash.failures.isEmpty)
+    }
+
+    @Test("While git still lists a worktree whose folder is gone, the trash is kept: the folder may be in it")
+    func theTrashIsKeptWhileGitListsAMissingWorktree() async throws {
+        let (repo, workspace, directory) = try await workspaceWithAWorktree()
+        let administration = repo.appending(path: ".git/worktrees/wn-1")
+        let trashed = workspace.trashDirectory.appending(path: "wn-1-crashed")
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: administration.path)
+            try? FileManager.default.removeItem(at: workspace.storage)
+        }
+        // As after a crash between moving the folder and pruning, with a prune that can't finish.
+        try FileManager.default.createDirectory(at: workspace.trashDirectory, withIntermediateDirectories: true)
+        try FileManager.default.moveItem(at: directory, to: trashed)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: administration.path)
+
+        try await workspace.prepare()
+        await workspace.trash.emptied()
+
+        #expect(try String(contentsOf: trashed.appending(path: "work.txt"), encoding: .utf8) == "work\n")
+        #expect(try await leafWorktrees(in: repo) == 1)
+        #expect(try String(contentsOf: workspace.trash.log, encoding: .utf8).contains("kept the trash"))
+    }
+
+    @Test("A removed snapshot is forgotten by git at once, even while its files are still being deleted")
+    func aRemovedSnapshotIsForgottenAtOnce() async throws {
+        let (repo, workspace, _) = try await workspaceWithAWorktree()
+        let snapshot = try #require(try await workspace.createSnapshot(for: "wn-1"))
+        let locked = snapshot.appending(path: ".build/locked")
+        try FileManager.default.createDirectory(at: locked, withIntermediateDirectories: true)
+        try "binary".write(to: locked.appending(path: "out.o"), atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: locked.path)
+        defer {
+            let trashed = (try? FileManager.default.contentsOfDirectory(at: workspace.trashDirectory, includingPropertiesForKeys: nil)) ?? []
+            for item in trashed {
+                try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: item.appending(path: ".build/locked").path)
+            }
+            try? FileManager.default.removeItem(at: workspace.storage)
+        }
+
+        await workspace.removeSnapshot(snapshot)
+        await workspace.trash.emptied()
+
+        #expect(!FileManager.default.fileExists(atPath: snapshot.path))
+        #expect(!(try await git(["worktree", "list", "--porcelain"], in: repo)).contains(snapshot.lastPathComponent))
+        #expect(await workspace.trash.failures.count == 1)
+    }
+
     @Test("An implementer that fails before submitting leaves its unfinished work to the next attempt")
     func theNextAttemptContinuesUnfinishedWork() async throws {
         let repo = try await makeRepo()

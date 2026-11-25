@@ -154,7 +154,8 @@ public struct NodeState: Sendable, Identifiable {
     public var testDraft: [String]?
     /// Escalated since the diagnoser last looked (cleared with the escalation).
     public var needsDiagnosis = false
-    /// Test-author and implementer runs since a person last acted on the node: the ticket's run budget.
+    /// Test-author and implementer runs since a person last acted on the node: the ticket's run budget. A run that
+    /// ends on a workspace problem gives its turn back.
     public var agentRunsSinceHuman = 0
     public var landingReworkPending = false
     public var landingRerunPending = false
@@ -548,6 +549,10 @@ public struct WorkingState: Sendable {
             if role == .testAuthor { node.testDraft = nil }
         case .runFinished(let run, let outcome):
             if node.latestRun?.run == run { node.latestRun?.outcome = outcome }
+            if let active = node.activeRun, active.run == run, active.role == .testAuthor || active.role == .implementer,
+               WorkspaceProblem.isOutcome(outcome) {
+                node.agentRunsSinceHuman = max(0, node.agentRunsSinceHuman - 1)
+            }
             node.activeRun = nil
         case .agentCreditsRecorded(let run, let credits), .runCostRecorded(let run, let credits):
             node.recordedAICredits += credits

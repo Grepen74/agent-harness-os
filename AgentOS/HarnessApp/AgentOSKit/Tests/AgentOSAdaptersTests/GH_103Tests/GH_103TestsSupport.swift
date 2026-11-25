@@ -208,7 +208,7 @@ extension GH_103Tests {
         func cleanUp() {
             checks.release.open()
             agents.release.open()
-            do { try FileManager.default.removeItem(at: directory) }
+            do { try FixtureFolder.remove(directory) }
             catch { Issue.record("Could not remove the GH-103 fixture: \(error)") }
         }
     }

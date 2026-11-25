@@ -9,11 +9,13 @@ extension Reconciler {
         let keepsEarlier = await keepsEarlierTests(node)
         try await write(node.id, by: .reconciler, agentRunStarted(run, .testAuthor), expecting: node.version)
         // A failed run's draft already holds the earlier tests it kept: a fresh worktree and the draft on top.
+        var draftFiles = node.testDraft ?? []
         var continuesDraft = node.testDraft != nil
         if leftover, FileManager.default.fileExists(atPath: workspace.worktree(for: node.id).path) {
             let worktree = workspace.worktree(for: node.id)
             do {
-                continuesDraft = !(try await keepTestDraft(worktree, of: node)).isEmpty
+                draftFiles = try await keepTestDraft(worktree, of: node)
+                continuesDraft = !draftFiles.isEmpty
             } catch {
                 // Starting over would replace the worktree that holds the only copy of these tests.
                 let reason = "Couldn't keep the tests an earlier run left (\(error)). They are still uncommitted in "
@@ -27,12 +29,20 @@ extension Reconciler {
         if !continuesDraft { try? await workspace.forgetTestDraft(for: node.id) }
         let keep = !continuesDraft && keepsEarlier
         let kept = [workspace.testFolder(for: node.spec)] + node.updatedOtherTests
-        var directory = keep
-            ? try await workspace.createWorktree(for: node.id, keeping: kept)
-            : try await workspace.createWorktree(for: node.id)
-        let draft = continuesDraft ? try await workspace.restoreTestDraft(for: node.id, in: directory) : []
-        if continuesDraft, draft.isEmpty, keepsEarlier {
-            directory = try await workspace.createWorktree(for: node.id, keeping: kept)
+        var directory: URL
+        let draft: [String]
+        do {
+            directory = keep
+                ? try await workspace.createWorktree(for: node.id, keeping: kept)
+                : try await workspace.createWorktree(for: node.id)
+            draft = continuesDraft ? try await workspace.restoreTestDraft(for: node.id, in: directory) : []
+            if continuesDraft, draft.isEmpty, keepsEarlier {
+                directory = try await workspace.createWorktree(for: node.id, keeping: kept)
+            }
+        } catch let problem as WorkspaceProblem {
+            // The draft is still there for the next run, which the ledger has to know about.
+            return try await stopForWorkspaceProblem(problem, on: node, run: run, by: author, keeping:
+                continuesDraft ? [.testDraftKept(run: run, files: draftFiles)] : [])
         }
         let draftCheck = draft.isEmpty ? nil : await checkDraft(node, run: run, in: directory)
         let task = await makeTask(node, run: run, in: directory, log: agentLog(node, run),
@@ -90,6 +100,9 @@ extension Reconciler {
             testFiles = try committedTestFiles(in: directory, folder: workspace.testFolder(for: node.spec))
             // Committed: the draft is in the branch now.
             try? await workspace.forgetTestDraft(for: node.id)
+        } catch let problem as WorkspaceProblem {
+            // The tests are still uncommitted in the worktree: the next run keeps them.
+            return try await stopForWorkspaceProblem(problem, on: node, run: run, by: author)
         } catch {
             try await write(node.id, by: author, [
                 .runFinished(run: run, outcome: "failed: \(error)"),
@@ -235,6 +248,7 @@ extension Reconciler {
         let failed = after.contains {
             guard case .runFinished(_, let outcome) = $0.event.kind else { return false }
             return outcome.hasPrefix("failed") || outcome.hasPrefix("abandoned") || outcome.hasPrefix("stopped")
+                || WorkspaceProblem.isOutcome(outcome)
         }
         return failed && !after.contains {
             switch $0.event.kind {

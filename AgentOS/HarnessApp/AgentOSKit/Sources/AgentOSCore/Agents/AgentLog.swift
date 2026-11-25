@@ -25,14 +25,19 @@ public enum AgentLog {
         write(rendered, to: url)
     }
 
+    /// In one `O_APPEND` write, so lines from several writers at once (parallel git commands, say) don't overwrite
+    /// each other.
     private static func write(_ text: String, to url: URL?) {
-        guard let url, let data = text.data(using: .utf8) else { return }
-        guard let handle = try? FileHandle(forWritingTo: url) else {
-            try? data.write(to: url)
-            return
+        guard let url else { return }
+        let descriptor = open(url.path, O_WRONLY | O_APPEND | O_CREAT, 0o644)
+        guard descriptor >= 0 else { return }
+        defer { close(descriptor) }
+        var bytes = Array(text.utf8)[...]
+        while !bytes.isEmpty {
+            let written = bytes.withUnsafeBytes { Darwin.write(descriptor, $0.baseAddress, $0.count) }
+            if written < 0, errno == EINTR { continue }
+            guard written > 0 else { return }
+            bytes = bytes.dropFirst(written)
         }
-        defer { try? handle.close() }
-        _ = try? handle.seekToEnd()
-        try? handle.write(contentsOf: data)
     }
 }

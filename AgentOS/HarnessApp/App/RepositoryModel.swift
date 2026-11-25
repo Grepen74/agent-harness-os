@@ -36,6 +36,9 @@ final class RepositoryModel: HarnessActions {
     @ObservationIgnored private var trackerMadeFor: (choice: TrackerChoice, account: String?)?
     @ObservationIgnored private var session: RepositorySession?
     @ObservationIgnored private var recovered = false
+    /// A scan is under way (until its session has started and tickets are read); `view.isScanning` only covers the
+    /// readiness scan itself, so the findings don't wait for GitHub.
+    @ObservationIgnored private var scanInProgress = false
     @ObservationIgnored private var isClosed = false
     /// Owns Run and the session's agents across rounds: pausing, draining before a new session, closing.
     @ObservationIgnored private let lifecycle = HarnessLifecycleController(session: nil)
@@ -55,16 +58,17 @@ final class RepositoryModel: HarnessActions {
 
     func rescan() async {
         guard !isClosed else { return }
-        guard !view.isScanning else {
+        guard !scanInProgress else {
             rescanAgain = true
             return
         }
-        view.isScanning = true
+        scanInProgress = true
         await scanOnce()
         while rescanAgain {
             rescanAgain = false
             await scanOnce()
         }
+        scanInProgress = false
         view.isScanning = false
         if startAfterRescan {
             startAfterRescan = false
@@ -74,10 +78,13 @@ final class RepositoryModel: HarnessActions {
     }
 
     private func scanOnce() async {
+        view.isScanning = true
+        defer { view.isScanning = false }
         let location: RepositoryLocation
         switch await scanner.locate(url) {
         case .blocked(let result):
             root = result.root
+            view.isScanning = false
             show(result)
             startBlockers = RepositorySession.blockers(result.scan)
             canRunAfterBaseline = false
@@ -97,6 +104,7 @@ final class RepositoryModel: HarnessActions {
             }
             let baseline = await ledger.workingState().baseline
             let result = await scanner.scan(location, harness: harness, baseline: baseline)
+            view.isScanning = false
             show(result)
             useTracker(result.tracker)
             let recorded = try await ledger.record(result.scan)

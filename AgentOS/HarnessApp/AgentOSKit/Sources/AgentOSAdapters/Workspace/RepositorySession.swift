@@ -61,7 +61,8 @@ public final class RepositorySession: Sendable {
             return tracker(storage: storage)
         case .githubIssues(let repo, let project):
             guard let gh = GhCLITransport.locate() else { return tracker(storage: storage) }
-            return GitHubIssuesTracker(repo: repo, transport: GhCLITransport(executable: gh, account: githubAccount), project: project)
+            return GitHubIssuesTracker(repo: repo, transport: GhCLITransport(executable: gh, account: githubAccount), project: project,
+                                       cacheDirectory: storage.appending(path: "github-cache"))
         }
     }
 

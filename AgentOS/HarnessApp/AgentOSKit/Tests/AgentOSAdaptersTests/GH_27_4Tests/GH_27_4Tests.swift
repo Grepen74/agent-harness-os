@@ -3,6 +3,7 @@
 
 import AgentOSAdapters
 import AgentOSCore
+import AgentOSTestSupport
 import Foundation
 import Testing
 
@@ -187,7 +188,7 @@ struct GH_27_4Tests {
         func removeFiles() {
             if FileManager.default.fileExists(atPath: directory.path) {
                 do {
-                    try FileManager.default.removeItem(at: directory)
+                    try FixtureFolder.remove(directory)
                 } catch {
                     Testing.Issue.record("Could not remove GH-27.4 fixture: \(error)")
                 }

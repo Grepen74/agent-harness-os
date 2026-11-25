@@ -74,8 +74,10 @@ public struct GhCLITransport: GitHubTransport {
 /// must deliver.
 ///
 /// Requests are kept few: open issues are listed at most every `listInterval` (and after the harness's own
-/// changes), comments and label events are fetched again only when the issue changed. Production: webhooks
-/// plus polling, with ETags and rate-limit handling.
+/// changes), comments and label events are fetched again only when the issue changed. What each issue needs is
+/// read for `parallelReads` issues at a time (each request is a `gh` process), and kept in `cacheDirectory`, so a new
+/// launch reads again only the issues that changed. Production: webhooks plus polling, with ETags and rate-limit
+/// handling.
 public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
     public nonisolated let repo: String
     private let transport: any GitHubTransport
@@ -88,6 +90,10 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
     private var openIssues: [Issue] = []
     private var listedAt: ContinuousClock.Instant?
     private var commentCache: [Int: (updatedAt: String, comments: [IssueComment])] = [:]
+    private let commentDiskCache: GitHubDiskCache<[Int: CachedComments]>?
+    private var commentCacheChanged = false
+    /// The `gh` login doesn't change while the tracker is in use.
+    private var knownHarnessLogin: String?
     private var labelSetters: [String: Participant] = [:]
     /// Statuses the harness set: the listed labels can be older.
     private var statuses: [Int: String] = [:]
@@ -100,16 +106,19 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
     public static let keyPrefix = "GH-"
     public static let marker = "<!-- agentos -->"
     public static let statusPrefix = "agentos: "
+    static let parallelReads = 6
 
     public init(repo: String, transport: any GitHubTransport, ledger: Ledger? = nil, project: RepoConfig.Tracker.Project? = nil,
                 listInterval: Duration = .seconds(10), permissionRefreshInterval: Duration = .seconds(300),
-                now: @escaping @Sendable () -> Date = { Date() }) {
+                cacheDirectory: URL? = nil, now: @escaping @Sendable () -> Date = { Date() }) {
         self.repo = repo
         self.transport = transport
         self.listInterval = listInterval
         commentPermissions = GitHubCommentPermissions(
             repo: repo, transport: transport, refreshInterval: permissionRefreshInterval, now: now)
-        descriptions = GitHubIssueDescriptions(repo: repo, transport: transport, permissions: commentPermissions, ledger: ledger)
+        descriptions = GitHubIssueDescriptions(repo: repo, transport: transport, permissions: commentPermissions, ledger: ledger,
+                                               cacheFile: cacheDirectory?.appending(path: "descriptions.json"))
+        commentDiskCache = cacheDirectory.map { GitHubDiskCache(file: $0.appending(path: "comments.json")) }
         board = project.map { GitHubProjectBoard(config: $0, repo: repo, transport: transport) }
     }
 
@@ -139,7 +148,9 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
         await descriptions.beginRound()
         await createHarnessLabels()
         var signals: [Signal] = []
-        for issue in await listOpenIssues() {
+        let issues = await listOpenIssues()
+        await warm(issues, comments: false)
+        for issue in issues {
             var replanBy: String?
             if issue.labels.contains(where: { $0.name == HarnessCommand.replan.label }),
                case .human(let person) = await setter(of: HarnessCommand.replan.label, on: issue) {
@@ -269,7 +280,9 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
     public func tickets() async -> [Ticket] {
         var result: [Ticket] = []
         var permissions: [String: CommentWriteAccess] = [:]
-        for issue in await listOpenIssues() {
+        let issues = await listOpenIssues()
+        await warm(issues, comments: true)
+        for issue in issues {
             if let ticket = await ticket(from: issue, permissions: &permissions) {
                 result.append(ticket)
             }
@@ -441,6 +454,45 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
 
     // MARK: Reading
 
+    struct CachedComments: Codable {
+        var updatedAt: String
+        var comments: [IssueComment]
+    }
+
+    /// Reads what the issues need, `parallelReads` issues at a time, into the caches the reading below uses.
+    private func warm(_ issues: [Issue], comments: Bool) async {
+        if let stored = commentDiskCache?.loadOnce() {
+            for (number, entry) in stored where commentCache[number] == nil {
+                commentCache[number] = (entry.updatedAt, entry.comments)
+            }
+        }
+        await withTaskGroup(of: Void.self) { group in
+            for (index, issue) in issues.enumerated() {
+                if index >= Self.parallelReads { await group.next() }
+                group.addTask { await self.warm(issue, comments: comments) }
+            }
+        }
+        let open = Set(issues.map(\.number))
+        await descriptions.saveCache(keeping: open)
+        if let commentDiskCache, commentCacheChanged {
+            commentCacheChanged = false
+            var stored: [Int: CachedComments] = [:]
+            for (number, entry) in commentCache where open.contains(number) {
+                stored[number] = CachedComments(updatedAt: entry.updatedAt, comments: entry.comments)
+            }
+            commentDiskCache.save(stored)
+        }
+    }
+
+    private func warm(_ issue: Issue, comments: Bool) async {
+        await descriptions.warm(number: issue.number, revision: issue.updatedAt)
+        guard comments, commentCache[issue.number]?.updatedAt != issue.updatedAt,
+              let fetched = try? await all(IssueComment.self, "repos/\(repo)/issues/\(issue.number)/comments")
+        else { return }
+        commentCache[issue.number] = (issue.updatedAt, fetched)
+        commentCacheChanged = true
+    }
+
     private func listOpenIssues() async -> [Issue] {
         if let listedAt, ContinuousClock.now - listedAt < listInterval { return openIssues }
         if let issues = await attempt("Listing issues in \(repo)", { try await self.all(Issue.self, "repos/\(self.repo)/issues?state=open") }) {
@@ -485,6 +537,7 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
             try await self.all(IssueComment.self, "repos/\(self.repo)/issues/\(issue.number)/comments")
         }) {
             commentCache[issue.number] = (issue.updatedAt, fetched)
+            commentCacheChanged = true
             items = fetched
         } else {
             items = commentCache[issue.number]?.comments ?? []
@@ -570,8 +623,10 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
     // MARK: Requests
 
     private func harnessLogin() async throws -> String {
+        if let knownHarnessLogin { return knownHarnessLogin }
         let user = try await get(User.self, "user")
         guard !user.login.isEmpty else { throw GitHubError(description: "GitHub returned an empty login.") }
+        knownHarnessLogin = user.login
         return user.login
     }
 
@@ -617,7 +672,7 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
         UUID(uuidString: String(format: "00000000-0000-0000-0000-%012llX", UInt64(truncatingIfNeeded: id))) ?? UUID()
     }
 
-    struct User: Decodable, Sendable {
+    struct User: Codable, Sendable {
         let login: String
         let type: String?
     }
@@ -640,7 +695,7 @@ public actor GitHubIssuesTracker: TrackerAdapter, TicketBoard {
         let pullRequest: PullRequestLink?
     }
 
-    struct IssueComment: Decodable, Sendable {
+    struct IssueComment: Codable, Sendable {
         let id: Int
         let body: String?
         let user: User

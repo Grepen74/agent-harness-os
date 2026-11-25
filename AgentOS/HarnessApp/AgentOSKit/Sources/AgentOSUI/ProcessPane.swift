@@ -7,6 +7,11 @@ public struct ProcessPane: View {
 
     public init() {}
 
+    private var workingNodeDisplayName: String {
+        guard let nodeId = model.selectedNodeID, nodeId.isEmpty == false else { return "Selected node" }
+        return nodeId.replacingOccurrences(of: "wn-", with: "")
+    }
+
     public var body: some View {
         let diagram = model.processDiagram
         VStack(spacing: 0) {
@@ -99,9 +104,8 @@ public struct ProcessPane: View {
                     HStack(alignment: .firstTextBaseline) {
                         Text(stage.title).font(.headline)
                         if marker.nodeLocation {
-                            let interrupted = model.selectedNodeProcess?.interrupted == true
-                            Label(interrupted ? "Interrupted" : "Selected node", systemImage: "location.fill")
-                                .font(.caption).foregroundStyle(interrupted ? Color.orange : Color.secondary)
+                            Label(nodeInterrupted ? "Interrupted" : workingNodeDisplayName, systemImage: "location.fill")
+                                .font(.caption.weight(.semibold)).foregroundStyle(nodeLocationColor)
                         }
                         Spacer(minLength: 4)
                         if stage.waitsOnPerson {
@@ -156,13 +160,19 @@ public struct ProcessPane: View {
             if marker.selected {
                 shape.stroke(Color.accentColor, lineWidth: 2)
             } else if marker.nodeLocation {
-                shape.stroke(Color.secondary, style: StrokeStyle(lineWidth: 1.5, dash: [5, 3]))
+                shape.stroke(Color.primary, style: StrokeStyle(lineWidth: 1.5, dash: [5, 3]))
             } else {
                 shape.stroke(Color.secondary.opacity(0.4), lineWidth: 1)
             }
         }
         .anchorPreference(key: ProcessStageAnchors.self, value: .bounds) { [stage.id: $0] }
     }
+
+    private var nodeInterrupted: Bool { model.selectedNodeProcess?.interrupted == true }
+
+    /// The node's stage badge uses the brightest text colour, which the accent (the clicked stage) can't be
+    /// mistaken for. An interrupted node keeps orange.
+    private var nodeLocationColor: Color { nodeInterrupted ? .orange : .teal }
 
     @ViewBuilder private func selectionDetails(_ diagram: ProcessDiagramPresentation) -> some View {
         if let selection = model.processSelection {

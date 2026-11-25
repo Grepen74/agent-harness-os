@@ -13,19 +13,19 @@ actor GitHubIssueDescriptions {
         let data: Payload
     }
 
-    private struct Edit: Decodable {
-        struct Editor: Decodable { let login: String }
+    private struct Edit: Codable {
+        struct Editor: Codable { let login: String }
         let body: String
         let editor: Editor?
         let lastEditedAt: Date?
     }
 
-    private struct LabelEvent: Decodable {
-        struct Actor: Decodable {
+    private struct LabelEvent: Codable {
+        struct Actor: Codable {
             let login: String
             let type: String?
         }
-        struct Label: Decodable { let name: String }
+        struct Label: Codable { let name: String }
         let event: String
         let actor: Actor?
         let label: Label?
@@ -40,12 +40,54 @@ actor GitHubIssueDescriptions {
     private var roundPermissions: [String: GitHubCommentPermissions.Decision] = [:]
     private var editCache: [Int: (revision: String, edit: Edit)] = [:]
     private var eventCache: [Int: (revision: String, events: [LabelEvent])] = [:]
+    private let cache: GitHubDiskCache<DiskCache>?
+    private var cacheChanged = false
 
-    init(repo: String, transport: any GitHubTransport, permissions: GitHubCommentPermissions, ledger: Ledger?) {
+    /// What is kept on disk between launches; each entry is for the issue's revision (`updated_at`).
+    private struct DiskCache: Codable {
+        struct Entry<Value: Codable>: Codable {
+            var revision: String
+            var value: Value
+        }
+        var edits: [Int: Entry<Edit>] = [:]
+        var events: [Int: Entry<[LabelEvent]>] = [:]
+    }
+
+    init(repo: String, transport: any GitHubTransport, permissions: GitHubCommentPermissions, ledger: Ledger?,
+         cacheFile: URL? = nil) {
         self.repo = repo
         self.transport = transport
         self.permissions = permissions
         self.ledger = ledger
+        cache = cacheFile.map { GitHubDiskCache(file: $0) }
+    }
+
+    /// Reads what `body` needs for the issue at this revision, so many issues can be read at once. Failures are left
+    /// to `body`, which tries again and reports them.
+    func warm(number: Int, revision: String) async {
+        loadCacheIfNeeded()
+        _ = try? await readEdit(number, revision: revision)
+        _ = try? await labelEvents(number, revision: revision)
+    }
+
+    /// Writes the cache for these issues (the open ones) if anything was read since it was last written.
+    func saveCache(keeping numbers: Set<Int>) {
+        guard let cache, cacheChanged else { return }
+        cacheChanged = false
+        var stored = DiskCache()
+        for (number, entry) in editCache where numbers.contains(number) {
+            stored.edits[number] = .init(revision: entry.revision, value: entry.edit)
+        }
+        for (number, entry) in eventCache where numbers.contains(number) {
+            stored.events[number] = .init(revision: entry.revision, value: entry.events)
+        }
+        cache.save(stored)
+    }
+
+    private func loadCacheIfNeeded() {
+        guard let stored = cache?.loadOnce() else { return }
+        for (number, entry) in stored.edits where editCache[number] == nil { editCache[number] = (entry.revision, entry.value) }
+        for (number, entry) in stored.events where eventCache[number] == nil { eventCache[number] = (entry.revision, entry.value) }
     }
 
     func connectLedger(_ ledger: Ledger) async throws {
@@ -161,6 +203,7 @@ actor GitHubIssueDescriptions {
         let data = try await transport.request("POST", "graphql", body: body)
         let edit = try Self.decoder().decode(EditorResponse.self, from: data).data.repository.issue
         editCache[number] = (revision, edit)
+        cacheChanged = true
         return edit
     }
 
@@ -175,6 +218,7 @@ actor GitHubIssueDescriptions {
             if items.count < 100 { break }
         }
         eventCache[number] = (revision, events)
+        cacheChanged = true
         return events
     }
 

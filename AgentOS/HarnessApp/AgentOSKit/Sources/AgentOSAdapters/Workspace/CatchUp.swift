@@ -353,19 +353,11 @@ public actor CatchUpCoordinator {
     }
 
     private func addDetachedWorktree(_ directory: URL) async throws {
-        try FileManager.default.createDirectory(
-            at: workspace.worktreesDirectory,
-            withIntermediateDirectories: true
-        )
-        try await git(
-            ["worktree", "add", "-q", "--detach", directory.path, landingBranch],
-            in: workspace.root
-        )
+        try await workspace.addDetachedWorkingCopy(at: directory, from: landingBranch)
     }
 
     private func removeWorktree(_ directory: URL) async throws {
-        try await git(["worktree", "remove", "--force", directory.path], in: workspace.root)
-        try await git(["worktree", "prune"], in: workspace.root)
+        try await workspace.removeWorkingCopy(at: directory)
     }
 
     private func isAncestor(_ ancestor: String, of descendant: String) async throws -> Bool {
@@ -382,8 +374,10 @@ public actor CatchUpCoordinator {
 
     @discardableResult
     private func git(_ arguments: [String], in directory: URL) async throws -> String {
-        let result = try await GitLocks.retryingAfterStaleLock {
-            try await ProcessRunner.run("/usr/bin/env", ["git"] + arguments, in: directory)
+        let result = try await workspace.slowGitLog.timing(arguments, in: directory, relativeTo: workspace.storage) {
+            try await GitLocks.retryingAfterStaleLock {
+                try await ProcessRunner.run("/usr/bin/env", ["git"] + arguments, in: directory)
+            }
         }
         guard result.status == 0 else {
             throw AgentFailure("git \(arguments.first ?? "") failed: \(result.output.suffix(300))")
@@ -408,9 +402,8 @@ public actor CatchUpCoordinator {
         let method: CatchUpReconciliationMethod = represented.count == landedCommits.count ? .move : .merge
 
         let directory = workspace.worktreesDirectory.appending(path: "catch-up-proposal-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: workspace.worktreesDirectory, withIntermediateDirectories: true)
         let proposalStart = method == .move ? target : oldTip
-        try await git(["worktree", "add", "-q", "--detach", directory.path, proposalStart], in: workspace.root)
+        try await workspace.addDetachedWorkingCopy(at: directory, from: proposalStart)
         do {
             let mappings: [String: String] = [:]
             if method == .merge {

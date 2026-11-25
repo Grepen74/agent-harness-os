@@ -1,4 +1,5 @@
 import AgentOSCore
+import AgentOSTestSupport
 import Foundation
 import Testing
 @testable import AgentOSAdapters
@@ -120,7 +121,7 @@ extension GH_88Tests {
         }
 
         func cleanUp() {
-            do { try FileManager.default.removeItem(at: directory) }
+            do { try FixtureFolder.remove(directory) }
             catch { Issue.record("Could not remove the GH-88 repository fixture: \(error)") }
         }
 

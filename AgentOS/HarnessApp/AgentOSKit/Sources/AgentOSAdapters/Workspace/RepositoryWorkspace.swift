@@ -7,6 +7,9 @@ import Synchronization
 ///
 ///     <storage>/                       ~/Library/Application Support/AgentOS/repos/<repo-id>/
 ///       worktrees/<node>/              a leaf's branch `agentos/leaf/<node>`, where its agents work
+///       trash/                         removed worktrees, deleted in the background
+///       trash-cleanup.log              trash that couldn't be deleted
+///       slow-git.log                   git commands that took 10 seconds or more
 ///       exclude                        build output never committed from a worktree
 ///
 /// Work starts from and lands on its top-level requirement's branch, created from the default branch.
@@ -28,6 +31,7 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
     let mergeAidLock = AsyncSemaphore(1)
     let mainReferenceLock = AsyncSemaphore(1)
     let mainReference = MainReferenceSelection()
+    let trash: WorktreeTrash
     private let requirementBranches = RequirementBranchBindings()
     /// "branchTip commit" pairs found not contained: the same until the branch moves.
     private let notContained = SeenPairs()
@@ -47,11 +51,14 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
         self.landingBranch = landingBranch
         self.defaultBranch = defaultBranch
         self.protectedPaths = protectedPaths
+        self.trash = WorktreeTrash(log: storage.appending(path: "trash-cleanup.log"))
     }
 
     public var worktreesDirectory: URL { storage.appending(path: "worktrees", directoryHint: .isDirectory) }
     public var artifactsDirectory: URL { storage.appending(path: "artifacts", directoryHint: .isDirectory) }
+    var trashDirectory: URL { storage.appending(path: "trash", directoryHint: .isDirectory) }
     var excludeFile: URL { storage.appending(path: "exclude") }
+    var slowGitLog: SlowGitLog { SlowGitLog(file: storage.appending(path: "slow-git.log")) }
 
     public func worktree(for id: NodeID) -> URL { worktreesDirectory.appending(path: id) }
     public func branch(for id: NodeID) -> String { Self.branchPrefix + id }
@@ -63,7 +70,7 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
         if !FileManager.default.fileExists(atPath: excludeFile.path) {
             try Self.buildOutput.joined(separator: "\n").write(to: excludeFile, atomically: true, encoding: .utf8)
         }
-        try await worktreeLock.withPermit { try await git(["worktree", "prune"], in: root) }
+        try await pruneAndEmptyTrash()
     }
 
     public func prepareRequirementBranch(for requirement: NodeIdentity, leaves: [NodeID]) async throws -> String? {
@@ -98,36 +105,71 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
     private func createWorktree(for id: NodeID, keepingPaths paths: [String]) async throws -> URL {
         let landingBranch = try landingBranch(for: id)
         let directory = worktree(for: id)
-        try await worktreeLock.withPermit {
-            // Read before -B moves the branch back to the landing branch.
-            let previous = paths.isEmpty ? nil : (try? await git(["rev-parse", "--verify", "--quiet",
-                                                                  branch(for: id) + "^{commit}"], in: root))?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            try? await removeWorktreeNow(for: id)
-            try FileManager.default.createDirectory(at: worktreesDirectory, withIntermediateDirectories: true)
-            try await git(["worktree", "add", "-q", "-B", branch(for: id), directory.path, landingBranch], in: root)
-            if let previous, !previous.isEmpty {
-                for path in paths where !(try await git(["ls-tree", "--name-only", previous, "--", path], in: root)).isEmpty {
-                    _ = try await git(["checkout", previous, "--", path], in: directory)
-                }
-            }
+        do {
+            try await setUpWorktree(at: directory, for: id, from: landingBranch, keepingPaths: paths)
+        } catch let problem as WorkspaceProblem {
+            throw problem
+        } catch {
+            throw WorkspaceProblem("couldn't set up the working copy for \(id): \(error)")
         }
         return directory
     }
 
+    private func setUpWorktree(at directory: URL, for id: NodeID, from landingBranch: String,
+                               keepingPaths paths: [String]) async throws {
+        try await worktreeLock.withPermit {
+            // -B moves the branch back to the landing branch, so the commit the kept paths come from is held in a ref
+            // until they are back: a try that fails half way leaves it for the next one.
+            let keeping = keepingRef(for: id)
+            var previous: String?
+            if !paths.isEmpty {
+                previous = try await commit(at: keeping)
+                if previous == nil, let tip = try await commit(at: branch(for: id)) {
+                    try await git(["update-ref", keeping, tip], in: root)
+                    previous = tip
+                }
+            }
+            try await removeWorktreeNow(for: id)
+            try FileManager.default.createDirectory(at: worktreesDirectory, withIntermediateDirectories: true)
+            try await git(["worktree", "add", "-q", "-B", branch(for: id), directory.path, landingBranch], in: root)
+            if let previous {
+                for path in paths where !(try await git(["ls-tree", "--name-only", previous, "--", path], in: root)).isEmpty {
+                    _ = try await git(["checkout", previous, "--", path], in: directory)
+                }
+            }
+            _ = try? await git(["update-ref", "-d", keeping], in: root)
+        }
+    }
+
+    /// Outside `refs/heads`, so it is never taken for a branch.
+    private func keepingRef(for id: NodeID) -> String { "refs/agentos/keeping/" + id }
+
+    /// The commit a ref points at, or nil when there is none. A git that ran out of time is a problem, not "none".
+    private func commit(at ref: String) async throws -> String? {
+        do {
+            let tip = try await git(["rev-parse", "--verify", "--quiet", ref + "^{commit}"], in: root)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return tip.isEmpty ? nil : tip
+        } catch let problem as WorkspaceProblem {
+            throw problem
+        } catch {
+            return nil
+        }
+    }
+
     public func removeWorktree(for id: NodeID) async throws {
         try await worktreeLock.withPermit {
+            try await removeWorktreeNow(for: id)
             // Removed for good (retested, replanned, landed): a kept implementation no longer applies either.
             _ = try? await git(["update-ref", "-d", keptImplementationRef(for: id)], in: root)
-            try await removeWorktreeNow(for: id)
         }
     }
 
     private func removeWorktreeNow(for id: NodeID) async throws {
+        try await retireWorkingCopy(at: worktree(for: id))
         // A new or removed worktree means the work starts over: unfinished work from before no longer applies.
+        // Only once it is gone: a worktree that couldn't be removed keeps its unfinished work for the next try.
         _ = try? await git(["update-ref", "-d", unfinishedRef(for: id)], in: root)
-        try await git(["worktree", "remove", "--force", worktree(for: id).path], in: root)
-        try await git(["worktree", "prune"], in: root)
     }
 
     // MARK: Read-only snapshot
@@ -153,11 +195,11 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
     }
 
     public func removeSnapshot(_ directory: URL) async {
-        try? await worktreeLock.withPermit {
-            _ = try? await git(["worktree", "remove", "--force", directory.path], in: root)
-            _ = try? await git(["worktree", "prune"], in: root)
+        do {
+            try await removeWorkingCopy(at: directory)
+        } catch {
+            await trash.note("couldn't remove snapshot \(directory.path): \(error)")
         }
-        try? FileManager.default.removeItem(at: directory)
     }
 
     @discardableResult
@@ -668,10 +710,16 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
 
     @discardableResult
     func git(_ arguments: [String], in directory: URL, environment: [String: String] = [:]) async throws -> String {
-        let result = try await GitLocks.retryingAfterStaleLock {
-            try await ProcessRunner.run(
-                "/usr/bin/env", ["git", "-c", "core.excludesFile=\(excludeFile.path)"] + arguments, in: directory,
-                timeout: .seconds(120), environment: environment)
+        let result = try await slowGitLog.timing(arguments, in: directory, relativeTo: storage) {
+            try await GitLocks.retryingAfterStaleLock {
+                try await ProcessRunner.run(
+                    "/usr/bin/env", ["git", "-c", "core.excludesFile=\(excludeFile.path)"] + arguments, in: directory,
+                    timeout: .seconds(120), environment: environment)
+            }
+        }
+        if result.crashSignal == SIGKILL {
+            let place = directory.path.hasPrefix(storage.path) ? directory.lastPathComponent : "the repository"
+            throw WorkspaceProblem("git \(arguments.first ?? "") in \(place) ran out of time (120 seconds)")
         }
         guard result.status == 0 else {
             throw AgentFailure("git \(arguments.first ?? "") failed: \(result.output.suffix(300))")
