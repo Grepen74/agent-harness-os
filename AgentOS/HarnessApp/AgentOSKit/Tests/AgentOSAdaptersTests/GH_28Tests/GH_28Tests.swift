@@ -704,7 +704,7 @@ struct GH_28Tests {
         try await fixture.advanceUntil { await fixture.workspace.landedCount == 1 }
         let kept: [String?] = await fixture.workspace.keptFolders
         #expect(await fixture.author.tasks.count == 3)
-        #expect(kept == [nil, Fixture.folder, nil], "\(kept)")
+        #expect(kept == [nil, Fixture.testFile, nil], "\(kept)")
     }
 
     @Test
@@ -720,7 +720,7 @@ struct GH_28Tests {
         try await fixture.advanceUntil { await fixture.workspace.landedCount == 1 }
         let kept: [String?] = await fixture.workspace.keptFolders
         #expect(await fixture.author.tasks.count == 4)
-        #expect(kept == [nil, Fixture.folder, Fixture.folder, Fixture.folder], "\(kept)")
+        #expect(kept == [nil, Fixture.testFile, Fixture.testFile, Fixture.testFile], "\(kept)")
     }
 
     actor QueuedPreflight: AcceptanceTestPreflight {
