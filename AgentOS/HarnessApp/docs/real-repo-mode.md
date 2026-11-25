@@ -787,6 +787,9 @@ The harness's state for a repo is private and lives outside the repo:
 ~/Library/Application Support/AgentOS/repos/<repo-id>/
   ledger.jsonl     events, hash-chained
   tracker.json     local tracker tickets (when no tracker adapter is configured)
+  github-cache/    what was read per GitHub issue (comments.json; descriptions.json: last edit, label
+                   events), each for the issue's updated_at, so a new launch reads again only the issues that
+                   changed. Open issues only; a file that can't be read is ignored
   artifacts/       check logs (evidence), e.g. baseline-<commit>.log, and each agent run's own log,
                    <node>-<run>-agent.log, written as it runs
   baseline/src/    the export of main the baseline last ran on
