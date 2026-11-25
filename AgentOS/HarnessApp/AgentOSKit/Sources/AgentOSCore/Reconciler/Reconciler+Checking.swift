@@ -83,32 +83,33 @@ extension Reconciler {
         return "\(node.displayName) runner crash repeated → needs human"
     }
 
-    /// Moves a leaf onto the latest landing branch. Work landed there may have changed other work's tests the leaf
-    /// updated as well: their lock moves with them.
+    /// Moves a leaf onto the latest landing branch, renewing only previously intact test locks.
     func rebaseOntoMain(_ node: NodeState, in directory: URL) async throws -> RebaseResult {
-        try await renewingOtherTestsLock(node, in: directory) { try await workspace.rebaseOntoMain(directory) }
+        try await renewingTestsLocks(node, in: directory) { try await workspace.rebaseOntoMain(directory) }
     }
 
     /// Starts the implementation over from the leaf's tests on the latest landing branch, moving the lock as above.
     func resetForRework(_ node: NodeState, in directory: URL) async throws {
-        try await renewingOtherTestsLock(node, in: directory) { try await workspace.resetForRework(directory) }
+        try await renewingTestsLocks(node, in: directory) { try await workspace.resetForRework(directory) }
     }
 
-    private func renewingOtherTestsLock<T>(_ node: NodeState, in directory: URL,
-                                           _ move: () async throws -> T) async throws -> T {
+    private func renewingTestsLocks<T>(_ node: NodeState, in directory: URL,
+                                      _ move: () async throws -> T) async throws -> T {
         let current = await ledger.workingState().nodes[node.id] ?? node
         // The move throws uncommitted changes away first, so they don't count.
         try await workspace.discardChanges(keeping: [], in: directory)
-        let intact = current.updatedOtherTestsIntact(in: directory)
+        let folder = workspace.testFolder(for: current.spec)
+        let intact = current.testsLocksIntact(in: directory, testFolder: folder)
         let result = try await move()
-        if let renewal = current.renewedOtherTestsLock(in: directory, wasIntact: intact) {
-            try await write(node.id, by: .reconciler, [renewal])
+        let renewals = current.renewedTestsLocks(in: directory, testFolder: folder, wasIntact: intact)
+        if !renewals.isEmpty {
+            try await write(node.id, by: .reconciler, renewals)
         }
         return result
     }
 
     func testsDigest(_ node: NodeState, in directory: URL) -> String {
-        Hashing.digest(of: directory.appending(path: workspace.testFolder(for: node.spec)))
+        node.acceptanceTestsDigest(in: directory, testFolder: workspace.testFolder(for: node.spec))
     }
 
     /// Acceptance tests are locked: the node's own must match their fingerprint, and the branch may not touch
@@ -131,8 +132,15 @@ extension Reconciler {
         let own = workspace.testFolder(for: node.spec) + "/"
         // Approval alone grants the implementer nothing: only the author's fingerprinted updates are allowed.
         let allowed = Set(allowedOtherTestUpdates(node.updatedOtherTests, of: node))
+        let recorded = node.recordedTests.map { Set($0.files) }
+        if let recorded, changed.contains(where: {
+            $0.hasPrefix(own) && !recorded.contains($0) && !allowed.contains($0)
+        }) {
+            return "Acceptance tests were changed after they were fixed (not allowed)"
+        }
         let others = changed.filter {
-            workspace.isInUpdatableTestArea($0) && !$0.hasPrefix(own) && !allowed.contains($0)
+            workspace.isInUpdatableTestArea($0)
+                && !(recorded?.contains($0) ?? $0.hasPrefix(own)) && !allowed.contains($0)
         }
         if !others.isEmpty { return "Changed other nodes' tests (not allowed): \(others.joined(separator: ", "))" }
         let protected = policy.protectedPathViolations(changed)

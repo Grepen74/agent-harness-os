@@ -152,8 +152,10 @@ extension Reconciler {
         let reviewReason = "Review the acceptance tests and assumptions, then add harness:build"
         // Failed test-author runs aren't the implementer's attempts.
         let reset = await onlyTestAuthorFailures(node)
+        let recordedNode = await ledger.workingState().nodes[node.id] ?? node
         try await write(node.id, by: author, [
-            .runFinished(run: run, outcome: "acceptance tests committed"), .testsFixed(digest: testsDigest(node, in: directory))]
+            .runFinished(run: run, outcome: "acceptance tests committed"),
+            .testsFixed(digest: testsDigest(recordedNode, in: directory))]
             + (reset ? [.attemptsReset] : [])
             + (updatedOtherTests.isEmpty ? [] : [otherTestsEvent])
             + [.expectedAPIReported(report.expectedAPI),

@@ -309,7 +309,10 @@ public actor CatchUpCoordinator {
         for id in activeLeaves {
             let directory = workspace.worktree(for: id)
             try await workspace.discardChanges(keeping: [], in: directory)
-            if state.nodes[id]?.updatedOtherTestsIntact(in: directory) == true { intact.insert(id) }
+            if let node = state.nodes[id],
+               node.testsLocksIntact(in: directory, testFolder: workspace.testFolder(for: node.spec)) {
+                intact.insert(id)
+            }
         }
         let leaves = try await workspace.catchUpActiveLeaves(activeLeaves)
         var events = [
@@ -319,12 +322,13 @@ public actor CatchUpCoordinator {
                 kind: .catchUpSucceeded(main: main, newAgentOSMainTip: tip, method: method)
             ),
         ]
-        // Main may have changed other work's tests a leaf updated (rebased, or reset for rework): the lock moves.
+        // Main may have changed locked tests; renew only locks that were intact before the move.
         for id in activeLeaves where leaves.rebased.contains(id) || leaves.rework[id] != nil {
             let directory = workspace.worktree(for: id)
-            if let renewal = state.nodes[id]?.renewedOtherTestsLock(in: directory, wasIntact: intact.contains(id)) {
-                events.append(LedgerEvent(node: id, by: .adapter("Catch-up"), kind: renewal))
-            }
+            guard let node = state.nodes[id] else { continue }
+            let renewals = node.renewedTestsLocks(
+                in: directory, testFolder: workspace.testFolder(for: node.spec), wasIntact: intact.contains(id))
+            events += renewals.map { LedgerEvent(node: id, by: .adapter("Catch-up"), kind: $0) }
         }
         var notifications: [(ticket: String, reason: String)] = []
         for id in activeLeaves {
