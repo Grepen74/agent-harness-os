@@ -1,6 +1,7 @@
 @testable import AgentOSAdapters
 import AgentOSCore
 import AgentOSSimulation
+import AgentOSTestSupport
 import Foundation
 import Synchronization
 import Testing
@@ -36,12 +37,12 @@ extension GH_49Tests {
         } catch {
             agents.releaseAll()
             try await bounded { await simulation.reconciler.shutdown(reason: "GH-49 test cleanup") }
-            try FileManager.default.removeItem(at: directory)
+            try FixtureFolder.remove(directory)
             throw error
         }
         agents.releaseAll()
         try await bounded { await simulation.reconciler.shutdown(reason: "GH-49 test cleanup") }
-        try FileManager.default.removeItem(at: directory)
+        try FixtureFolder.remove(directory)
     }
 
     static func withRepository(
@@ -68,7 +69,7 @@ extension GH_49Tests {
                 storage: directory.appending(path: "storage"), ledger: Ledger(store: store),
                 config: config, policy: policy, team: agents.team, checks: Checks())
         } catch {
-            try FileManager.default.removeItem(at: directory)
+            try FixtureFolder.remove(directory)
             throw error
         }
         do {
@@ -77,13 +78,13 @@ extension GH_49Tests {
             store.failReads = false
             agents.releaseAll()
             try await bounded { await session.reconciler.shutdown(reason: "GH-49 test cleanup") }
-            try FileManager.default.removeItem(at: directory)
+            try FixtureFolder.remove(directory)
             throw error
         }
         store.failReads = false
         agents.releaseAll()
         try await bounded { await session.reconciler.shutdown(reason: "GH-49 test cleanup") }
-        try FileManager.default.removeItem(at: directory)
+        try FixtureFolder.remove(directory)
     }
 
     @discardableResult

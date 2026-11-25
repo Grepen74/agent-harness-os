@@ -83,7 +83,7 @@ extension GH_88Tests {
         }
 
         func cleanUp() {
-            do { try FileManager.default.removeItem(at: root) }
+            do { try FixtureFolder.remove(root) }
             catch { Issue.record("Could not remove the GH-88 fixture: \(error)") }
         }
     }

@@ -791,7 +791,13 @@ The harness's state for a repo is private and lives outside the repo:
                    <node>-<run>-agent.log, written as it runs
   baseline/src/    the export of main the baseline last ran on
   worktrees/       one working copy per leaf, on branch agentos/leaf/<node>
-  trash/           removed working copies, moved aside at once and deleted in the background
+  trash/           removed working copies (leaves, snapshots, catch-up's), moved aside at once and deleted
+                   in the background; one git still lists, or has locked (git worktree lock), is left where it is.
+                   While git lists an unlocked worktree whose folder is gone, the whole trash is kept
+  trash-cleanup.log  trash that couldn't be deleted (retried the next round), trash kept for that reason, and
+                   snapshots that couldn't be removed
+  slow-git.log     git commands that took 10 seconds or more: how long, how it ended, the machine's load
+                   and where it ran, to tell a busy machine from a troublesome working copy
   snapshots/       detached main checkouts for decomposition, requirement checkouts for landing diagnosis
   exclude          files git ignores in worktrees (.build/, DerivedData/, xcuserdata/, .DS_Store…)
 ```
@@ -850,12 +856,15 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
 
   Reports name the failing tests and include every rerun outcome.
 - **Trying again by itself.** An escalation caused by the machine rather than the change (a landing
-  infrastructure problem, unreliable tests, a runner crash repeated after its retry) clears itself 10, 30
+  infrastructure problem, unreliable tests, a runner crash repeated after its retry, or a workspace problem:
+  a git command that ran out of time, a leaf's working copy that couldn't be set up) clears itself 10, 30
   and then 90 minutes after it was raised, with a "🔁 Trying again by itself (n of 3)" comment. The work
   still needs every check to pass; failing again escalates again and starts the next, longer wait. After
   the third, the escalation stays for a person. Anything a person does on the ticket (a label, an answer)
   starts the count again. Escalations about the change itself (its own failures, requirements conflicts,
   review limits) never clear by themselves. `agentos run` keeps going while such a retry is pending.
+  A test-author or implementer run that ends on a workspace problem is no failed attempt and gives its turn
+  of the run budget back; the test draft or unfinished work it took over stays for the next run.
 - **Landing** is a fast-forward of the landing branch with `git update-ref` (compare-and-swap), so no checkout
   is involved. It can't happen while any checkout has the leaf's requirement branch checked out, because
   moving it there would make that working copy look modified. The node then waits in landing: no run, no
@@ -1028,7 +1037,8 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
   and to reuse the before screenshots already taken. They stay kept until that attempt ends: failing again
   keeps its changes instead; submitting or asking questions forgets them (a scope request keeps them),
   and reporting a broken test moves them to the kept implementation (see the broken-test routing). A run that got them back and undid all of
-  them before failing forgets them, so they don't come back again. Changes
+  them before failing forgets them, so they don't come back again. A run that fails before it got them back
+  (git ran out of time rebasing, say) leaves them kept. Changes
   that no longer apply after the rebase are dropped. A new worktree (new tests, `harness:retest`) forgets
   them. If the changes can't be kept, the ticket goes to a person rather than to a retry that would clean
   them away. A run that ran out of time but left its work further along than it started (the kept changes

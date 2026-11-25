@@ -38,6 +38,8 @@ extension Reconciler {
         // What the run started from, so a run that runs out of time can tell whether it got any further.
         var carriedOver: String?
         var restoredAny = false
+        // Until the unfinished work is back, the worktree holds nothing new: saving it would replace that work.
+        var restored = false
         // Set once the implementation is kept for broken-test routing, which then resets the worktree.
         var implementationKept = false
         do {
@@ -46,6 +48,7 @@ extension Reconciler {
             _ = try await rebaseOntoMain(node, in: directory)
             // An earlier attempt that failed (ran out of time, say) left work to continue rather than redo.
             let unfinished = try await workspace.restoreUnfinishedWork(for: node.id, in: directory)
+            restored = true
             carriedOver = Hashing.digest(ofFiles: unfinished, in: directory)
             restoredAny = !unfinished.isEmpty
             try await workspace.prepareBuild(in: directory)
@@ -157,7 +160,7 @@ extension Reconciler {
         } catch {
             let kept: [String]
             do {
-                kept = try await keepUnfinishedWork(directory, of: node)
+                kept = restored ? try await keepUnfinishedWork(directory, of: node) : []
             } catch let keeping {
                 // The next run would clean the worktree, and with it the only copy of this run's work.
                 let reason = "Couldn't keep the failed run's unfinished work (\(keeping)). It is still uncommitted in " +
@@ -167,6 +170,10 @@ extension Reconciler {
                     .phaseChanged(to: .ready), .flagSet(.escalated, reason: reason)])
                 await tracker.comment(on: node.ticket, "⚠️ Needs a human: \(reason)\nWhen checked, add label harness:retry.")
                 return "\(node.displayName) escalated: \(reason)"
+            }
+            if let problem = error as? WorkspaceProblem {
+                return try await stopForWorkspaceProblem(problem, on: node, run: run, by: author,
+                                                         keeping: [.phaseChanged(to: .ready)])
             }
             let outOfTime = (error as? AgentFailure)?.outOfTime == true
             if kept.isEmpty, restoredAny, !implementationKept {

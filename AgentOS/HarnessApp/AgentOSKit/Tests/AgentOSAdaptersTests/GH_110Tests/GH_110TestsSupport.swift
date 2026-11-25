@@ -255,7 +255,7 @@ extension GH_110Tests {
 
         func cleanUp() {
             agents.release.open()
-            do { try FileManager.default.removeItem(at: directory) }
+            do { try FixtureFolder.remove(directory) }
             catch { Issue.record("Could not remove GH-110's isolated fixture: \(error)") }
         }
     }

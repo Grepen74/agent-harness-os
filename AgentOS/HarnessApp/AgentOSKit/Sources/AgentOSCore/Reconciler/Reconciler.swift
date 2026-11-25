@@ -396,6 +396,9 @@ public actor Reconciler {
             }
         } catch LedgerError.conflict {
             failure = "ledger changed during the run"
+        } catch let problem as WorkspaceProblem {
+            failure = problem.outcome
+            result = "⚠️ \(node.displayName): \(problem)"
         } catch {
             failure = "\(error)"
             result = "⚠️ \(node.displayName): \(error)"
@@ -410,8 +413,10 @@ public actor Reconciler {
         if let current = await ledger.workingState().nodes[id], let active = current.activeRun, active.run == ownedRun {
             let stopped = stopReasons[active.run] ?? shutdownReason.map { "stopped: \($0)" }
                 ?? (Task.isCancelled ? "stopped: task cancelled" : nil)
-            let outcome = stopped ?? "failed: \(failure ?? "task ended without recording a finish")"
-            let reason = "\(outcome). Check the run, then add harness:retry."
+            let failed = failure.map { WorkspaceProblem.isOutcome($0) ? $0 : "failed: \($0)" }
+            let outcome = stopped ?? failed ?? "failed: task ended without recording a finish"
+            let reason = WorkspaceProblem.isOutcome(outcome) ? workspaceProblemReason(outcome)
+                : "\(outcome). Check the run, then add harness:retry."
             var kinds: [EventKind] = [.runFinished(run: active.run, outcome: outcome)]
             // Already escalated (a diagnosis run, say): its reason stays.
             let escalate = current.flags[.escalated] == nil
