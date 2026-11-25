@@ -150,6 +150,8 @@ public struct ReviewRequest: Sendable {
     /// The ticket's own test folder. Its tests are shown in full; other work's tests it updated only through the
     /// diff, so a ticket that updates many older tests doesn't swamp the reviewer. Empty: all in full.
     public let testFolder: String
+    /// Recorded own tests, when available. Nil preserves the folder-based listing.
+    public let testFiles: [String]?
     /// Where the reviewer's output is kept, so a review that fails can be looked into.
     public let log: URL?
     /// Acceptance-test stage: the implementer's broken-test reports the tests were changed for since they were last
@@ -165,7 +167,7 @@ public struct ReviewRequest: Sendable {
                 context: ReviewContext, instructions: String = "", directory: URL = URL(filePath: "."),
                 earlierFindings: [[String]] = [], testFolder: String = "", log: URL? = nil,
                 brokenTestReports: [String] = [], clarifications: [Clarification] = [],
-                approvedTestUpdates: [String] = []) {
+                approvedTestUpdates: [String] = [], testFiles: [String]? = nil) {
         self.stage = stage
         self.spec = spec
         self.acceptanceTests = acceptanceTests
@@ -174,6 +176,7 @@ public struct ReviewRequest: Sendable {
         self.directory = directory
         self.earlierFindings = earlierFindings
         self.testFolder = testFolder
+        self.testFiles = testFiles
         self.log = log
         self.brokenTestReports = brokenTestReports
         self.clarifications = clarifications

@@ -13,6 +13,7 @@ extension Reconciler {
             // Never a whole area, the own folder or a folder holding it.
             areas.contains { !$0.isEmpty && file.hasPrefix($0) && file.count > $0.count }
                 && file != own && !file.hasPrefix(own + "/") && !own.hasPrefix(file + "/")
+                && !(node.recordedTests?.files.contains(file) ?? false)
                 && !file.split(separator: "/").contains("..")
         }
         let protected = Set(policy.protectedPathViolations(Array(candidates)))

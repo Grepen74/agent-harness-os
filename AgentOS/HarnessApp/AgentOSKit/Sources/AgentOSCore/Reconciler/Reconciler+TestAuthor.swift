@@ -28,7 +28,7 @@ extension Reconciler {
         }
         if !continuesDraft { try? await workspace.forgetTestDraft(for: node.id) }
         let keep = !continuesDraft && keepsEarlier
-        let kept = [workspace.testFolder(for: node.spec)] + node.updatedOtherTests
+        let kept = (node.recordedTests?.files ?? [workspace.testFolder(for: node.spec)]) + node.updatedOtherTests
         var directory: URL
         let draft: [String]
         do {
@@ -48,6 +48,8 @@ extension Reconciler {
         let task = await makeTask(node, run: run, in: directory, log: agentLog(node, run),
                                   for: .testAuthor, unfinishedWork: draft, draftCheck: draftCheck)
         let own = workspace.testFolder(for: node.spec) + "/"
+        let recordedFiles = Set(node.recordedTests?.files ?? [])
+        let isOwn = { (file: String) in recordedFiles.contains(file) || file.hasPrefix(own) }
         let report: AgentReport
         do {
             report = try await withScratchDirectory(task.scratchDirectory) {
@@ -83,21 +85,28 @@ extension Reconciler {
         do {
             // The author may have added placeholder code so its tests build and run; only its tests, and other
             // work's tests it says this item deliberately changes, are committed.
-            try await workspace.discardChanges(keeping: [workspace.testFolder(for: node.spec)] + updatable, in: directory)
+            try await workspace.discardChanges(
+                keeping: [workspace.testFolder(for: node.spec)] + recordedFiles.sorted() + updatable, in: directory)
             let changed = try await workspace.commitAll(in: directory, message: "\(node.spec.id): acceptance tests", author: run)
             // After the commit, so the check sees everything the author wrote (changes are compared commit to commit).
             let changedFiles = try await workspace.changedFiles(in: directory)
             // A listed folder keeps the files in it.
             let isUpdated = { (file: String) in updatable.contains { file == $0 || file.hasPrefix($0 + "/") } }
             let protected = Set(policy.protectedPathViolations(changedFiles))
-            updatedOtherTests = changedFiles.filter { !$0.hasPrefix(own) && isUpdated($0) && !protected.contains($0) }
-            let outside = changedFiles.filter { !$0.hasPrefix(own) && !updatedOtherTests.contains($0) }
+            updatedOtherTests = changedFiles.filter { !isOwn($0) && isUpdated($0) && !protected.contains($0) }
+            let outside = changedFiles.filter { !isOwn($0) && !updatedOtherTests.contains($0) }
             guard outside.isEmpty, changed != nil else {
                 let none = report.questions.isEmpty ? "no tests written"
                     : "no tests written: it reported questions with suggested answers but didn't write tests on them"
                 throw AgentFailure(changed == nil ? none : "wrote outside its own test folder \(own): \(outside.joined(separator: ", "))")
             }
-            testFiles = try committedTestFiles(in: directory, folder: workspace.testFolder(for: node.spec))
+            let folderFiles = try committedTestFiles(in: directory, folder: workspace.testFolder(for: node.spec))
+            let existingRecorded = try recordedFiles.filter {
+                let file = directory.appending(path: $0)
+                guard FileManager.default.fileExists(atPath: file.path) else { return false }
+                return try file.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true
+            }
+            testFiles = Set(folderFiles).union(existingRecorded).sorted()
             // Committed: the draft is in the branch now.
             try? await workspace.forgetTestDraft(for: node.id)
         } catch let problem as WorkspaceProblem {
@@ -111,6 +120,7 @@ extension Reconciler {
         }
 
         try await write(node.id, by: author, [.testsRecorded(files: testFiles, suite: node.spec.testTarget)])
+        let recordedNode = await ledger.workingState().nodes[node.id] ?? node
 
         let otherTestsEvent = EventKind.otherTestsUpdated(
             files: updatedOtherTests, digest: Hashing.digest(ofFiles: updatedOtherTests, in: directory))
@@ -126,6 +136,7 @@ extension Reconciler {
         let preflight = await acceptanceTestPreflight.compileTests(
             in: directory,
             testFolder: workspace.testFolder(for: node.spec),
+            testFiles: recordedNode.recordedTests?.files,
             expectedAPI: report.expectedAPI
         )
         try Task.checkCancellation()
@@ -139,7 +150,7 @@ extension Reconciler {
                 fullLog: fullLog,
                 report: report,
                 assumptions: assumptions,
-                node: node,
+                node: recordedNode,
                 run: run,
                 author: author,
                 directory: directory
@@ -149,7 +160,7 @@ extension Reconciler {
         if team.reviewer != nil, policy.review.requiresReview {
             let context = try await workspace.reviewContext(in: directory, against: requirementBranch(for: node.id))
             if policy.review.level(for: node.spec.touches + context.changedFiles) != .none {
-                let result = try await review(node, stage: .acceptanceTests, context: context, in: directory, run: run)
+                let result = try await review(recordedNode, stage: .acceptanceTests, context: context, in: directory, run: run)
                 if !result.passed {
                     try await rememberOtherTests()
                     return try await returnReviewFindings(result, stage: .acceptanceTests, node: node, run: run)
@@ -165,7 +176,6 @@ extension Reconciler {
         let reviewReason = "Review the acceptance tests and assumptions, then add harness:build"
         // Failed test-author runs aren't the implementer's attempts.
         let reset = await onlyTestAuthorFailures(node)
-        let recordedNode = await ledger.workingState().nodes[node.id] ?? node
         try await write(node.id, by: author, [
             .runFinished(run: run, outcome: "acceptance tests committed"),
             .testsFixed(digest: testsDigest(recordedNode, in: directory))]
@@ -362,7 +372,9 @@ extension Reconciler {
         let breaksRules = mistakes.allSatisfy(\.breaksTestRules)
         let problem = breaksRules ? "break the test rules" : "don't compile"
         let own = workspace.testFolder(for: node.spec) + "/"
-        let clashes = mistakes.contains { !$0.file.hasPrefix(own) }
+        let clashes = mistakes.contains { diagnostic in
+            node.recordedTests.map { !Set($0.files).contains(diagnostic.file) } ?? !diagnostic.file.hasPrefix(own)
+        }
             ? "\n\nErrors in other test files mean your tests declare names those files also declare. All test files "
                 + "compile together: make your helper types `private`, or nest them inside your suite."
             : ""
@@ -429,7 +441,7 @@ extension Reconciler {
             : "\(node.displayName) acceptance tests \(problem) → returned to test author"
     }
 
-    private func committedTestFiles(in directory: URL, folder: String) throws -> [String] {
+    func committedTestFiles(in directory: URL, folder: String) throws -> [String] {
         let root = directory.appending(path: folder)
         guard FileManager.default.fileExists(atPath: root.path) else { return [] }
         return try FileManager.default.subpathsOfDirectory(atPath: root.path).filter {

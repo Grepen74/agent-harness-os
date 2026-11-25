@@ -36,6 +36,23 @@ public protocol AcceptanceTestPreflight: Sendable {
         testFolder: String,
         expectedAPI: [String]
     ) async -> AcceptanceTestPreflightResult
+    func compileTests(
+        in directory: URL,
+        testFolder: String,
+        testFiles: [String]?,
+        expectedAPI: [String]
+    ) async -> AcceptanceTestPreflightResult
+}
+
+public extension AcceptanceTestPreflight {
+    func compileTests(
+        in directory: URL,
+        testFolder: String,
+        testFiles: [String]?,
+        expectedAPI: [String]
+    ) async -> AcceptanceTestPreflightResult {
+        await compileTests(in: directory, testFolder: testFolder, expectedAPI: expectedAPI)
+    }
 }
 
 public struct SkippedAcceptanceTestPreflight: AcceptanceTestPreflight {
