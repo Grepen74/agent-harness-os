@@ -298,7 +298,8 @@ struct NodeDetail: View {
             row("Links", node.links.isEmpty ? "–" : node.links.map { "\($0.type.rawValue) \($0.to)" }.joined(separator: "\n"))
             row("Touches", node.spec.touches.isEmpty ? "–" : node.spec.touches.joined(separator: ", "))
             row("Paths", node.spec.predictedPaths.isEmpty ? "–" : node.spec.predictedPaths.joined(separator: "\n"))
-            row("Test target", node.spec.kind == .leaf ? node.spec.testTarget : "–")
+            row("Test suite", node.spec.kind == .leaf ? node.recordedTests?.suite ?? node.spec.testTarget : "–")
+            row("Test files", testFiles)
             row("Affected tests", node.spec.affectedTests.isEmpty ? "–" : node.spec.affectedTests.joined(separator: "\n"))
             row("Attempts failed", "\(node.failedAttempts)")
             row("Reworks", "\(node.reworks)")
@@ -307,6 +308,18 @@ struct NodeDetail: View {
             row("Spec hash", String(node.spec.specHash.prefix(12)))
         }
         .font(.caption)
+    }
+
+    private var testFiles: String {
+        guard node.spec.kind == .leaf else { return "–" }
+        if let record = node.recordedTests {
+            return record.files.joined(separator: "\n")
+        }
+        var folder = model.config?.leafTests?.folder ?? "Tests"
+        while folder.hasPrefix("./") { folder.removeFirst(2) }
+        while folder.hasSuffix("/") { folder.removeLast() }
+        let prefix = folder.isEmpty ? "" : folder + "/"
+        return prefix + node.spec.testTarget + "/"
     }
 
     private func reviewArtifact(_ title: String, path: String) -> some View {

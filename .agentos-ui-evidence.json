@@ -1,0 +1,14 @@
+{
+  "snapshotPaths": [
+    ".agentos-ui-evidence/after-repository-recorded.png",
+    ".agentos-ui-evidence/after-repository-unrecorded.png",
+    ".agentos-ui-evidence/after-repository-composite.png",
+    ".agentos-ui-evidence/after-simulator-recorded.png",
+    ".agentos-ui-evidence/after-simulator-unrecorded.png",
+    ".agentos-ui-evidence/after-simulator-composite.png"
+  ],
+  "windowsOpened": true,
+  "windowsClosed": true,
+  "beforeScreenshot": ".agentos-ui-evidence/before-repository-recorded.png",
+  "afterScreenshot": ".agentos-ui-evidence/after-repository-recorded.png"
+}
