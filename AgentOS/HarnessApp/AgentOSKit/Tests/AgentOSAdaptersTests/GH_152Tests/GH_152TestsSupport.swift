@@ -7,7 +7,7 @@ import AgentOSTestSupport
 extension GH_152Tests {
     struct Options: Sendable {
         var suppliedMetadata = true
-        var harnessBuild = "92fe9f3-modified"
+        var harnessBuild = HarnessBuild(commit: "92fe9f3", modified: true)
         var agentRuntimeName = "copilot"
         var agentRuntimeVersion = "1.0.114"
         var effectivePolicyJSON: String? = #"{"limit":7,"review":{"level":"agent"}}"#

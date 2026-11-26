@@ -133,7 +133,8 @@ import AgentOSTestSupport
         try await fixture.seedAndRun()
 
         let configuration = try Self.onlyConfiguration(in: await fixture.ledger.allRecords())
-        #expect(configuration.parts.harnessBuild == "unknown")
+        #expect(configuration.parts.harnessBuild.commit == nil)
+        #expect(configuration.parts.harnessBuild.modified == false)
         #expect(configuration.parts.agentRuntimeName == "unknown")
         #expect(configuration.parts.agentRuntimeVersion == "unknown")
         #expect(configuration.parts.pipelineVariant == "relay")
@@ -199,7 +200,7 @@ import AgentOSTestSupport
         var changed = Options()
         var role = AgentRole.implementer
         switch part {
-        case "harnessBuild": changed.harnessBuild = "other-build-modified"
+        case "harnessBuild": changed.harnessBuild = HarnessBuild(commit: "other-build", modified: true)
         case "effectivePolicyJSON": changed.effectivePolicyJSON = #"{"limit":7,"review":{"level":"agent+human"}}"#
         case "role": role = .testAuthor
         case "model": changed.model = "other-model"
@@ -364,7 +365,8 @@ private extension GH_152Tests {
     }
 
     static func expectParts(_ parts: RunConfigurationParts, role: AgentRole, options: Options) throws {
-        #expect(parts.harnessBuild == options.harnessBuild)
+        #expect(parts.harnessBuild.commit == options.harnessBuild.commit)
+        #expect(parts.harnessBuild.modified == options.harnessBuild.modified)
         #expect(parts.agentRuntimeName == options.agentRuntimeName)
         #expect(parts.agentRuntimeVersion == options.agentRuntimeVersion)
         #expect(parts.role == role)
