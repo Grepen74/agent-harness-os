@@ -39,6 +39,28 @@ struct GH_155Tests {
         Self.expectBuild(build, modified: !status.isEmpty)
     }
 
+    @Test("Building from a copy without git, like the baseline check, succeeds and records an unknown build")
+    func stampingACopyWithoutGitLeavesTheBuildUnknown() async throws {
+        let fixture = try Fixture()
+        defer { fixture.removeFiles() }
+        let copy = fixture.directory.appending(path: "exported")
+        try FileManager.default.createDirectory(at: copy, withIntermediateDirectories: true)
+        let stamp = fixture.directory.appending(path: "build.json")
+        try #"{"commit":"\#(Fixture.commit)","modified":false}"#.write(to: stamp, atomically: true, encoding: .utf8)
+
+        let result = try await withHangGuard("GH-155 stamping without git") {
+            try await ProcessRunner.run(
+                "/bin/sh", [Self.stampingScript.path, copy.path, stamp.path],
+                in: fixture.directory, log: fixture.directory.appending(path: "stamp.log"),
+                environment: ["PATH": "/usr/bin:/bin", "GIT_CEILING_DIRECTORIES": fixture.directory.path]
+            )
+        }
+
+        #expect(result.status == 0, "\(result.output)")
+        #expect(!FileManager.default.fileExists(atPath: stamp.path), "An older stamp must not survive.")
+        #expect(try HarnessBuildStamp.recordedBuild(from: stamp) == HarnessBuild(commit: nil, modified: false))
+    }
+
     @Test
     func anAbsentBuildStampIsUnknownInsteadOfUsingTheRepositoryBeingWorkedOn() throws {
         let fixture = try Fixture()

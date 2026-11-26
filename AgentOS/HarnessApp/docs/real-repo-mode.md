@@ -156,7 +156,8 @@ fingerprint of these parts, encoded as canonical JSON with sorted keys, identifi
 
 The app build stamps the harness's source commit and marks it **modified** if that working copy has
 uncommitted changes, including untracked files. This is the harness build, not the repository the agent
-works on. Without a stamp, as in tests or `swift run agentos`, the build is **unknown**. A real-repo
+works on. Without a stamp, as in tests, `swift run agentos`, or an app built from a copy without git (like
+the baseline check's copy of `main`), the build is **unknown**. A real-repo
 Copilot session reads `copilot --version` once and records runtime `copilot` with that version for its
 runs; a failed command or output without a version records **unknown** instead.
 
