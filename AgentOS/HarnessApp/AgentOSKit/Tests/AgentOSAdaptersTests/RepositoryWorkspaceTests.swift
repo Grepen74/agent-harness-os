@@ -478,6 +478,19 @@ struct RepositoryWorkspaceTests {
         #expect(node.phase == .proven)
     }
 
+    @Test("The harness's own refs outside branches (refs/agentos/…), which another leaf's setup changes while an agent runs, aren't your git state")
+    func harnessRefsAreNotYourGitState() async throws {
+        let repo = try await makeRepo()
+        let session = try await session(repo, team: team(runsGit: ["update-ref", "refs/agentos/keeping/wn-other", "HEAD"]))
+        let key = await ticket(session)
+
+        await session.runUntilFinished()
+
+        let node = try #require(await session.ledger.workingState().node(forTicket: key))
+        #expect(node.flags[.escalated] == nil, "\(node.flags)")
+        #expect(node.phase == .proven)
+    }
+
     @Test("Publishing moves origin's tracking ref for an agentos/ branch, wherever its fetch refspec puts it; that isn't your git state", arguments: [
         ("refs/remotes/origin/*", "refs/remotes/origin/agentos/GH-7", false),
         ("refs/remotes/origin/team/*", "refs/remotes/origin/team/agentos/GH-7", false),

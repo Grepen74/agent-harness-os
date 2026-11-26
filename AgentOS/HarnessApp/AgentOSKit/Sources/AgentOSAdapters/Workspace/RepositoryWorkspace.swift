@@ -142,7 +142,10 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
     }
 
     /// Outside `refs/heads`, so it is never taken for a branch.
-    private func keepingRef(for id: NodeID) -> String { "refs/agentos/keeping/" + id }
+    private func keepingRef(for id: NodeID) -> String { Self.harnessRefPrefix + "keeping/" + id }
+
+    /// The harness's refs that aren't branches. Another leaf's setup changes them while agents work.
+    static let harnessRefPrefix = "refs/agentos/"
 
     /// The commit a ref points at, or nil when there is none. A git that ran out of time is a problem, not "none".
     private func commit(at ref: String) async throws -> String? {
@@ -616,7 +619,8 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
     /// Tags, remote-tracking refs, the stash and other refs by commit; which local branches exist (a branch you
     /// commit to while agents work moves, so only creating or deleting one counts); and the content of the shared
     /// git config, hooks and `info/` files (except `info/refs`), which affect every checkout of the repo.
-    /// The harness's own branches don't count, nor do origin's tracking refs for them (where its fetch refspec puts
+    /// The harness's own branches don't count, nor its refs outside `refs/heads` (`refs/agentos/…`, e.g. kept paths held
+    /// while another leaf's worktree is set up again), nor origin's tracking refs for them (where its fetch refspec puts
     /// them): publishing a requirement pushes its branch, which moves that ref while other agents may be at work.
     public func userGitState() async throws -> [String] {
         var state: [String] = []
@@ -625,7 +629,8 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
         for line in try await watchedRefs().split(separator: "\n") {
             guard let space = line.firstIndex(of: " ") else { continue }
             let ref = String(line[line.index(after: space)...])
-            if ref.hasPrefix("refs/heads/agentos/") || Self.tracksHarnessBranch(ref, refspecs: originFetch) { continue }
+            if ref.hasPrefix("refs/heads/agentos/") || ref.hasPrefix(Self.harnessRefPrefix)
+                || Self.tracksHarnessBranch(ref, refspecs: originFetch) { continue }
             state.append(ref.hasPrefix("refs/heads/") ? "branch \(ref)" : String(line))
         }
         let common = URL(filePath: try await git(["rev-parse", "--path-format=absolute", "--git-common-dir"], in: root)
