@@ -9,6 +9,7 @@ enum SuiteTicketMarkers {
     }
 
     static func markers(for suite: String, in source: String) -> [String] {
+        guard source.contains("ticket") || source.contains("Ticket:") else { return [] }
         let (tokens, comments) = tokenize(source)
         let modifiers: Set<String> = ["public", "package", "internal", "fileprivate", "private",
                                      "final", "open", "nonisolated"]

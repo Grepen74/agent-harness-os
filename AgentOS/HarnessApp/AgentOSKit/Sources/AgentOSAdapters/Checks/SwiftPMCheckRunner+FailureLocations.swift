@@ -54,6 +54,8 @@ public extension SwiftPMCheckRunner {
         }
 
         for rawLine in lines {
+            guard rawLine.contains("recorded an issue") || rawLine.contains("error:")
+                    || (rawLine.contains("Test Case '") && rawLine.contains(" failed")) else { continue }
             let line = String(rawLine).trimmingCharacters(in: .whitespaces)
             var suite = line.firstMatch(of: /-\[(?:\w+\.)?(\w+) \w+\]/).map { String($0.output.1) }
             let reported: String?
