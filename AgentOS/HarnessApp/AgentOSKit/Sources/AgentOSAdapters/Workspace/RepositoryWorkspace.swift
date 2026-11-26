@@ -309,7 +309,15 @@ public struct RepositoryWorkspace: Workspace, MainTipRepository {
         if let build = config.build?.command { lines.append("Build: `\(build)`.") }
         lines.append("Run all tests: `\(config.test.command)`.")
         if let only = config.test.only {
-            lines.append("Run one test suite: `\(config.test.command) \(only)`, with {suite} replaced by the suite name.")
+            lines.append("Run one test suite: `\(config.test.command) \(only)`.")
+            if only.contains("{suite}") {
+                lines.append("Replace {suite} with the bare suite name.")
+            }
+            if only.contains("{suiteRegex}") {
+                lines.append("Replace {suiteRegex} with the single-quoted pattern '\\.<escaped suite name>(/|$)', " +
+                             "escaping regex metacharacters in the suite name. For example, suite GH_4_2Tests uses " +
+                             "'\\.GH_4_2Tests(/|$)'. This selects exactly one suite with swift test --filter.")
+            }
         }
         lines.append("Acceptance tests of work items live in the test target \(leafTests.target), folder \(testArea), " +
                      "one subfolder and one suite per work item.")

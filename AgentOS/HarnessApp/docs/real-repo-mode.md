@@ -439,8 +439,21 @@ unknown keys are reported as likely typos. For an iOS app:
 Only `test.command` is required to scan and run the baseline; agents also need `leafTests` (where a leaf's
 acceptance tests go; missing = blocker) and should have `test.only` (missing = warning: every leaf then runs
 all tests). Checks run in order (prepare, build, test, then `checks`) with `/bin/sh -c`
-from the repo's top folder, and stop at the first failure. `{suite}` in `test.only` is replaced with a
-leaf's suite, so a leaf runs only its own tests; the extra checks run at landing.
+from the repo's top folder, and stop at the first failure. `test.only` selects a leaf's own suite;
+the extra checks run at landing.
+
+For SwiftPM, use `"only": "--filter {suiteRegex}"`. `{suiteRegex}` becomes the regex-escaped suite
+name with suite boundaries, as a single-quoted shell argument: suite `GH_4_2Tests` produces
+`--filter '\.GH_4_2Tests(/|$)'`. SwiftPM identifiers are `Module.Suite/test()` or `Module.Suite`,
+so this selects exactly that suite. The generated agent instructions explain the same replacement.
+
+`{suite}` still becomes the bare suite name, for example in `-only-testing:AppTests/{suite}`.
+Using it with SwiftPM's `--filter` is unsafe because the filter is an unanchored regex:
+`TestFeedbackTests` also matches `AcceptanceTestFeedbackTests`, and regex metacharacters in a suite
+name can match other names. The readiness scan warns under `config.leafTests` whenever `test.only`
+contains both `--filter` and `{suite}`, suggesting `{suiteRegex}` instead. It does not issue this
+warning for `{suiteRegex}` alone or `{suite}` without `--filter`. New SwiftPM config drafts use
+`--filter {suiteRegex}`.
 
 ### Repo config reference
 
@@ -457,7 +470,7 @@ is configured, Copilot CLI chooses its own default. Display titles are not confi
 | `build.command` | String: shell command to build the repo | No separate build command | Runs after prepare, before test; failure stops the check run |
 | `test` | Object containing the test command and optional suite selector | Required | Must supply `test.command` |
 | `test.command` | String: shell command to run the full test suite | Required, including for the baseline | Must succeed; cannot replace required harness safety checks |
-| `test.only` | String: suffix appended to the test command, with `{suite}` replaced by the leaf suite name | All tests run for each leaf; missing selector produces a warning | Full tests still run at landing |
+| `test.only` | String: suffix appended to the test command; `{suite}` is the bare leaf suite name, `{suiteRegex}` is its escaped, anchored regex as a single-quoted shell argument | All tests run for each leaf; missing selector produces a warning | Use `--filter {suiteRegex}` for SwiftPM; `--filter` with `{suite}` produces a `config.leafTests` warning. Full tests still run at landing |
 | `checks` | Array of check objects, each with a name and command | Empty list; no extra checks | Adds required landing checks; does not replace tests or harness safety checks |
 | `checks[].name` | String: human-readable check name | Required for each check object | None; identifies the check in evidence |
 | `checks[].command` | String: shell command for the check | Required for each check object | Runs after tests, in array order; failure stops the check run |

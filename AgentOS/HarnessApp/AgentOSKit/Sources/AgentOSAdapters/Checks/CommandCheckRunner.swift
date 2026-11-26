@@ -31,7 +31,8 @@ public struct CommandCheckRunner: CheckRunner {
         if let build = config.build?.command { steps.append(Step(name: "build", command: build)) }
         var test = config.test.command
         if let suite, let only = config.test.only {
-            test += " " + only.replacingOccurrences(of: "{suite}", with: suite)
+            test += " " + only.replacingOccurrences(of: "{suiteRegex}", with: SwiftTestSuiteSelector.shellArgument(for: suite))
+                .replacingOccurrences(of: "{suite}", with: suite)
         }
         steps.append(Step(name: "test", command: test))
         // A single leaf's run skips the repo-wide extra checks; they run on landing.
