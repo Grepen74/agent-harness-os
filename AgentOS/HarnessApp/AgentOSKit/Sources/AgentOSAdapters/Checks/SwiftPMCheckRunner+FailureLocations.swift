@@ -8,6 +8,14 @@ public extension SwiftPMCheckRunner {
         let prefix = root.path.hasSuffix("/") ? root.path : root.path + "/"
         var filesByName: [String: [String]]?
         var locations: [CheckFailureLocation] = []
+        let lines = log.replacingOccurrences(
+            of: #"\x1B\[[0-9;]*m"#, with: "", options: .regularExpression
+        ).split(separator: "\n")
+        let failedSwiftSuites = Set(lines.compactMap { line in
+            line.firstMatch(of: /(?:^|\s)Suite (\w+) failed(?: after| with|\.|$)/)
+                .map { String($0.output.1) }
+        })
+        let swiftSuite = failedSwiftSuites.count == 1 ? failedSwiftSuites.first : nil
 
         func relativePath(_ url: URL) -> String? {
             let path = url.standardizedFileURL.resolvingSymlinksInPath().path
@@ -44,14 +52,13 @@ public extension SwiftPMCheckRunner {
             return (matches.count == 1 ? matches[0] : nil, false)
         }
 
-        for rawLine in log.split(separator: "\n") {
-            let line = String(rawLine).replacingOccurrences(
-                of: #"\x1B\[[0-9;]*m"#, with: "", options: .regularExpression
-            ).trimmingCharacters(in: .whitespaces)
-            let suite = line.firstMatch(of: /-\[(?:\w+\.)?(\w+) \w+\]/).map { String($0.output.1) }
+        for rawLine in lines {
+            let line = String(rawLine).trimmingCharacters(in: .whitespaces)
+            var suite = line.firstMatch(of: /-\[(?:\w+\.)?(\w+) \w+\]/).map { String($0.output.1) }
             let reported: String?
             if let issue = line.firstMatch(of: /recorded an issue.*? at (.+?\.swift):\d+/) {
                 reported = String(issue.output.1)
+                suite = swiftSuite
             } else if let diagnostic = line.firstMatch(of: /^(.+?):\d+(?::\d+)?:\s*error:/) {
                 reported = String(diagnostic.output.1)
             } else if line.firstMatch(of: /Test Case '-\[(?:\w+\.)?\w+ \w+\]' failed/) != nil {
