@@ -17,8 +17,14 @@ extension Reconciler {
             if retry { events.append(.breakdownRetryRequested(ticket: ticket, feedback: check)) }
             try await ledger.append(events.map { LedgerEvent(node: node, by: .reconciler, kind: $0) })
 
+            let hasStructuralFindings = check.findings.contains { $0.severity == .blocker }
+            if !retry && hasStructuralFindings {
+                throw AgentFailure("Invalid integration structure after the decomposer retry:\n\n"
+                    + check.findings.map(\.explanation).joined(separator: "\n\n"))
+            }
             let outcome = check.findings.isEmpty ? "no findings." :
-                "advisory findings:\n\n" + check.findings.map(\.explanation).joined(separator: "\n\n")
+                "\(hasStructuralFindings ? "structural and quality" : "advisory") findings:\n\n"
+                    + check.findings.map(\.explanation).joined(separator: "\n\n")
             let next: String
             if retry {
                 next = "Retrying the decomposer once with this proposal and its structured findings."

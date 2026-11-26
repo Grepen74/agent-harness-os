@@ -28,6 +28,18 @@ extension BreakdownFinding {
                 + "\"\(text)\": each of their test authors would test it again. Keep it in the child that builds it; the "
                 + "others wait for that child (\"after\") and state only what they add, defining its terms in a short clause "
                 + "where they need them."
+        case .multipleIntegrationChildren(let child, let title):
+            "Child \(child) \"\(title)\" is one of multiple integration children. Keep only one integration child; "
+                + "remove the extra integration marks."
+        case .integrationChildNotLast(let child, let title):
+            "Child \(child) \"\(title)\" is an integration child that is not last. Move it to the last position "
+                + "or remove its integration mark."
+        case .integrationChildWithOneSibling(let child, let title):
+            "Child \(child) \"\(title)\" is an integration child with only one other child. Add another ordinary child "
+                + "or remove its integration mark."
+        case .loneIntegrationChild(let child, let title):
+            "Child \(child) \"\(title)\" is a lone integration proposal with no other children. Add at least two ordinary "
+                + "children or remove its integration mark to make the parent an ordinary leaf."
         }
     }
 }
