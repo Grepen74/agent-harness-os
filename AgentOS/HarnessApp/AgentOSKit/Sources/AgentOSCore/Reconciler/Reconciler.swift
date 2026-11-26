@@ -41,7 +41,7 @@ public actor Reconciler {
     var isVerifyingRequirements = false
     let acceptanceTestPreflight: any AcceptanceTestPreflight
     public nonisolated let policy: Policy
-    let harnessBuild: String
+    let harnessBuild: HarnessBuild
     let agentRuntimeName: String
     let agentRuntimeVersion: String
     let effectivePolicyJSON: String?
@@ -92,11 +92,11 @@ public actor Reconciler {
                 now: @escaping @Sendable () -> Date = { Date() },
                 publisher: (any RequirementPublisher)? = nil,
                 pullRequests: (any RequirementPullRequestService)? = nil,
-                harnessBuild: String? = nil,
+                harnessBuild: HarnessBuild? = nil,
                 agentRuntimeName: String? = nil,
                 agentRuntimeVersion: String? = nil,
                 effectivePolicyJSON: String? = nil) {
-        self.harnessBuild = harnessBuild ?? "unknown"
+        self.harnessBuild = harnessBuild ?? HarnessBuild(commit: nil, modified: false)
         self.agentRuntimeName = agentRuntimeName ?? "unknown"
         self.agentRuntimeVersion = agentRuntimeVersion ?? "unknown"
         self.effectivePolicyJSON = effectivePolicyJSON

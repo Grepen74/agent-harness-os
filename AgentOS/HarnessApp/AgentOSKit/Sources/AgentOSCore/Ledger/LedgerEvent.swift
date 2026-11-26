@@ -331,7 +331,7 @@ extension EventKind {
                 : "broken test \(testName) waiting for a person"
         case .runStarted(let run, let role): "\(role.rawValue) run \(run) started"
         case .runConfigurationRecorded(let run, let fingerprint, let parts):
-            "\(run) configuration \(fingerprint.prefix(8)): harness \(parts.harnessBuild), \(parts.agentRuntimeName) \(parts.agentRuntimeVersion), \(parts.pipelineVariant)"
+            "\(run) configuration \(fingerprint.prefix(8)): harness \(parts.harnessBuild.summary), \(parts.agentRuntimeName) \(parts.agentRuntimeVersion), \(parts.pipelineVariant)"
         case .agentConfigured(let run, let settings):
             settings.fallback.map { "\(run) ran with \(settings.model), reasoning effort \(settings.effort) instead: \($0)" }
                 ?? "\(run) uses \(settings.model), reasoning effort \(settings.effort)"
