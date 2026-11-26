@@ -113,10 +113,12 @@ extension Reconciler {
             return "\(node.displayName) passed the leaf check: built as one leaf"
         }
 
+        var orderedChildren: [NodeID] = []
         for var spec in children {
             let updates = testUpdates[spec.id]
             // Revision matches existing children independently of their ticket-derived IDs.
             if await ledger.workingState().nodes[spec.id] != nil {
+                orderedChildren.append(spec.id)
                 if let approver, let updates, !updates.files.isEmpty {
                     try await write(spec.id, by: approver, [.testUpdatesApproved(files: updates.files)])
                 }
@@ -134,11 +136,14 @@ extension Reconciler {
             }
             let links = spec.dependsOn.map { TypedLink(from: spec.id, type: .dependsOn, to: $0) }
             try await write(spec.id, by: author, [.nodeCreated(spec: spec, ticket: key)] + links.map { .linkAdded($0) })
+            orderedChildren.append(spec.id)
             if let approver, let updates, !updates.files.isEmpty {
                 try await write(spec.id, by: approver, [.testUpdatesApproved(files: updates.files)])
             }
         }
-        try await write(node.id, by: .reconciler, [.phaseChanged(to: .split)])
+        try await write(node.id, by: .reconciler, [
+            .childOrderRecorded(children: orderedChildren), .phaseChanged(to: .split)
+        ])
         await tracker.comment(on: node.ticket, """
             🌳 Broken down. Each leaf gets its own branch and acceptance tests next; then add harness:build.
             \(description)\(note)\(revision)
