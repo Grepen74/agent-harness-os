@@ -466,9 +466,10 @@ public actor Reconciler {
             let children = node.children.compactMap { state.nodes[$0] }
             return !children.isEmpty && children.allSatisfy { $0.phase == .proven }
         case (.leaf, .specified):
-            return state.hasGate(.breakdown, at: node.id) || state.hasGate(.build, at: node.id)
+            return !state.isWaitingForIntegrationSiblings(node) &&
+                (state.hasGate(.breakdown, at: node.id) || state.hasGate(.build, at: node.id))
         case (.leaf, .ready):
-            return state.hasGate(.build, at: node.id) &&
+            return !state.isWaitingForIntegrationSiblings(node) && state.hasGate(.build, at: node.id) &&
                 (node.flags[.blocked] == nil || unresolvedDependencies(of: node, in: state).isEmpty)
         case (.leaf, .checking):
             return true
