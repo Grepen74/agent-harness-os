@@ -5,6 +5,17 @@ public enum CheckFailureKind: Sendable, Equatable {
     case runnerCrash(signal: Int32?)
 }
 
+/// The reported source file and suite of a failure; either may be unknown.
+public struct CheckFailureLocation: Sendable, Equatable {
+    public let file: String?
+    public let suite: String?
+
+    public init(file: String? = nil, suite: String? = nil) {
+        self.file = file
+        self.suite = suite
+    }
+}
+
 public struct CheckOutput: Sendable {
     public let passed: Bool
     /// One line, stable for the same failure (used for no-progress detection).
@@ -12,6 +23,7 @@ public struct CheckOutput: Sendable {
     public let log: String
     /// Test targets with failures, i.e. whose node's behaviour is broken (doc 08 §5). Empty if unknown.
     public let failingTargets: Set<String>
+    public let failureLocations: [CheckFailureLocation]
     public let failureKind: CheckFailureKind
     public let checks: [CheckResult]
 
@@ -21,12 +33,14 @@ public struct CheckOutput: Sendable {
         log: String,
         failingTargets: Set<String> = [],
         failureKind: CheckFailureKind = .reportedFailure,
-        checks: [CheckResult] = []
+        checks: [CheckResult] = [],
+        failureLocations: [CheckFailureLocation] = []
     ) {
         self.passed = passed
         self.summary = summary
         self.log = log
         self.failingTargets = failingTargets
+        self.failureLocations = passed ? [] : failureLocations
         self.failureKind = failureKind
         self.checks = checks
     }

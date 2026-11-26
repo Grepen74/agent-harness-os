@@ -82,7 +82,8 @@ public struct CommandCheckRunner: CheckRunner {
         let note = await Task { await Self.restoreTrackedFiles(changedSince: changedBefore, in: directory) }.value
         guard let note else { return output }
         return CheckOutput(passed: output.passed, summary: output.summary, log: output.log + note + "\n",
-                           failingTargets: output.failingTargets, failureKind: output.failureKind, checks: output.checks)
+                           failingTargets: output.failingTargets, failureKind: output.failureKind, checks: output.checks,
+                           failureLocations: output.failureLocations)
     }
 
     /// Tracked files with staged or unstaged changes, or nil when the directory isn't the top of a git checkout.
@@ -139,7 +140,8 @@ public struct CommandCheckRunner: CheckRunner {
                 log += "\(error)\n"
                 let summary = "\(step.name): could not run: \(error)"
                 return CheckOutput(passed: false, summary: summary, log: log,
-                                   checks: completed + [CheckResult(name: step.name, passed: false, summary: summary)])
+                                   checks: completed + [CheckResult(name: step.name, passed: false, summary: summary)],
+                                   failureLocations: SwiftPMCheckRunner.failureLocations(in: log, checkout: directory))
             }
             log += result.output
             if !result.output.hasSuffix("\n") && !result.output.isEmpty { log += "\n" }
@@ -147,7 +149,8 @@ public struct CommandCheckRunner: CheckRunner {
                 let summary = "\(step.name) hung: no output for \(idleTimeout)"
                 log += summary + "\n"
                 return CheckOutput(passed: false, summary: summary, log: log, failureKind: .runnerCrash(signal: SIGKILL),
-                                   checks: completed + [CheckResult(name: step.name, passed: false, summary: summary)])
+                                   checks: completed + [CheckResult(name: step.name, passed: false, summary: summary)],
+                                   failureLocations: SwiftPMCheckRunner.failureLocations(in: result.output, checkout: directory))
             }
             guard result.status == 0 else {
                 log += "exit status \(result.status)\n"
@@ -167,7 +170,8 @@ public struct CommandCheckRunner: CheckRunner {
                                    log: log, failingTargets: SwiftPMCheckRunner.failingTargets(in: result.output),
                                    failureKind: result.crashSignal.map { .runnerCrash(signal: $0) } ?? .reportedFailure,
                                    checks: completed + [CheckResult(name: step.name, passed: false,
-                                                                    summary: summary, failingTests: failingTests)])
+                                                                    summary: summary, failingTests: failingTests)],
+                                   failureLocations: SwiftPMCheckRunner.failureLocations(in: result.output, checkout: directory))
             }
             completed.append(CheckResult(name: step.name, passed: true,
                                          summary: "\(step.name) passed (exit status 0)"))
