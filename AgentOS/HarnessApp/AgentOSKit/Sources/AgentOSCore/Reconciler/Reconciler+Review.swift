@@ -4,10 +4,15 @@ extension Reconciler {
     func review(_ node: NodeState, stage: ReviewStage, context: ReviewContext,
                         in directory: URL, run: RunID) async throws -> ReviewResult {
         guard let reviewer = team.reviewer else { throw AgentFailure("No reviewer is assigned.") }
-        let folder = workspace.testFolder(for: node.spec) + "/"
+        let testFolder = workspace.testFolder(for: node.spec)
+        let folder = testFolder + "/"
+        let ownFiles = try node.recordedTests?.files ?? committedTestFiles(in: directory, folder: testFolder)
         var tests: [String: String] = [:]
         // Other work's tests the test author updated are shown, and at the change stage locked, like its own.
-        for path in context.changedFiles where path.hasPrefix(folder) || workspace.isInUpdatableTestArea(path) {
+        let paths = Set(ownFiles).union(context.changedFiles.filter {
+            $0.hasPrefix(folder) || workspace.isInUpdatableTestArea($0)
+        })
+        for path in paths {
             let file = directory.appending(path: path)
             if FileManager.default.fileExists(atPath: file.path) {
                 tests[path] = try String(contentsOf: file, encoding: .utf8)
@@ -27,7 +32,7 @@ extension Reconciler {
             instructions: instructions, directory: directory, earlierFindings: earlier, testFolder: folder,
             log: try? artifacts.liveFile(named: "\(node.id)-\(run)-\(stage.rawValue)-review.log"),
             brokenTestReports: reports, clarifications: await ledger.workingState().clarifications(for: node.id),
-            approvedTestUpdates: node.approvedTestUpdates)
+            approvedTestUpdates: node.approvedTestUpdates, testFiles: node.recordedTests?.files)
         var result = try await watchingUserGitState(node, run: run) { try await reviewer.review(request) }
         try Task.checkCancellation()
         let after = try await workspace.reviewContext(in: directory, against: context.baseBranch)

@@ -32,6 +32,26 @@ public enum Hashing {
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
+    /// Locks exactly these paths, distinguishing unavailable files from readable empty files.
+    public static func digest(ofRecordedFiles paths: [String], in directory: URL) -> String {
+        struct Fingerprint: Encodable {
+            let path: String
+            let contents: Data?
+        }
+        var hasher = SHA256()
+        for path in paths.sorted() {
+            let contents: Data?
+            do {
+                contents = try Data(contentsOf: directory.appending(path: path))
+            } catch {
+                // Unavailable is part of the fingerprint, never treated as empty contents.
+                contents = nil
+            }
+            hasher.update(data: canonicalJSON(Fingerprint(path: path, contents: contents)))
+        }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+
     /// Fingerprint of every file below `directory` (path + content), ignoring build output.
     public static func digest(of directory: URL) -> String {
         let base = directory.resolvingSymlinksInPath().path

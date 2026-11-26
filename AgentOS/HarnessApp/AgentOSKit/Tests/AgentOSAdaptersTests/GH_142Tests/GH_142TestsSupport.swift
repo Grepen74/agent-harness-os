@@ -172,7 +172,7 @@ extension GH_142Tests {
     @MainActor
     static func rowImage(_ label: String, in image: CGImage) throws -> CGImage {
         let lines = try RenderedUI.lines(in: image)
-        let labels = ["Ticket", "Phase", "Gates", "Links", "Touches", "Paths", "Affected tests", "Test target",
+        let labels = ["Ticket", "Phase", "Gates", "Links", "Touches", "Paths", "Affected tests", "Test suite", "Test files",
                       "Attempts failed", "Reworks", "Landed at", "Tests fingerprint", "Spec hash"]
         var boxes: [String: CGRect] = [:]
         for line in lines {

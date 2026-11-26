@@ -91,6 +91,7 @@ public struct NodeState: Sendable, Identifiable {
     public var gates: Set<Gate> = []
     public var links: [TypedLink] = []
     public var children: [NodeID] = []
+    public var recordedTests: AcceptanceTestRecord?
     public var testsDigest: String?
     public var requirementBranch: String?
     public var requirementBranchObservation: RequirementBranchObservation?
@@ -488,6 +489,9 @@ public struct WorkingState: Sendable {
             node.catchUpConflict = nil
             node.lastCatchUpSuccess = CatchUpSuccess(mainSHA: main, newAgentOSMainTip: tip, method: method)
             node.lastCaughtUpAt = event.at
+        case .testsRecorded(let files, let suite):
+            node.recordedTests = AcceptanceTestRecord(files: files, suite: suite)
+            node.testsDigest = nil
         case .testsFixed(let digest):
             node.testsDigest = digest
             node.testDraft = nil
@@ -596,7 +600,9 @@ public struct WorkingState: Sendable {
             // Tests written on a guess aren't kept: they start over once the questions are answered.
             if role == .testAuthor { node.testDraft = nil }
         case .testDraftKept(_, let files): node.testDraft = files.isEmpty ? nil : files
-        case .signalAccepted(_, .retest, _): node.testDraft = nil
+        case .signalAccepted(_, .retest, _):
+            node.testDraft = nil
+            node.recordedTests = nil
         case .assumptionsReported(let role, let assumptions): node.assumptions[role] = assumptions.isEmpty ? nil : assumptions
         case .suggestionsReported(let role, let questions):
             node.suggestedAnswers[role] = questions.isEmpty ? nil : SuggestedAnswers(questions: questions, reportedAt: event.at)

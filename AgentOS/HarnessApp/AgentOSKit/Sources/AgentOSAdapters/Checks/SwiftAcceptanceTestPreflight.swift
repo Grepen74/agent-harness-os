@@ -11,11 +11,20 @@ public struct SwiftAcceptanceTestPreflight: AcceptanceTestPreflight {
         testFolder: String,
         expectedAPI: [String]
     ) async -> AcceptanceTestPreflightResult {
-        let broken = Self.testRuleFindings(in: directory, testFolder: testFolder)
+        await compileTests(in: directory, testFolder: testFolder, testFiles: nil, expectedAPI: expectedAPI)
+    }
+
+    public func compileTests(
+        in directory: URL,
+        testFolder: String,
+        testFiles: [String]?,
+        expectedAPI: [String]
+    ) async -> AcceptanceTestPreflightResult {
+        let broken = Self.testRuleFindings(in: directory, testFolder: testFolder, testFiles: testFiles)
         if !broken.isEmpty {
             return .diagnostics(broken, fullLog: broken.map { "\($0.file):\($0.line): \($0.message)" }.joined(separator: "\n"))
         }
-        guard let package = Self.packageRoot(for: testFolder, in: directory) else { return .skipped }
+        guard let package = Self.packageRoot(for: testFiles?.first ?? testFolder, in: directory) else { return .skipped }
         let result: ProcessRunner.Result
         do {
             result = try await ProcessRunner.run(
@@ -31,6 +40,7 @@ public struct SwiftAcceptanceTestPreflight: AcceptanceTestPreflight {
             log: result.output,
             in: directory,
             testFolder: testFolder,
+            testFiles: testFiles,
             expectedAPI: expectedAPI
         )
         return classified.testAuthorMistakes.isEmpty
@@ -54,20 +64,16 @@ public struct SwiftAcceptanceTestPreflight: AcceptanceTestPreflight {
     ]
 
     /// The test rules the Swift files in the test folder break, comments aside.
-    public static func testRuleFindings(in root: URL, testFolder: String) -> [CompilerDiagnostic] {
-        let folder = root.appending(path: testFolder)
-        guard let enumerator = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: nil,
-                                                              options: [.skipsHiddenFiles]) else { return [] }
+    public static func testRuleFindings(
+        in root: URL, testFolder: String, testFiles: [String]? = nil
+    ) -> [CompilerDiagnostic] {
         let rules = testRules.compactMap { rule in
             (try? NSRegularExpression(pattern: rule.pattern)).map { ($0, rule.problem, rule.inStrings) }
         }
         var findings: [CompilerDiagnostic] = []
-        let files = enumerator.compactMap { $0 as? URL }.filter { $0.pathExtension == "swift" }
-            .sorted { $0.path < $1.path }
-        for file in files {
+        for path in ownTestFiles(in: root, testFolder: testFolder, testFiles: testFiles) {
+            let file = root.appending(path: path)
             guard let text = try? String(contentsOf: file, encoding: .utf8) else { continue }
-            let base = folder.resolvingSymlinksInPath().path
-            let path = testFolder + "/" + file.resolvingSymlinksInPath().path.dropFirst(base.count + 1)
             let withStrings = blankingComments(in: text, andStrings: false)
                 .split(separator: "\n", omittingEmptySubsequences: false)
             let code = blankingComments(in: text, andStrings: true).split(separator: "\n", omittingEmptySubsequences: false)
@@ -83,6 +89,19 @@ public struct SwiftAcceptanceTestPreflight: AcceptanceTestPreflight {
             }
         }
         return findings
+    }
+
+    private static func ownTestFiles(in root: URL, testFolder: String, testFiles: [String]?) -> [String] {
+        if let testFiles {
+            return Set(testFiles).filter { $0.hasSuffix(".swift") }.sorted()
+        }
+        let folder = root.appending(path: testFolder)
+        guard let enumerator = FileManager.default.enumerator(
+            at: folder, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
+        ) else { return [] }
+        let prefix = folder.standardizedFileURL.path + "/"
+        return enumerator.compactMap { $0 as? URL }.filter { $0.pathExtension == "swift" }
+            .map { testFolder + "/" + $0.standardizedFileURL.path.dropFirst(prefix.count) }.sorted()
     }
 
     /// `text` with comments (and the contents of string literals if `andStrings`) replaced by spaces, keeping
@@ -157,6 +176,7 @@ public struct SwiftAcceptanceTestPreflight: AcceptanceTestPreflight {
         log: String,
         in root: URL,
         testFolder: String,
+        testFiles: [String]? = nil,
         expectedAPI: [String]
     ) -> Classification {
         let diagnostics = log.split(separator: "\n").compactMap { line -> CompilerDiagnostic? in
@@ -165,6 +185,7 @@ public struct SwiftAcceptanceTestPreflight: AcceptanceTestPreflight {
                 message: parsed.message,
                 root: root,
                 testFolder: testFolder,
+                testFiles: testFiles,
                 expectedAPI: expectedAPI
             )
             return CompilerDiagnostic(
@@ -174,20 +195,23 @@ public struct SwiftAcceptanceTestPreflight: AcceptanceTestPreflight {
                 classification: classification
             )
         }
-        return Classification(diagnostics: diagnostics + sameNamedFiles(in: log, root: root, testFolder: testFolder))
+        return Classification(diagnostics: diagnostics + sameNamedFiles(
+            in: log, root: root, testFolder: testFolder, testFiles: testFiles))
     }
 
     /// SwiftPM names each object file after its source file, so two same-named files in one target stop the whole
     /// build ("multiple producers") without pointing at a source line. When one of them is the tests' own, renaming
     /// it is the test author's job.
-    private static func sameNamedFiles(in log: String, root: URL, testFolder: String) -> [CompilerDiagnostic] {
+    private static func sameNamedFiles(
+        in log: String, root: URL, testFolder: String, testFiles: [String]?
+    ) -> [CompilerDiagnostic] {
         guard let regex = try? NSRegularExpression(pattern: #"couldn't build .*/([^/]+\.swift)\.o because of multiple producers"#)
         else { return [] }
         let names = Set(regex.matches(in: log, range: NSRange(log.startIndex..., in: log)).compactMap {
             Range($0.range(at: 1), in: log).map { String(log[$0]) }
         })
         guard !names.isEmpty else { return [] }
-        let package = packageRoot(for: testFolder, in: root) ?? root
+        let package = packageRoot(for: testFiles?.first ?? testFolder, in: root) ?? root
         let prefix = root.standardizedFileURL.path + "/"
         var found: [String: [String]] = [:]
         if let enumerator = FileManager.default.enumerator(at: package.appending(path: "Tests"),
@@ -197,10 +221,10 @@ public struct SwiftAcceptanceTestPreflight: AcceptanceTestPreflight {
                 found[file.lastPathComponent, default: []].append(path.hasPrefix(prefix) ? String(path.dropFirst(prefix.count)) : path)
             }
         }
-        let own = testFolder + "/"
+        let own = Set(ownTestFiles(in: root, testFolder: testFolder, testFiles: testFiles))
         return names.sorted().flatMap { name -> [CompilerDiagnostic] in
             let paths = (found[name] ?? []).sorted()
-            return paths.filter { $0.hasPrefix(own) }.map { path in
+            return paths.filter { own.contains($0) }.map { path in
                 CompilerDiagnostic(
                     file: path, line: 1,
                     message: "another file in the same test target is also named \(name) ("
@@ -248,6 +272,7 @@ public struct SwiftAcceptanceTestPreflight: AcceptanceTestPreflight {
         message: String,
         root: URL,
         testFolder: String,
+        testFiles: [String]?,
         expectedAPI: [String]
     ) -> CompilerDiagnosticClassification {
         if isSyntaxError(message) || isOwnNamingMistake(message) || isMisplacedTest(message) { return .testAuthorMistake }
@@ -259,7 +284,8 @@ public struct SwiftAcceptanceTestPreflight: AcceptanceTestPreflight {
         let member = memberReference(in: message)
         // For a missing member only its type can be the tests' own: tests often name locals after the member.
         let ownCandidates = member.map { [$0.type] } ?? quoted
-        if ownCandidates.contains(where: { isDeclared($0, under: root.appending(path: testFolder)) }) {
+        let ownFiles = ownTestFiles(in: root, testFolder: testFolder, testFiles: testFiles).map { root.appending(path: $0) }
+        if ownCandidates.contains(where: { isDeclared($0, in: ownFiles) }) {
             return .testAuthorMistake
         }
 
@@ -273,7 +299,7 @@ public struct SwiftAcceptanceTestPreflight: AcceptanceTestPreflight {
             if expectedAPI.contains(where: { names(member.member, asMemberIn: $0) }) {
                 return .expected
             }
-            if isProductionType(member.type, under: root, testFolder: testFolder) {
+            if isProductionType(member.type, under: root, testFolder: testFiles?.first ?? testFolder) {
                 return .testAuthorMistake
             }
         }
@@ -366,13 +392,17 @@ public struct SwiftAcceptanceTestPreflight: AcceptanceTestPreflight {
         ) else {
             return false
         }
+        return isDeclared(symbol, in: enumerator.compactMap { $0 as? URL })
+    }
+
+    private static func isDeclared(_ symbol: String, in files: [URL]) -> Bool {
         let escaped = NSRegularExpression.escapedPattern(for: symbol)
         guard let regex = try? NSRegularExpression(
             pattern: #"\b(?:struct|class|enum|protocol|actor|typealias|func|let|var)\s+"# + escaped + #"\b"#
         ) else {
             return false
         }
-        for case let file as URL in enumerator where file.pathExtension == "swift" {
+        for file in files where file.pathExtension == "swift" {
             guard let source = try? String(contentsOf: file, encoding: .utf8) else { continue }
             if regex.firstMatch(in: source, range: NSRange(source.startIndex..., in: source)) != nil {
                 return true
