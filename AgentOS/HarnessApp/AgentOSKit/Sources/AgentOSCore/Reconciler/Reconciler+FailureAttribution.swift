@@ -9,7 +9,8 @@ extension Reconciler {
 
     func failureSources(for outputs: [CheckOutput], among nodes: [NodeState],
                         in directory: URL) throws -> [String: String] {
-        let needsMarkers = outputs.flatMap { Self.failureLocations(of: $0) }.contains { location in
+        // Inferred target names are not reported suites and cannot identify a suite declaration.
+        let needsMarkers = outputs.flatMap(\.failureLocations).contains { location in
             guard let suite = location.suite else { return false }
             return !nodes.contains { node in
                 node.recordedTests?.suite == suite

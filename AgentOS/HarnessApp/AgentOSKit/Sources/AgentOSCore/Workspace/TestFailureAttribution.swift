@@ -11,7 +11,9 @@ public enum TestFailureAttribution {
         if let suite = location.suite {
             let recorded = nodes.filter { $0.recordedTests?.suite == suite }
             if !recorded.isEmpty { return unique(recorded) }
-            let markers = sources.values.flatMap { SuiteTicketMarkers.markers(for: suite, in: $0) }
+            let markers = sources.values.filter { $0.contains(suite) }.flatMap {
+                SuiteTicketMarkers.markers(for: suite, in: $0)
+            }
             if !markers.isEmpty {
                 guard markers.count == 1 else { return nil }
                 return unique(nodes.filter { $0.ticket == markers[0] })

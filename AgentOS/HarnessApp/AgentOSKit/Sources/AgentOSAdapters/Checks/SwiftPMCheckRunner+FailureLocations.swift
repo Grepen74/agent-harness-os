@@ -11,8 +11,9 @@ public extension SwiftPMCheckRunner {
         let lines = log.replacingOccurrences(
             of: #"\x1B\[[0-9;]*m"#, with: "", options: .regularExpression
         ).split(separator: "\n")
-        let failedSwiftSuites = Set(lines.compactMap { line in
-            line.firstMatch(of: /(?:^|\s)Suite (\w+) failed(?: after| with|\.|$)/)
+        let failedSwiftSuites = Set(lines.compactMap { line -> String? in
+            guard line.contains("Suite "), line.contains(" failed") else { return nil }
+            return line.firstMatch(of: /(?:^|\s)Suite (\w+) failed(?: after| with|\.|$)/)
                 .map { String($0.output.1) }
         })
         let swiftSuite = failedSwiftSuites.count == 1 ? failedSwiftSuites.first : nil
