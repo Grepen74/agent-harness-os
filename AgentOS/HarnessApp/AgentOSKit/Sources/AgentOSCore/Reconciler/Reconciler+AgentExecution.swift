@@ -122,9 +122,11 @@ extension Reconciler {
     static func newRunID() -> RunID { "run-" + UUID().uuidString.prefix(6).lowercased() }
 
     /// The claim for an agent run, with the model and reasoning effort it starts with when the team knows them.
-    func agentRunStarted(_ run: RunID, _ role: AgentRole) -> [EventKind] {
-        [.runStarted(run: run, role: role)]
-            + (team.runSettings?(role).map { [.agentConfigured(run: run, settings: $0)] } ?? [])
+    func agentRunStarted(_ run: RunID, _ role: AgentRole) throws -> [EventKind] {
+        let settings = team.runSettings?(role)
+        return [.runStarted(run: run, role: role)]
+            + (settings.map { [.agentConfigured(run: run, settings: $0)] } ?? [])
+            + (try agentConfiguration(run, role: role, settings: settings))
     }
 
     /// Records reported credits and fallback settings whether the agent succeeds or fails.
