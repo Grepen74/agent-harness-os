@@ -7,10 +7,12 @@ import Testing
 /// hangs, so a broken harness fails the test instead of hanging the suite; they are long on purpose and must never
 /// decide whether a healthy but slow run passes.
 public enum HangGuard {
-    /// How long anything may take before it counts as hung.
-    public static let timeout: Duration = .seconds(120)
+    /// How long anything may take before it counts as hung. In the full parallel suite, healthy waits have reached
+    /// about 120 seconds (a real `swift build` of a fixture package, main-actor tests waiting their turn), so this
+    /// leaves room for that while staying well inside the check's own 600-second idle and 1800-second limits.
+    public static let timeout: Duration = .seconds(300)
     /// `timeout` for `DispatchTime` arithmetic, e.g. `.now() + HangGuard.seconds`.
-    public static let seconds: Double = 120
+    public static let seconds: Double = 300
 
     /// Thrown after the issue is recorded, to end the test.
     public struct Hung: Error, CustomStringConvertible {
