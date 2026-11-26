@@ -98,6 +98,31 @@ struct AcceptanceTestFeedbackTests {
         #expect(result.diagnostics.map(\.classification) == [.expected, .expected, .testAuthorMistake])
     }
 
+    @Test func coloredDiagnosticsCountButFixtureTextTheCompilerQuotesDoesNot() throws {
+        let root = try tempRoot()
+        let folder = root.appending(path: "Tests/GH_1Tests")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try "struct Fixture {}\nfunc value() -> Int { 1 }\n"
+            .write(to: folder.appending(path: "GH_1Tests.swift"), atomically: true, encoding: .utf8)
+        let file = folder.appending(path: "GH_1Tests.swift").path
+        let log = [
+            "\(file):65:44: \u{1B}[1;31merror: \u{1B}[1;39mtype 'Runner' has no member 'failureLocations'\u{1B}[0;0m",
+            " \u{1B}[0;36m80 |\u{1B}[0;0m             in: \"\\(path):18:2: error: cannot find 'value' in scope\")",
+            "    \u{1B}[0;36m|\u{1B}[0;0m  `- \u{1B}[1;31merror: \u{1B}[1;39mtype 'Runner' has no member 'failureLocations'\u{1B}[0;0m",
+            "\(file):12:8: \u{1B}[1;31merror: \u{1B}[1;39minvalid redeclaration of 'Fixture'\u{1B}[0;0m",
+        ].joined(separator: "\n")
+
+        let result = SwiftAcceptanceTestPreflight.classify(
+            log: log, in: root, testFolder: "Tests/GH_1Tests",
+            expectedAPI: ["static func Runner.failureLocations(in log: String) -> [String]"])
+
+        #expect(result.diagnostics.map(\.line) == [65, 12])
+        #expect(result.diagnostics.map(\.message) == [
+            "type 'Runner' has no member 'failureLocations'", "invalid redeclaration of 'Fixture'",
+        ])
+        #expect(result.diagnostics.map(\.classification) == [.expected, .testAuthorMistake])
+    }
+
     @Test func aMemberExpectedOnAProtocolIsExpectedOnAConformingProductionType() throws {
         let root = try tempRoot()
         let sources = root.appending(path: "Kit/Sources/Adapters")

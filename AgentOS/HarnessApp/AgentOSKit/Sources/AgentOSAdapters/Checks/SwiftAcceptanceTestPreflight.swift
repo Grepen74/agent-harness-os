@@ -179,8 +179,8 @@ public struct SwiftAcceptanceTestPreflight: AcceptanceTestPreflight {
         testFiles: [String]? = nil,
         expectedAPI: [String]
     ) -> Classification {
-        let diagnostics = log.split(separator: "\n").compactMap { line -> CompilerDiagnostic? in
-            guard let parsed = parse(String(line), root: root) else { return nil }
+        let diagnostics = withoutColors(log).split(separator: "\n").compactMap { line -> CompilerDiagnostic? in
+            guard !isQuotedSource(line), let parsed = parse(String(line), root: root) else { return nil }
             let classification = classify(
                 message: parsed.message,
                 root: root,
@@ -246,6 +246,17 @@ public struct SwiftAcceptanceTestPreflight: AcceptanceTestPreflight {
             if components.isEmpty { return nil }
             components.removeLast()
         }
+    }
+
+    /// The compiler may color its diagnostics (`…:29:24: \e[1;31merror: \e[1;39m…`), which hides them from `parse`.
+    static func withoutColors(_ log: String) -> String {
+        log.replacing(#/\u{1B}\[[0-9;]*[A-Za-z]/#, with: "")
+    }
+
+    /// The compiler quotes the source around each diagnostic (` 80 |     in: "…:18:2: error: …"`). A test's own
+    /// fixture text there is not a diagnostic.
+    static func isQuotedSource(_ line: Substring) -> Bool {
+        line.wholeMatch(of: #/\s*[0-9]*\s*\|.*/#) != nil
     }
 
     private static func parse(_ line: String, root: URL) -> (file: String, line: Int, message: String)? {
