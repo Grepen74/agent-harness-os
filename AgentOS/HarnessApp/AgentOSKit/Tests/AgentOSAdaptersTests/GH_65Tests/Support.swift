@@ -196,6 +196,8 @@ extension GH_65Tests {
                     #expect(explanations.contains { explanation in
                         titles.allSatisfy(explanation.contains) && explanation.contains(text)
                     }, "Name every child that repeats the criterion")
+                default:
+                    break
                 }
             }
         }
