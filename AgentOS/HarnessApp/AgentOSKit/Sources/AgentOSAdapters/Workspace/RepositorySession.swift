@@ -35,7 +35,8 @@ public final class RepositorySession: Sendable {
             checks: checks ?? CommandCheckRunner(config: config, simulators: SimulatorPool(size: policy.maxParallelAgents)),
             team: team, policy: policy.policy, requirementBranches: workspace,
             acceptanceTestPreflight: SwiftAcceptanceTestPreflight(), publisher: publication,
-            pullRequests: publication)
+            pullRequests: publication,
+            effectivePolicyJSON: try RepositoryRunPolicy(policy: policy, config: config).json())
     }
 
     private struct PublicationTransport: GitHubTransport {
