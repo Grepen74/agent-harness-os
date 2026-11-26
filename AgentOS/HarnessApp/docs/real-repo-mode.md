@@ -109,6 +109,13 @@ marked in Process. Node selection and the stage filter are shared window UI stat
 | Landing | Fast-forward the requirement branch | Fast-forward the requirement branch |
 | Check duration | Seconds | Minutes. The landing queue is the bottleneck; acceptable for now |
 
+A leaf's branch pre-check selects its recorded acceptance-test suite, or its legacy test target when
+there is no record. If that selection runs no tests, the pre-check fails with
+`no tests matched suite <Suite>`, even if the runner exits successfully. Swift Testing and XCTest counts
+are considered together: a nonzero count from either means tests ran; unrecognized output is not treated
+as zero. The leaf returns to Ready rather than entering the landing queue, its ticket gets the usual
+own-mistake pre-check feedback, and the failure counts toward escalation.
+
 ### The Xcode project file
 
 If the project uses explicit file references, every new file changes `project.pbxproj`. That makes it the
