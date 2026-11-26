@@ -29,6 +29,13 @@ targets:
     # Generates the shared AgentOSHarness scheme (Debug to run, Release to profile and archive). Without
     # this, `xcodegen generate` deletes the committed scheme.
     scheme: {}
+    postBuildScripts:
+      - name: Stamp harness build
+        script: |
+          /bin/sh "$SRCROOT/scripts/stamp-harness-build.sh" "$SRCROOT" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/harness-build.json"
+        basedOnDependencyAnalysis: false
+        outputFiles:
+          - "$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/harness-build.json"
     dependencies:
       - package: AgentOSKit
         product: AgentOSCore

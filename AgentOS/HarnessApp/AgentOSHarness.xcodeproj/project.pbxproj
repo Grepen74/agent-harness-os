@@ -121,6 +121,7 @@
 				E275B0E2381881D9F629A864 /* Sources */,
 				2F25DB951B92C5844CE6264C /* Resources */,
 				FB2AD7CCDA233C3A75CFE722 /* Frameworks */,
+				93F873769A0442F93927E069 /* Stamp harness build */,
 			);
 			buildRules = (
 			);
@@ -183,6 +184,29 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		93F873769A0442F93927E069 /* Stamp harness build */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Stamp harness build";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/harness-build.json",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "/bin/sh \"$SRCROOT/scripts/stamp-harness-build.sh\" \"$SRCROOT\" \"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/harness-build.json\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		E275B0E2381881D9F629A864 /* Sources */ = {
