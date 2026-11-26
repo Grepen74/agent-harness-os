@@ -2,7 +2,7 @@
 // reported by Copilot CLI attempts in that run, including nested CopilotReviewer
 // attempts, while fellBack continues to describe only the enclosing role.
 // nil means no attempt reported usage; a reported zero is not missing usage.
-// CLI fixtures report "Total usage est: <number> AI credit(s)" on stdout or stderr.
+// CLI fixtures end with the CLI's usage summary, "AI Credits <number> (<duration>)", on stdout or stderr.
 // AC5 (docs/real-repo-mode.md explaining per-run CLI credits in the ledger)
 // is documentation-only and must be checked in the implementation diff.
 
@@ -25,14 +25,14 @@ struct GH_85Tests {
                 exit 1 ;;
             esac
             echo 'fixture response'
-            echo 'Total usage est:        0.5 AI credits' >&2
+            echo 'AI Credits 0.5 (12s)' >&2
             """)
         defer { fixture.remove() }
 
         let raw = try await ProcessRunner.run(fixture.executable.path, [], in: fixture.directory)
         try #require(raw.status == 0)
         try #require(raw.output.contains("fixture response"))
-        try #require(raw.output.contains("Total usage est:        0.5 AI credits"))
+        try #require(raw.output.contains("AI Credits 0.5 (12s)"))
 
         let cli = fixture.cli(model: "gone", fallbackModels: ["working"], effort: .high)
         let recording = AgentRunRecording()
@@ -49,9 +49,11 @@ struct GH_85Tests {
 
     @Test("AC1: a run reports the CLI's actual fractional, singular, or zero AI credits",
           arguments: [
-            Usage(summary: "0 AI credits", amount: 0),
-            Usage(summary: "1 AI credit", amount: 1),
-            Usage(summary: "2.125 AI credits", amount: 2.125),
+            Usage(summary: "AI Credits 0 (3s)", amount: 0),
+            Usage(summary: "AI Credits 24.25 (6m 54s)", amount: 24.25),
+            Usage(summary: "AI Credits 1,204.5 (1h 2m 3s)", amount: 1204.5),
+            Usage(summary: "Total usage est:        1 AI credit", amount: 1),
+            Usage(summary: "Total usage est:        2.125 AI credits", amount: 2.125),
           ], [false, true])
     func reportedCreditsAreNotEstimatedFromTokensOrModel(
         usage: Usage, summaryOnStderr: Bool
@@ -59,7 +61,7 @@ struct GH_85Tests {
         let fixture = try Fixture(script: """
             echo 'finished'
             echo 'Total tokens: 9000000'
-            echo 'Total usage est:        \(usage.summary)' \(summaryOnStderr ? ">&2" : "")
+            echo '\(usage.summary)' \(summaryOnStderr ? ">&2" : "")
             """)
         defer { fixture.remove() }
         let recording = AgentRunRecording()
@@ -76,7 +78,7 @@ struct GH_85Tests {
     func reportedCreditsAreRetainedWhenTheAttemptFails() async throws {
         let fixture = try Fixture(script: """
             echo 'Execution failed: agent stopped before completing the task.'
-            echo 'Total usage est:        0.375 AI credits' >&2
+            echo 'AI Credits 0.375 (12s)' >&2
             exit 1
             """)
         defer { fixture.remove() }
@@ -97,16 +99,16 @@ struct GH_85Tests {
         let fixture = try Fixture(script: """
             case "$model/$effort" in
               gone/*)
-                echo 'Total usage est:        0.125 AI credits'
+                echo 'AI Credits 0.125 (12s)'
                 echo 'Execution failed: Model "gone" is not available.' >&2
                 exit 1 ;;
               working/high)
-                echo 'Total usage est:        0.375 AI credits' >&2
+                echo 'AI Credits 0.375 (12s)' >&2
                 echo "Execution failed: Reasoning effort 'high' is not supported for model 'working'."
                 exit 1 ;;
             esac
             echo 'finished'
-            echo 'Total usage est:        1.5 AI credits'
+            echo 'AI Credits 1.5 (12s)'
             """)
         defer { fixture.remove() }
         let recording = AgentRunRecording()
@@ -130,8 +132,8 @@ struct GH_85Tests {
     func exhaustedFallbackStillReportsTheCreditsAlreadyUsed() async throws {
         let fixture = try Fixture(script: """
             case "$model" in
-              gone) echo 'Total usage est:        0.125 AI credits' ;;
-              also-gone) echo 'Total usage est:        0.375 AI credits' ;;
+              gone) echo 'AI Credits 0.125 (12s)' ;;
+              also-gone) echo 'AI Credits 0.375 (12s)' ;;
               *) exit 2 ;;
             esac
             printf 'Execution failed: Model "%s" is not available.\\n' "$model" >&2
@@ -159,23 +161,23 @@ struct GH_85Tests {
         let fixture = try Fixture(script: """
             case "$model/$effort" in
               worker-gone/*)
-                echo 'Total usage est:        0.25 AI credits'
+                echo 'AI Credits 0.25 (12s)'
                 echo 'Execution failed: Model "worker-gone" is not available.'
                 exit 1 ;;
               worker/*)
                 echo 'worker finished'
-                echo 'Total usage est:        0.75 AI credits' ;;
+                echo 'AI Credits 0.75 (12s)' ;;
               reviewer-gone/*)
-                echo 'Total usage est:        0.125 AI credits'
+                echo 'AI Credits 0.125 (12s)'
                 echo 'Execution failed: Model "reviewer-gone" is not available.'
                 exit 1 ;;
               reviewer/high)
-                echo 'Total usage est:        0.375 AI credits'
+                echo 'AI Credits 0.375 (12s)'
                 echo "Execution failed: Reasoning effort 'high' is not supported for model 'reviewer'."
                 exit 1 ;;
               reviewer/default)
                 echo '{"passed":true,"findings":[]}'
-                echo 'Total usage est:        0.5 AI credits' ;;
+                echo 'AI Credits 0.5 (12s)' ;;
               *) exit 2 ;;
             esac
             """)
@@ -210,7 +212,7 @@ struct GH_85Tests {
     func aReviewerIsChargedToAnOtherwiseEmptyEnclosingRun() async throws {
         let fixture = try Fixture(script: """
             echo '{"passed":true,"findings":[]}'
-            echo 'Total usage est:        0.625 AI credits' >&2
+            echo 'AI Credits 0.625 (12s)' >&2
             """)
         defer { fixture.remove() }
         let recording = AgentRunRecording()
@@ -223,6 +225,24 @@ struct GH_85Tests {
         #expect(result.passed)
         #expect(recording.aiCredits == 0.625)
         #expect(recording.fellBack == nil)
+    }
+
+    @Test("A real Copilot CLI run's tail: the closing summary counts, not one the agent's answer quotes")
+    func realCLISummaryIsReadAfterTheAnswer() {
+        let output = """
+            Implemented GH-155: bundled build stamps and per-session Copilot version detection.
+            The old parser expected lines like:
+            AI Credits 3 (1m 2s)
+
+            Changes    +101 -1
+            AI Credits 24.25 (6m 54s)
+            Tokens     ↑ 678.9k (627.0k cached, 51.9k written) • ↓ 5.0k (927 reasoning)
+            Resume     copilot --resume=8f6b36e3-4246-4604-92eb-e82eaecb0d54
+
+            """
+
+        #expect(CopilotCLI.aiCredits(in: output) == 24.25)
+        #expect(CopilotCLI.aiCredits(in: "AI Credits were not reported\nTokens ↑ 1k") == nil)
     }
 
     @Test("AC4: without reported usage, success, failure, crash, and timeout all leave credits unknown",
@@ -258,7 +278,7 @@ struct GH_85Tests {
         let fixture = try Fixture(script: """
             echo 'finished'
             if [ "$model" = reported ]; then
-              echo 'Total usage est:        0.875 AI credits'
+              echo 'AI Credits 0.875 (12s)'
             fi
             """)
         defer { fixture.remove() }

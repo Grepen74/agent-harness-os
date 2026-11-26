@@ -989,7 +989,9 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
   it. A preview's breakdown is recorded the same way (without a claim, since a preview adopts nothing), keeps its
   log, and its comment names the model; a review records what it ran with in its review result.
 - **AI credits.** Each agent run's AI credits, as reported by the Copilot CLI, are recorded in the ledger.
-  Credits are added across model and reasoning-effort fallback attempts, including unsuccessful attempts
+  The harness reads the CLI's closing summary line, `AI Credits 24.25 (6m 54s)` (the last such line wins,
+  so a line quoted in the agent's answer doesn't count; the older `Total usage est: N AI credits` form is
+  still accepted). Older harness builds missed that line, so their runs have no recorded cost. Credits are added across model and reasoning-effort fallback attempts, including unsuccessful attempts
   that report usage. Nested reviewer attempts count toward the enclosing run's credits, but their fallback
   settings stay in the review result. Without reported usage (for example after a crash or timeout), credits
   remain unknown, not zero or an estimate from tokens.
