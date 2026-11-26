@@ -17,7 +17,8 @@ public final class RepositorySession: Sendable {
     private let catchUp: CatchUpCoordinator
 
     public init(location: RepositoryLocation, storage: URL, ledger: Ledger, config: RepoConfig, policy: EffectivePolicy,
-                team: AgentTeam, checks: (any CheckRunner)? = nil, tracker: (any TicketBoard)? = nil) throws {
+                team: AgentTeam, checks: (any CheckRunner)? = nil, tracker: (any TicketBoard)? = nil,
+                harnessBuild: HarnessBuild = HarnessBuildStamp.current) throws {
         self.storage = storage
         self.ledger = ledger
         self.tracker = tracker ?? Self.tracker(storage: storage)
@@ -29,13 +30,19 @@ public final class RepositorySession: Sendable {
             ledger: ledger, tracker: self.tracker.adapter, repository: "", policy: policy,
             transport: PublicationTransport(account: policy.githubAccount),
             git: { [workspace] arguments in try await workspace.git(arguments, in: workspace.root) })
+        let copilot = (team.decomposer as? CopilotDecomposer)?.cli
+        let runtimeVersion = copilot.map { CopilotRuntimeVersion.read(executable: $0.executable, in: location.root) }
         reconciler = Reconciler(
             ledger: ledger, tracker: self.tracker.adapter, external: NoExternalSystem(), workspace: workspace,
             artifacts: FileArtifactStore(directory: workspace.artifactsDirectory),
             checks: checks ?? CommandCheckRunner(config: config, simulators: SimulatorPool(size: policy.maxParallelAgents)),
             team: team, policy: policy.policy, requirementBranches: workspace,
             acceptanceTestPreflight: SwiftAcceptanceTestPreflight(), publisher: publication,
-            pullRequests: publication)
+            pullRequests: publication,
+            harnessBuild: harnessBuild,
+            agentRuntimeName: copilot == nil ? "unknown" : "copilot",
+            agentRuntimeVersion: runtimeVersion,
+            effectivePolicyJSON: try RepositoryRunPolicy(policy: policy, config: config).json())
     }
 
     private struct PublicationTransport: GitHubTransport {

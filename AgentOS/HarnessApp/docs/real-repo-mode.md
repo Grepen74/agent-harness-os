@@ -147,6 +147,24 @@ loosen a limit becomes a blocker finding, not a silent override, and the harness
 The retired `landing.branch` key has no effect, even when it names the default branch.
 Disabling a signal the harness doesn't know is a warning.
 
+### Run configuration records
+
+Each agent run records its configuration in the ledger alongside its start: the harness build, the
+effective policy affecting agent work (without tokens, account names or other secrets), role, model,
+reasoning effort, agent runtime name and version, and pipeline variant (`relay` today). A SHA-256
+fingerprint of these parts, encoded as canonical JSON with sorted keys, identifies matching configurations.
+
+The app build stamps the harness's source commit and marks it **modified** if that working copy has
+uncommitted changes, including untracked files. This is the harness build, not the repository the agent
+works on. Without a stamp, as in tests or `swift run agentos`, the build is **unknown**. A real-repo
+Copilot session reads `copilot --version` once and records runtime `copilot` with that version for its
+runs; a failed command or output without a version records **unknown** instead.
+
+Use the records to compare runs only when their configurations are known, and to measure harness
+changes rather than guess what differed. Matching fingerprints identify matching recorded parts;
+unknown builds or versions, and modified builds without an exact saved working copy, do not establish
+identical harnesses. Runs in older ledgers have no configuration record.
+
 ### Final requirement verification
 
 Whenever a composite becomes proven, the harness posts one cost comment on its ticket after

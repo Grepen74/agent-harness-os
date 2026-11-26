@@ -41,6 +41,10 @@ public actor Reconciler {
     var isVerifyingRequirements = false
     let acceptanceTestPreflight: any AcceptanceTestPreflight
     public nonisolated let policy: Policy
+    let harnessBuild: HarnessBuild
+    let agentRuntimeName: String
+    let agentRuntimeVersion: String
+    let effectivePolicyJSON: String?
     public private(set) var team: AgentTeam
     /// Watched intervals, including finished intervals still needed by an overlapping watch.
     var agentRuns: [RunID: AgentRunSpan] = [:]
@@ -87,7 +91,15 @@ public actor Reconciler {
                 beforeStep: (@Sendable (NodeID) async -> Void)? = nil,
                 now: @escaping @Sendable () -> Date = { Date() },
                 publisher: (any RequirementPublisher)? = nil,
-                pullRequests: (any RequirementPullRequestService)? = nil) {
+                pullRequests: (any RequirementPullRequestService)? = nil,
+                harnessBuild: HarnessBuild? = nil,
+                agentRuntimeName: String? = nil,
+                agentRuntimeVersion: String? = nil,
+                effectivePolicyJSON: String? = nil) {
+        self.harnessBuild = harnessBuild ?? HarnessBuild(commit: nil, modified: false)
+        self.agentRuntimeName = agentRuntimeName ?? "unknown"
+        self.agentRuntimeVersion = agentRuntimeVersion ?? "unknown"
+        self.effectivePolicyJSON = effectivePolicyJSON
         self.beforeStep = beforeStep
         self.now = now
         self.ledger = ledger

@@ -190,6 +190,7 @@ public struct WorkingState: Sendable {
     public private(set) var previews: [String: Preview] = [:]
     /// Previews running now, by ticket.
     public private(set) var runningPreviews: [String: RunningPreview] = [:]
+    public private(set) var runConfigurations: [RunID: RecordedRunConfiguration] = [:]
     public private(set) var ticketDescriptions: [String: TicketDescription] = [:]
     private var pendingBreakdownWarnings: [String: [BreakdownFinding]] = [:]
     public private(set) var resolvedExternal: Set<String> = []
@@ -351,6 +352,8 @@ public struct WorkingState: Sendable {
         }
 
         switch event.kind {
+        case .runConfigurationRecorded(let run, let fingerprint, let parts):
+            runConfigurations[run] = RecordedRunConfiguration(fingerprint: fingerprint, parts: parts)
         case .breakdownChecked(let ticket, let check):
             pendingBreakdownWarnings[ticket] = check.findings
         case .ticketDescriptionObserved(let ticket, let description):

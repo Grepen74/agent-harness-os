@@ -54,7 +54,8 @@ extension Reconciler {
         var comment: String?
         do {
             try await write(nil, by: .reconciler, [.previewStarted(ticket: ticket.key, node: spec.id, run: run)]
-                + (planned.map { [.agentConfigured(run: run, settings: $0)] } ?? []))
+                + (planned.map { [.agentConfigured(run: run, settings: $0)] } ?? [])
+                + (try agentConfiguration(run, role: .decomposer, settings: planned)))
             let log = try? artifacts.liveFile(named: AgentLog.fileName(node: spec.id, run: run))
             let (breakdown, fellBack) = try await recordingFallbackSettings(nil, run: run) {
                 try await propose(spec, ticketKey: ticket.key, clarifications: answers, log: log)

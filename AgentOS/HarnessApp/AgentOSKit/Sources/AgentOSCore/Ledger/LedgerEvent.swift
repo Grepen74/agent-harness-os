@@ -121,6 +121,8 @@ public enum EventKind: Codable, Sendable {
     /// The model and reasoning effort an agent run starts with; written with its `runStarted`. Written again with
     /// `settings.fallback` set when the run fell back to others, e.g. a model that doesn't support the effort.
     case agentConfigured(run: RunID, settings: AgentRunSettings)
+    /// Immutable starting configuration, written atomically with the run's claim.
+    case runConfigurationRecorded(run: RunID, fingerprint: String, parts: RunConfigurationParts)
     /// The sum of the incremental AI credits reported during an agent run, including failed runs.
     case agentCreditsRecorded(run: RunID, credits: Double)
     /// Credits charged to this event's node for a run, including failed or retried work.
@@ -334,6 +336,8 @@ extension EventKind {
                 ? "broken test \(testName) sent back to the test author"
                 : "broken test \(testName) waiting for a person"
         case .runStarted(let run, let role): "\(role.rawValue) run \(run) started"
+        case .runConfigurationRecorded(let run, let fingerprint, let parts):
+            "\(run) configuration \(fingerprint.prefix(8)): harness \(parts.harnessBuild.summary), \(parts.agentRuntimeName) \(parts.agentRuntimeVersion), \(parts.pipelineVariant)"
         case .agentConfigured(let run, let settings):
             settings.fallback.map { "\(run) ran with \(settings.model), reasoning effort \(settings.effort) instead: \($0)" }
                 ?? "\(run) uses \(settings.model), reasoning effort \(settings.effort)"
