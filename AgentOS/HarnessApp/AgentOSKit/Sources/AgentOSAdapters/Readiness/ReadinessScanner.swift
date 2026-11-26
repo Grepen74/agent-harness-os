@@ -246,4 +246,9 @@ public enum RepositoryStorage {
     public static func ledgerStore(for identity: String, in root: URL = root) -> FileLedgerStore {
         FileLedgerStore(fileURL: directory(for: identity, in: root).appending(path: "ledger.jsonl"))
     }
+
+    /// Held while a window has the repo open, so only one harness writes its ledger (`harness.lock`).
+    public static func lock(for identity: String, in root: URL = root) throws -> StorageLock {
+        try StorageLock(directory: directory(for: identity, in: root))
+    }
 }

@@ -39,7 +39,8 @@ import Foundation
             guard refreshID == request else { return }
             precondition(!batch.isEmpty, "Ledger history ended before its snapshot position")
             newRecords.append(contentsOf: batch)
-            cursor = batch.last!.position
+            // `records(after:)` counts by place in the ledger: a forked chain's positions repeat and would never advance.
+            cursor += batch.count
         }
         let state = await source.workingState()
         guard refreshID == request else { return }
@@ -59,6 +60,7 @@ import Foundation
         position = -1
         view.records = []
         view.state = WorkingState()
+        view.unrecordedSafeStop = nil
         view.ledgerPage.invalidate()
         await refresh()
     }

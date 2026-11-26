@@ -19,11 +19,21 @@ public struct ChainReport: Sendable {
     public struct Problem: Sendable {
         public let position: Int
         public let reason: String
+
+        public init(position: Int, reason: String) {
+            self.position = position
+            self.reason = reason
+        }
     }
 
     public let checked: Int
     public let problem: Problem?
     public var isIntact: Bool { problem == nil }
+
+    public init(checked: Int, problem: Problem?) {
+        self.checked = checked
+        self.problem = problem
+    }
 }
 
 /// The harness's memory for ONE system: an append-only, hash-chained event log.
@@ -131,6 +141,11 @@ public actor Ledger: HarnessLedgerRefreshSource {
             return true
         }
         guard !fresh.isEmpty else { return [] }
+        // Writing on top of a broken chain would only bury the problem (and fork it further).
+        if let problem = verification.failure?.problem {
+            throw LedgerError.notAllowed("the ledger's chain is broken at #\(problem.position) (\(problem.reason)); "
+                                         + "nothing more is written until a person repairs it")
+        }
 
         for (node, expected) in expecting {
             let current = state.nodes[node]?.version ?? -1
@@ -169,6 +184,8 @@ public actor Ledger: HarnessLedgerRefreshSource {
             guard event.by.isHuman else { throw LedgerError.notAllowed("only humans can retry final verification") }
         case .requirementPublicationRetryRequested:
             guard event.by.isHuman else { throw LedgerError.notAllowed("only humans can retry publication") }
+        case .ledgerCutBack:
+            guard event.by.isHuman else { throw LedgerError.notAllowed("only humans can cut the ledger back") }
         case .evidenceRecorded(let evidence), .landingReworkNeeded(let evidence),
              .requirementVerificationFinished(let evidence):
             guard case .agent(let run, .verifier) = event.by, run == evidence.checkedBy else {
@@ -222,6 +239,19 @@ public actor Ledger: HarnessLedgerRefreshSource {
         } catch {
             return verification.fail(reason: "\(error)")
         }
+    }
+
+    /// The last failed chain check (at load, by a round, or by Verify chain), until a full check passes.
+    public func chainProblem() -> ChainReport? { verification.failure }
+
+    /// How many records, from the first, match their hashes and each follow the one before.
+    public nonisolated static func intactPrefixCount(of records: [RecordedEvent]) -> Int {
+        var previous: RecordedEvent?
+        for (index, record) in records.enumerated() {
+            guard record.isIntact, record.follows(previous) else { return index }
+            previous = record
+        }
+        return records.count
     }
 
     public func verificationStatistics() -> LedgerVerificationStatistics {

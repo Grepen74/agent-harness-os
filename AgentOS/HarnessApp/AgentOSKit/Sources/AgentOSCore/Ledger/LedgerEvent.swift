@@ -178,6 +178,8 @@ public enum EventKind: Codable, Sendable {
     case mainFetchWarningChanged(warning: String?)
     /// Why the harness stopped running on its own (a safe stop), or nil once a round ran without one.
     case safeStopChanged(reason: String?)
+    /// A person cut a broken ledger back to its intact first records; the rest were moved, unchanged, to `movedTo`.
+    case ledgerCutBack(keptRecords: Int, movedRecords: Int, movedTo: String)
     case catchUpConflicted(main: String, files: [String], tickets: [String])
     case catchUpSucceeded(main: String, newAgentOSMainTip: String, method: CatchUpMethod)
     case caughtUp(
@@ -379,6 +381,8 @@ extension EventKind {
             warning ?? "Default branch fetch warning cleared"
         case .safeStopChanged(let reason):
             reason.map { "harness stopped: \($0)" } ?? "harness ran a round without stopping"
+        case .ledgerCutBack(let kept, let moved, let file):
+            "ledger cut back to its \(kept) intact records; \(moved) moved to \(file)"
         case .catchUpConflicted(let main, let files, let tickets):
             "catch-up to \(main.prefix(8)) conflicted in \(files.joined(separator: ", ")) (tickets: \(tickets.joined(separator: ", ")))"
         case .catchUpSucceeded(let main, let tip, let method):

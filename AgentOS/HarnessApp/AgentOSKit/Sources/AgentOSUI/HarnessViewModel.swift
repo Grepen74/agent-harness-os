@@ -18,6 +18,8 @@ public protocol HarnessActions: AnyObject {
     /// Demo only (shown when `offersLedgerDemo` is set).
     func tamperWithLedger() async
     func restoreLedger() async
+    /// Moves the records after the ledger's intact first part aside, after a person confirmed it.
+    func cutBackLedger() async
     /// Runs the configured checks on the default branch (policy pane).
     func runBaseline() async
     /// Runs the readiness scan again (findings pane).
@@ -41,6 +43,7 @@ extension HarnessActions {
     public func stopPreview(run: RunID, by person: String) async {}
     public func tamperWithLedger() async {}
     public func restoreLedger() async {}
+    public func cutBackLedger() async {}
     public func rescan() async {}
     public func runBaseline() async {}
     public func openRepoConfig() {}
@@ -87,6 +90,13 @@ public final class HarnessViewModel {
     public var extraLabels: (title: String, names: [String])?
     /// Shows the tamper and restore buttons in the ledger pane.
     public var offersLedgerDemo = false
+    /// Shows "Cut back to intact part…" in the ledger pane when the chain is broken (real repos).
+    public var offersLedgerCutBack = false
+    /// The latest round's safe stop (recorded or not: a broken chain takes no records); Needs attention shows it
+    /// before an older recorded one. Nil after a round without a safe stop and when the ledger is replaced.
+    public var unrecordedSafeStop: String?
+    /// The safe stop to show: this session's latest, else the one recorded in the ledger.
+    public var safeStop: String? { unrecordedSafeStop ?? state.safeStop }
     /// The latest readiness scan of the repo, for the findings pane.
     public var readiness: ReadinessScan?
     public var isScanning = false
@@ -199,6 +209,7 @@ public final class HarnessViewModel {
     func verifyChain() async { await actions?.verifyChain() }
     func tamper() async { await actions?.tamperWithLedger() }
     func restoreLedger() async { await actions?.restoreLedger() }
+    func cutBackLedger() async { await actions?.cutBackLedger() }
     public func rescan() async { await actions?.rescan() }
     func runBaseline() async { await actions?.runBaseline() }
     func open(_ path: String) { actions?.open(path) }

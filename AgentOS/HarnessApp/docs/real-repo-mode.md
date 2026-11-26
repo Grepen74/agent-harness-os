@@ -194,7 +194,22 @@ or interrupts an agent already running in its leaf checkout.
 
 When a round has to stop the harness (a safe stop), **Run** turns off. The reason is recorded in the ledger
 and shown as **Run stopped: …** under **Needs attention**, also after a restart, until a round runs without
-stopping. A broken ledger chain is the exception: no more records can be added to it.
+stopping. A broken ledger chain is the exception: no more records can be added to it, so the reason is shown
+for this session only, and **Run** and **Run baseline, then Run** stay blocked until the chain is repaired. The
+latest stop of this session is shown before an older recorded one.
+
+A repo can be open in only one AgentOS window at a time: the first window takes a lock on the repo's storage
+(`harness.lock`). Another window or app instance opening the same repo shows "This repo is open in another
+AgentOS window or app" under the scan findings and can't run; close the repo there, then rescan. (Two
+harnesses writing to one ledger fork its chain.) The lock is released when the window closes or the app quits,
+also after a crash.
+
+If the ledger's chain is broken anyway (for example, by two writers before this lock existed), or a line can't be
+read, the **Ledger** pane offers **Cut back to intact part…**. After confirmation, the harness stops, keeps the
+records up to the first break, moves every later line unchanged to `ledger.removed-<date>.jsonl` beside the
+ledger, records the cut as your event, and rescans. Nothing is deleted, but the harness no longer knows what the
+moved lines recorded: rerun the baseline, and check the moved file for agent runs or decisions you may want to
+redo. GitHub observations remembered from the old ledger are not written back.
 
 If fetching fails (for example, offline or authentication rejected), **Needs attention** shows the git
 error and explains that the **last fetched commit** is used. The round continues using that commit,
@@ -786,6 +801,8 @@ The harness's state for a repo is private and lives outside the repo:
 ```
 ~/Library/Application Support/AgentOS/repos/<repo-id>/
   ledger.jsonl     events, hash-chained
+  ledger.removed-<date>.jsonl  lines moved out of the ledger when you cut it back to its intact part
+  harness.lock     held by the one window that has this repo open (names its app and pid)
   tracker.json     local tracker tickets (when no tracker adapter is configured)
   github-cache/    what was read per GitHub issue (comments.json; descriptions.json: last edit, label
                    events), each for the issue's updated_at, so a new launch reads again only the issues that
