@@ -3,7 +3,7 @@ import Foundation
 extension NodeSpec {
     private enum CodingKeys: String, CodingKey {
         case id, parent, kind, title, intent, acceptanceCriteria, touches, predictedPaths, dependsOn, after, profile
-        case affectedTests
+        case affectedTests, integration
     }
 
     public init(from decoder: any Decoder) throws {
@@ -17,6 +17,7 @@ extension NodeSpec {
         touches = try container.decode([String].self, forKey: .touches)
         predictedPaths = try container.decodeIfPresent([String].self, forKey: .predictedPaths) ?? []
         affectedTests = try container.decodeIfPresent([String].self, forKey: .affectedTests) ?? []
+        integration = try container.decodeIfPresent(Bool.self, forKey: .integration) ?? false
         dependsOn = try container.decode([String].self, forKey: .dependsOn)
         after = try container.decodeIfPresent([String].self, forKey: .after)
         profile = try container.decode(String.self, forKey: .profile)
@@ -35,6 +36,8 @@ extension NodeSpec {
         if !predictedPaths.isEmpty { try container.encode(predictedPaths, forKey: .predictedPaths) }
         // Empty affected tests must not change the canonical bytes of older ledger records.
         if !affectedTests.isEmpty { try container.encode(affectedTests, forKey: .affectedTests) }
+        // Unmarked specs retain their pre-integration ledger bytes.
+        if integration { try container.encode(true, forKey: .integration) }
         try container.encode(dependsOn, forKey: .dependsOn)
         try container.encodeIfPresent(after, forKey: .after)
         try container.encode(profile, forKey: .profile)

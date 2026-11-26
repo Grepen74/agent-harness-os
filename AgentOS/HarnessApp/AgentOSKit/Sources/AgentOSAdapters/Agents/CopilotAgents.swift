@@ -457,10 +457,16 @@ public struct CopilotDecomposer: Decomposer {
         "touches": [component names], "predictedPaths": [repository-relative files or directory prefixes], \
         "affectedTests": [existing test names or repository-relative test files deliberately changed, else []], \
         "dependsOn": [keys from the external dependencies list that this leaf needs, else []], \
-        "after": [numbers (1-based) of earlier children in this list that must land before this one is built, else []]}]}
+        "after": [numbers (1-based) of earlier children in this list that must land before this one is built, else []], \
+        "integration": boolean (true for an integration child, else false)}]}
         List children in the order they can land. Use "after" when a child can't be built or pass its tests \
         without an earlier child's work, e.g. because it uses an API, test setup or migration that child adds; \
         children without "after" are built at the same time.
+
+        Add at most one integration child, as the last child, and only when the parent has criteria observable \
+        only when two or more children work together. Its criteria must state those combined observations in \
+        full without repeating other children's criteria. Its own "predictedPaths" must cover plausible seam \
+        fixes, not just its test files.
 
         Each child's tests become permanent and other children may not change them, so make the children fit \
         together:
@@ -472,7 +478,9 @@ public struct CopilotDecomposer: Decomposer {
         those tests and what they should expect now. Its test author updates them with its acceptance tests, \
         and a reviewer checks the change. \
         Never make the work wait for a person to change the repo first, and don't ask for that.
-        - Each rule belongs to one child: the first one that builds it states it in full in its criteria. \
+        - Every parent criterion must be accounted for by child criteria. Each atomic rule has one owner: \
+        the first child that builds it states it in full in its criteria. Several distinct refinements may \
+        contribute to the same parent criterion. \
         Children that build on it wait for that child ("after") and don't repeat the rule as a criterion of their \
         own, because their tests would check it again; where a criterion needs its terms, define them in a short \
         clause, e.g. "a held leaf (one whose paths overlap work in progress)". Never refer to "the existing rule", \

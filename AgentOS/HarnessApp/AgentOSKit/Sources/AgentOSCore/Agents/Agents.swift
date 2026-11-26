@@ -272,9 +272,12 @@ public struct ChildProposal: Codable, Sendable {
     public var dependsOn: [String]?
     /// 1-based positions of earlier children in the same breakdown that must land before this one is built.
     public var after: [Int]?
+    /// Tests observations that require multiple siblings working together.
+    public var integration: Bool?
 
     public init(title: String, acceptanceCriteria: [String], touches: [String]? = nil, dependsOn: [String]? = nil,
-                after: [Int]? = nil, predictedPaths: [String]? = nil, affectedTests: [String]? = nil) {
+                after: [Int]? = nil, predictedPaths: [String]? = nil, affectedTests: [String]? = nil,
+                integration: Bool? = nil) {
         self.title = title
         self.acceptanceCriteria = acceptanceCriteria
         self.touches = touches
@@ -282,6 +285,7 @@ public struct ChildProposal: Codable, Sendable {
         self.affectedTests = affectedTests
         self.dependsOn = dependsOn
         self.after = after
+        self.integration = integration
     }
 }
 

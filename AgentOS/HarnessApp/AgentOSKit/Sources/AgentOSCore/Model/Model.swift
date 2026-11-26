@@ -110,6 +110,8 @@ public struct NodeSpec: Codable, Sendable, Hashable, Identifiable {
     public var affectedTests: [String] = []
     /// External items this node needs, e.g. "BACKEND-42" (become `depends-on` links).
     public var dependsOn: [String] = []
+    /// A leaf that tests its siblings' combined behaviour and may fix their seams.
+    public var integration: Bool = false
     /// Earlier siblings that must be proven before this leaf is built, by spec fingerprint: it survives the
     /// renames that ticket creation and replans give children. Absent in older ledgers.
     public var after: [String]?
@@ -119,6 +121,15 @@ public struct NodeSpec: Codable, Sendable, Hashable, Identifiable {
     /// The spec fingerprint (`spec_hash`). Evidence only counts for the fingerprint it was produced for.
     public var specHash: String {
         let content = [title, intent] + acceptanceCriteria
+        if integration {
+            struct IntegrationFingerprint: Encodable {
+                let content: [String]
+                let affectedTests: [String]
+                let integration: Bool
+            }
+            return Hashing.sha256(Hashing.canonicalJSON(
+                IntegrationFingerprint(content: content, affectedTests: affectedTests, integration: true)))
+        }
         return Hashing.sha256(affectedTests.isEmpty
             ? Hashing.canonicalJSON(content)
             : Hashing.canonicalJSON([content, affectedTests]))
