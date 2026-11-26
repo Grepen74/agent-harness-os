@@ -590,6 +590,19 @@ public struct CopilotTestAuthor: TestAuthor {
     /// The instructions for one run.
     public static func prompt(for task: AgentTask) -> String {
         let suite = task.spec.testTarget
+        let integration = task.spec.integration ? """
+
+            This is an integration item. Its tests drive the siblings' landed work together through public entry \
+            points, rather than retesting each child. Test the combined observations in this item's criteria. \
+            These tests may already pass: do not invent tests just to make them fail.
+
+            """ : ""
+        let failureRule = task.spec.integration
+            ? "Tests of combined behaviour may already pass against the siblings' landed work."
+            : "Tests of new behaviour should fail against the placeholders, for the reason the test names."
+        let draftFailureRule = task.spec.integration
+            ? "check that the tests prove the combined observations even if they already pass"
+            : "check that each failing test fails because the work item isn't built yet"
         // Set when earlier work came back: an implementer's broken-test report, compiler errors or a failed attempt.
         let feedback = task.previousFailure.map {
             "\n\nEarlier work on this item ran into the problem below. If \(task.testFolder)/ already holds your " +
@@ -613,13 +626,14 @@ public struct CopilotTestAuthor: TestAuthor {
             over: keep what is right, add what is missing and fix the rest. Where it changed other work's tests, keep \
             only the changes a criterion of this item asks for or an approved test needs for this ticket's change, \
             undo the others, and list the kept ones in updatedTests.\
-            \(draftCheck) Make one bounded pass: fix what doesn't compile and helpers that don't work, check that each \
-            failing test fails because the work item isn't built yet, then write the report and stop. Time is limited: \
+            \(draftCheck) Make one bounded pass: fix what doesn't compile and helpers that don't work, \
+            \(draftFailureRule), then write the report and stop. Time is limited: \
             build and run only your suite, and don't start over.
             """
         return """
         You are the test author agent in an agent harness. \(task.context)
         The work item is \(task.identity.displayName).
+        \(integration)
 
         Write acceptance tests for the work item below in \(task.testFolder)/\(suite).swift, at least one test per \
         acceptance criterion, in a test suite named exactly \(suite) (a Swift Testing `@Suite struct \(suite)`, or \
@@ -645,8 +659,7 @@ public struct CopilotTestAuthor: TestAuthor {
         or anything else that crashes the test run. The harness throws away everything you change outside \
         \(task.testFolder)/ except the permitted other tests listed in updatedTests before your tests are committed, \
         so placeholders never reach the implementer. Every \
-        test must compile. Tests of new behaviour should fail against the placeholders, for the reason the test \
-        names. Your own helpers, fakes and renderers must work: when a test relies on one (say, it reads text \
+        test must compile. \(failureRule) Your own helpers, fakes and renderers must work: when a test relies on one (say, it reads text \
         from a rendered view), check it once against something that already exists, because a broken helper \
         stops the implementer later and only you can fix it. Don't implement the work item, and stop after a few \
         rounds of building and fixing. For experiments, use the writable scratch folder at \

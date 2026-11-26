@@ -77,8 +77,7 @@ public enum NodeKind: String, Codable, Sendable {
     case composite
     /// One atomic change in one repo; may touch several components (doc 08 §1).
     case leaf
-    // Production also has integration nodes (doc 02 §5). They're needed across repos; inside one repo the
-    // landing queue already checks everything together (doc 08 §6), so the single-repo mock has none.
+    // Separate integration nodes are deferred (doc 02 §5). In one repo, integration is a purpose of a leaf.
 }
 
 /// Typed links (doc 02 §2). The mock uses one of the seven types.

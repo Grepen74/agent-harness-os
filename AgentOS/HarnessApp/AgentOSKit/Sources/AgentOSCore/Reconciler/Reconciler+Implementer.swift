@@ -68,7 +68,7 @@ extension Reconciler {
                 // Never settled by a suggestion: only a person may widen what the work item touches. Stopping for a
                 // person anyway, the questions it would have gone on with its own suggestions are theirs to see too.
                 questions = report.questions.filter { !questions.contains($0) } + questions
-                    + [Self.scopeQuestion(scope, touches: node.spec.touches)]
+                    + [Self.scopeQuestion(scope, touches: task.spec.touches)]
             }
             guard questions.isEmpty else {
                 if report.scopeRequest == nil {
