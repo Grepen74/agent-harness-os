@@ -4,6 +4,7 @@ import SwiftUI
 /// The ledger: every decision and result, in order, hash-chained (doc 04 §7, doc 07).
 public struct LedgerPane: View {
     @Environment(HarnessViewModel.self) private var model
+    @State private var confirmsCutBack = false
 
     public init() {}
 
@@ -20,6 +21,18 @@ public struct LedgerPane: View {
                             Button("Restore backup") { Task { await model.restoreLedger() } }
                                 .help("Put back the copy saved before the tamper and restart the harness")
                         }
+                    }
+                    if model.offersLedgerCutBack, model.chain?.isIntact == false {
+                        Button("Cut back to intact part…", role: .destructive) { confirmsCutBack = true }
+                            .help("Keep the records up to the break; move the rest, unchanged, to a file beside the ledger")
+                            .confirmationDialog("Cut the ledger back to its intact part?", isPresented: $confirmsCutBack) {
+                                Button("Cut back", role: .destructive) { Task { await model.cutBackLedger() } }
+                            } message: {
+                                Text("Run stops. Records from the break on are moved, unchanged, to "
+                                     + "ledger.removed-<time>.jsonl beside the ledger, and the cut is recorded in the "
+                                     + "ledger under your name. Work they recorded (scans, baselines, runs) may need "
+                                     + "doing again.")
+                            }
                     }
                     Spacer()
                     if let chain = model.chain {

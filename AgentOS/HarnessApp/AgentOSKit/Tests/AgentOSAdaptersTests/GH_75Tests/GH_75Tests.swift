@@ -292,7 +292,7 @@ extension GH_75Tests {
     private static func rowImage(_ label: String, in image: CGImage) throws -> CGImage {
         let lines = try RenderedUI.lines(in: image)
         let recognized = lines.map(\.text).joined(separator: "\n")
-        let labels = ["Ticket", "Phase", "Gates", "Links", "Touches", "Paths", "Test target",
+        let labels = ["Ticket", "Phase", "Gates", "Links", "Touches", "Paths", "Test suite", "Test files",
                       "Attempts failed", "Reworks", "Landed at", "Tests fingerprint", "Spec hash"]
         var boxes: [String: CGRect] = [:]
         // A label can share a recognised line with its value; the line's height is the row's either way.

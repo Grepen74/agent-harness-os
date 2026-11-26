@@ -6,7 +6,7 @@ public enum LedgerEventKind: String, Hashable, CaseIterable, Sendable {
     case nodeCreated, linkAdded, becameLeaf, replanned, breakdownRevised
     case gateOpened, phaseChanged, flagSet, flagCleared, attemptsReset
     case overlapHoldStarted, overlapHoldEnded
-    case testsFixed, testUpdatesApproved, otherTestsUpdated, reviewRecorded, humanReviewRequested, humanReviewApproved
+    case testsRecorded, testsFixed, testUpdatesApproved, otherTestsUpdated, reviewRecorded, humanReviewRequested, humanReviewApproved
     case requirementBranchCreated
     case requirementBranchObserved, requirementCatchUpConflicted
     case requirementBranchContainmentObserved
@@ -27,7 +27,7 @@ public enum LedgerEventKind: String, Hashable, CaseIterable, Sendable {
     case landingBatchSplit, landingBatchOwnersRemoved
     case questionsRaised, assumptionsReported, suggestionsReported, questionsAnswered, externalDependencyResolved
     case ticketClosed, ticketReopened, readinessScanned, baselineChecked
-    case mainFetchWarningChanged, safeStopChanged
+    case mainFetchWarningChanged, safeStopChanged, ledgerCutBack
     case catchUpConflicted, catchUpSucceeded, caughtUp
 
     public init(_ kind: EventKind) {
@@ -53,6 +53,7 @@ public enum LedgerEventKind: String, Hashable, CaseIterable, Sendable {
         case .attemptsReset: self = .attemptsReset
         case .overlapHoldStarted: self = .overlapHoldStarted
         case .overlapHoldEnded: self = .overlapHoldEnded
+        case .testsRecorded: self = .testsRecorded
         case .testsFixed: self = .testsFixed
         case .testUpdatesApproved: self = .testUpdatesApproved
         case .requirementBranchCreated: self = .requirementBranchCreated
@@ -117,6 +118,7 @@ public enum LedgerEventKind: String, Hashable, CaseIterable, Sendable {
         case .baselineChecked: self = .baselineChecked
         case .mainFetchWarningChanged: self = .mainFetchWarningChanged
         case .safeStopChanged: self = .safeStopChanged
+        case .ledgerCutBack: self = .ledgerCutBack
         case .catchUpConflicted: self = .catchUpConflicted
         case .catchUpSucceeded: self = .catchUpSucceeded
         case .caughtUp: self = .caughtUp

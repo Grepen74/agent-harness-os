@@ -178,14 +178,19 @@ public actor Reconciler {
         _ = try? await ledger.append([LedgerEvent(node: nil, by: .reconciler, kind: .safeStopChanged(reason: reason))])
     }
 
+    /// The safe stop for a failed chain check, also shown before any round when the ledger loads broken.
+    public nonisolated static func integritySafeStop(_ problem: ChainReport.Problem) -> String {
+        "Ledger integrity check failed at #\(problem.position): \(problem.reason). " +
+            "Safe stop: nothing will happen until a human investigates."
+    }
+
     private func playRound(waitForAgents: Bool) async -> RoundReport {
         var report = RoundReport()
         guard shutdownReason == nil, !Task.isCancelled else { return finish(report) }
         guard !isVerifyingRequirements, !isObservingPullRequests else { return finish(report) }
         let chain = await ledger.verifyIncrementally()
         if let problem = chain.problem {
-            report.safeStop = "Ledger integrity check failed at #\(problem.position): \(problem.reason). " +
-                "Safe stop: nothing will happen until a human investigates."
+            report.safeStop = Self.integritySafeStop(problem)
             return finish(report)
         }
         do { try await workspace.prepare() } catch {

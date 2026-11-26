@@ -103,4 +103,17 @@ struct WorkPaneRootsTests {
         model.state = await ledger.workingState()
         #expect(model.state.safeStop == nil)
     }
+
+    @Test func aSafeStopTheLedgerCouldntRecordStillTellsWhyRunStopped() async throws {
+        let reason = "Ledger integrity check failed at #3: chain broken"
+        let ledger = try Ledger()
+        try await ledger.append([LedgerEvent(node: nil, by: .reconciler, kind: .safeStopChanged(reason: "an older stop"))])
+        let model = HarnessViewModel()
+        model.state = await ledger.workingState()
+        model.unrecordedSafeStop = reason
+
+        let text = try RenderedUI.text(of: AttentionList().environment(model), size: CGSize(width: 1000, height: 120))
+
+        #expect(RenderedUI.shows("Run stopped: \(reason)", in: text), "\(text)")
+    }
 }

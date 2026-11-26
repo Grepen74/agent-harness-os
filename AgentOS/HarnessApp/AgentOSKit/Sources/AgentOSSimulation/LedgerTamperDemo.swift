@@ -28,7 +28,8 @@ extension FileLedgerStore {
 
     /// Puts back the copy saved before tampering. Returns false if there is nothing to restore.
     /// Production: a human investigates, then restores from a replica or backup whose last hash matches
-    /// the anchor kept outside the ledger. The harness never repairs its own ledger.
+    /// the anchor kept outside the ledger, or confirms cutting it back to its intact part (lines after the break
+    /// are moved aside, not deleted). The harness never repairs its own ledger unasked.
     /// Reload the ledger afterwards (restart the harness) so memory matches the restored file.
     func restoreAfterTamperDemo() throws -> Bool {
         guard FileManager.default.fileExists(atPath: backupURL.path) else { return false }

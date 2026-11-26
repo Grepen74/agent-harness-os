@@ -102,6 +102,7 @@ final class SimulatorModel: HarnessActions {
     }
 
     private func log(_ report: RoundReport) {
+        view.unrecordedSafeStop = report.safeStop
         if let stop = report.safeStop {
             view.activity.insert("⛔️ \(stop)", at: 0)
             setRunning(false)

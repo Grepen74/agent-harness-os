@@ -136,8 +136,9 @@ public struct CopilotReviewer: Reviewer {
     /// diff and whole older suites can run to hundreds of kilobytes.
     static func acceptanceTestListing(for request: ReviewRequest) -> String {
         let folder = request.testFolder
+        let recorded = request.testFiles.map { Set($0) }
         return request.acceptanceTests.sorted { $0.key < $1.key }.map { path, text in
-            folder.isEmpty || path.hasPrefix(folder) ? "\(path):\n\(text)"
+            (recorded.map { $0.contains(path) } ?? (folder.isEmpty || path.hasPrefix(folder))) ? "\(path):\n\(text)"
                 : "\(path): another work's test this ticket updated; its changes are in the diff below, and the "
                     + "file in this directory has the rest."
         }.joined(separator: "\n\n")
@@ -183,7 +184,8 @@ public struct CopilotReviewer: Reviewer {
         or pass without the requirement being met. Check the tests against every ticket criterion
         they can prove.
         The test author may only test behaviour through APIs, never source text, and may only change files in
-        its test folder: no new test targets, package manifests or build settings. The one exception: it may
+        its recorded own test files (or its test folder without a record), and add files in its test folder:
+        no new test targets, package manifests or build settings. The one exception: it may
         update other work's existing tests where a criterion of this ticket deliberately changes what they check,
         or where the explicit approvals above allow it. Unapproved tests still require a ticket criterion.
         At the acceptanceTests stage, make a finding for every change to another test that neither a criterion nor

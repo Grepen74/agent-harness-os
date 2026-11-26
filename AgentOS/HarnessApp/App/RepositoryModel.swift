@@ -30,6 +30,8 @@ final class RepositoryModel: HarnessActions {
     /// Start Run once the scans under way (and any they queued) have finished, if nothing blocks agents then.
     @ObservationIgnored private var startAfterRescan = false
     @ObservationIgnored private var ledger: Ledger?
+    /// Keeps other windows and app copies from writing this repo's ledger while this window has it open.
+    @ObservationIgnored private var storageLock: StorageLock?
     @ObservationIgnored private var ledgerSession: HarnessLedgerSession?
     @ObservationIgnored private var tracker: (any TicketBoard)?
     /// What `tracker` was made for: the scan's choice and the GitHub account from Settings.
@@ -48,6 +50,7 @@ final class RepositoryModel: HarnessActions {
     init(url: URL) {
         self.url = url
         view.actions = self
+        view.offersLedgerCutBack = true
         view.you = NSUserName()
         HarnessLifecycle.repositories.add(self)
         lifecycle.runStep = { [weak self] in await self?.step() }
@@ -75,6 +78,8 @@ final class RepositoryModel: HarnessActions {
             if canWork { setRunning(true) }
             else { log("Not starting the agents: " + startBlockers.joined(separator: "; ")) }
         }
+        // Outside the scan guard: tickets and history that are slow to read don't hold up the next scan or Run.
+        await refresh()
     }
 
     private func scanOnce() async {
@@ -96,8 +101,9 @@ final class RepositoryModel: HarnessActions {
         self.location = location
         root = location.root
         do {
-            let ledger = try openLedger(location.identity)
-            if !recovered {
+            let ledger = try await openLedger(location.identity)
+            let chainProblem = await ledger.chainProblem()?.problem
+            if !recovered, chainProblem == nil {
                 let notes = try await RepositorySession.recoverInterruptedRuns(in: ledger)
                 recovered = true
                 view.activity.insert(contentsOf: notes, at: 0)
@@ -107,11 +113,23 @@ final class RepositoryModel: HarnessActions {
             view.isScanning = false
             show(result)
             useTracker(result.tracker)
-            let recorded = try await ledger.record(result.scan)
-            log("Scanned: \(result.scan.summary). " + (recorded ? "Recorded in the ledger." : "Same as the last recorded scan."))
+            guard !isClosed else { return }
+            if chainProblem == nil {
+                let recorded = try await ledger.record(result.scan)
+                log("Scanned: \(result.scan.summary). " + (recorded ? "Recorded in the ledger." : "Same as the last recorded scan."))
+            } else {
+                log("Scanned: \(result.scan.summary). Not recorded: the ledger's chain is broken.")
+            }
             await startSession(result, baseline: baseline, at: location, ledger: ledger)
-            await refresh()
+        } catch let busy as StorageLock.Busy {
+            startBlockers = [busy.description]
+            canRunAfterBaseline = false
+            log("⛔️ \(busy)")
         } catch {
+            if ledger == nil {
+                startBlockers = ["Couldn't open the ledger: \(error)"]
+                canRunAfterBaseline = false
+            }
             log("⛔️ Couldn't record the scan: \(error)")
         }
     }
@@ -122,6 +140,9 @@ final class RepositoryModel: HarnessActions {
                               ledger: Ledger) async {
         guard !isClosed else { return }
         let wasRunning = isRunning
+        let chainBlocker = await ledger.chainProblem()?.problem.map {
+            "The ledger's chain is broken at #\($0.position): cut it back in the Ledger pane"
+        }
         if let running = await session?.reconciler.busyNodes, !running.isEmpty {
             log("Waiting for the agents on \(running.sorted().joined(separator: ", ")) to finish before using the new scan…")
         }
@@ -133,9 +154,10 @@ final class RepositoryModel: HarnessActions {
                 var blockers = RepositorySession.blockers(result.scan)
                 let copilot = CopilotCLI.locate()
                 if copilot == nil { blockers.append("Copilot CLI not found") }
+                if let chainBlocker { blockers.append(chainBlocker) }
                 guard blockers.isEmpty, let config = result.config, let copilot else {
                     startBlockers = blockers
-                    canRunAfterBaseline = copilot != nil && result.config != nil
+                    canRunAfterBaseline = copilot != nil && result.config != nil && chainBlocker == nil
                         && RepositorySession.onlyBaselineBlocks(result.scan, baseline: baseline)
                     return nil
                 }
@@ -167,6 +189,7 @@ final class RepositoryModel: HarnessActions {
         indicator.cancel()
         showsActivity = false
         isBusy = false
+        view.unrecordedSafeStop = report.safeStop
         if let stop = report.safeStop {
             log("⛔️ \(stop)")
             setRunning(false)
@@ -185,6 +208,10 @@ final class RepositoryModel: HarnessActions {
     func close() async {
         await shutdown(reason: "repository window closed")
         follower.stop()
+        // Writes already handed to the ledger finish before another window may open it.
+        _ = await ledger?.chainProblem()
+        storageLock?.release()
+        storageLock = nil
     }
 
     /// Stops the agents (recording `reason` on their runs) and waits for their cleanup.
@@ -236,6 +263,7 @@ final class RepositoryModel: HarnessActions {
         view.isRunningBaseline = true
         log("Running the baseline on \(location.branch) at \(location.commit.prefix(8))…")
         let baseline = await BaselineRunner(storage: storage).run(config: config, commit: location.commit, repo: location.root)
+        guard !isClosed else { return false }
         do {
             try await ledger.record(baseline)
             log("Baseline \(baseline.passed ? "passed" : "FAILED") in \(baseline.seconds)s: \(baseline.summary)")
@@ -247,6 +275,47 @@ final class RepositoryModel: HarnessActions {
     }
 
     func verifyChain() async { view.chain = await ledger?.verifyChain() }
+
+    /// A person's repair of a broken ledger (Ledger pane, after confirming): Run stops, the records from the break
+    /// on move, unchanged, to a file beside the ledger, the ledger reopens on its intact part with the cut recorded,
+    /// and the repo is scanned again.
+    func cutBackLedger() async {
+        guard let location, storageLock != nil, !isClosed else { return }
+        await stopAndWait()
+        let store = RepositoryStorage.ledgerStore(for: location.identity)
+        let cut: LedgerCutBack?
+        do {
+            // Without a ledger (its file couldn't be read) nothing in this window appends; the storage lock keeps
+            // other windows out.
+            if let ledger { cut = try await ledger.exclusively { try store.cutBackToIntactPart() } }
+            else { cut = try store.cutBackToIntactPart() }
+        } catch {
+            log("⛔️ Couldn't cut the ledger back: \(error)")
+            return
+        }
+        guard let cut else {
+            log("The ledger file is intact: nothing to cut back.")
+            return await verifyChain()
+        }
+        do {
+            let reopened = try Ledger(store: store)
+            try await reopened.append([LedgerEvent(node: nil, by: human, kind: .ledgerCutBack(
+                keptRecords: cut.keptRecords, movedRecords: cut.movedRecords, movedTo: cut.movedTo.lastPathComponent))])
+            // The tracker remembers observations from the old ledger and would write them back into the new one.
+            tracker = nil
+            trackerMadeFor = nil
+            recovered = false
+            adopt(reopened, identity: location.identity)
+            await ledgerSession?.restore(from: reopened)
+            view.chain = await reopened.verifyChain()
+            log("🧑‍🔧 Ledger cut back to its \(cut.keptRecords) intact records; \(cut.movedRecords) moved to "
+                + "\(cut.movedTo.lastPathComponent).")
+        } catch {
+            log("⛔️ Couldn't reopen the ledger after cutting it back: \(error)")
+            return
+        }
+        await rescan()
+    }
 
     func open(_ path: String) { NSWorkspace.shared.open(URL(filePath: path)) }
 
@@ -290,16 +359,34 @@ final class RepositoryModel: HarnessActions {
         NSWorkspace.shared.activateFileViewerSelecting([storage])
     }
 
-    private func openLedger(_ identity: String) throws -> Ledger {
+    private func openLedger(_ identity: String) async throws -> Ledger {
         if let ledger { return ledger }
-        let ledger = try Ledger(store: RepositoryStorage.ledgerStore(for: identity))
-        let storage = RepositoryStorage.directory(for: identity)
+        if storageLock == nil { storageLock = try RepositoryStorage.lock(for: identity) }
+        storage = RepositoryStorage.directory(for: identity)
+        let ledger: Ledger
+        do {
+            ledger = try Ledger(store: RepositoryStorage.ledgerStore(for: identity))
+        } catch {
+            // An unreadable line: the Ledger pane offers cutting the file back to the records before it.
+            view.chain = ChainReport(checked: 0, problem: .init(position: 0, reason: "\(error)"))
+            view.unrecordedSafeStop = "The ledger can't be read (\(error)). Cut it back in the Ledger pane."
+            throw error
+        }
+        adopt(ledger, identity: identity)
+        if let report = await ledger.chainProblem(), let problem = report.problem {
+            view.chain = report
+            view.unrecordedSafeStop = Reconciler.integritySafeStop(problem)
+            log("⛔️ \(Reconciler.integritySafeStop(problem))")
+        }
+        return ledger
+    }
+
+    /// Makes `ledger` this window's ledger: history, the local tracker until a scan picks one, following its appends.
+    private func adopt(_ ledger: Ledger, identity: String) {
         self.ledger = ledger
-        ledgerSession = HarnessLedgerSession(view: view, source: ledger)
-        self.storage = storage
+        if ledgerSession == nil { ledgerSession = HarnessLedgerSession(view: view, source: ledger) }
         useTracker(.local)
         follower.follow(ledger) { [weak self] in await self?.refresh() }
-        return ledger
     }
 
     /// The same tracker across scans (a session per scan), replaced only when the config or account changes.
