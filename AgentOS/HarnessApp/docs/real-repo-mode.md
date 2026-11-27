@@ -125,6 +125,30 @@ biggest merge hotspot in an Xcode repo (doc 08 §8). The scan checks for it and 
   config then names the generate command, and the harness runs it before each check.
 - Otherwise: a warning, and expect reworks on `project.pbxproj`.
 
+### Integration children
+
+The decomposer adds an **integration tests** child only when a parent's criteria include observations
+that require two or more children working together. A breakdown may have at most one, always last,
+with at least two ordinary siblings. Its criteria describe the combined behaviour in full rather than
+repeating the ordinary children's criteria.
+
+Before either its test author or implementer starts, it waits for **all other current children** of its
+parent to be Proven, including a composite sibling's whole subtree. Its test-author worktree starts from
+the current requirement branch, containing every sibling's landed changes, even if an older worktree
+already existed. The tests exercise that real code together through public entry points; they may
+already pass, and the author must not invent failing tests.
+
+Its implementer may change its own touched components plus every sibling's, including all descendants
+of composite siblings, to fix seams. Ordinary children's scopes stay unchanged, and other children's
+acceptance tests remain read-only. The integration child's own predicted paths must cover plausible
+seam fixes as well as its tests, so overlap booking can reserve the right paths.
+
+It follows the normal leaf flow: acceptance tests, review, human build permission, implementation,
+independent verification and landing. If the tests pass without implementation changes, the implementer
+reports `alreadySatisfied`: the tests' commit is still verified and landed before the child becomes Proven.
+The parent becomes Proven only after every child, including the integration child, is Proven.
+There is no extra parent-level test stage.
+
 ## Policy: two layers, shown with their source
 
 Following doc 04 §8, the app's own **harness settings** (the Settings window) set the outer limits, and the

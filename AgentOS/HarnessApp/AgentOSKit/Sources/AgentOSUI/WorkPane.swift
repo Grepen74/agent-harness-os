@@ -229,6 +229,10 @@ struct NodeDetail: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("\(node.spec.id) · \(node.spec.kind.rawValue)").font(.headline)
                 grid
+                if model.state.isWaitingForIntegrationSiblings(node) {
+                    Label("waiting for all other children", systemImage: "pause.circle")
+                        .font(.caption)
+                }
                 if let details = model.pullRequestDetails(for: node.id) {
                     PullRequestSection(details: details)
                 }
@@ -294,6 +298,9 @@ struct NodeDetail: View {
         Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 3) {
             row("Ticket", [node.displayName, model.ticket(node.ticket)?.title].compactMap { $0 }.joined(separator: "  "))
             row("Phase", node.phase.rawValue)
+            if node.spec.kind == .leaf && node.spec.integration {
+                row("Purpose", "integration tests")
+            }
             row("Gates", node.gates.isEmpty ? "– (inherited from parent if any)" : node.gates.map(\.rawValue).sorted().joined(separator: ", "))
             row("Links", node.links.isEmpty ? "–" : node.links.map { "\($0.type.rawValue) \($0.to)" }.joined(separator: "\n"))
             row("Touches", node.spec.touches.isEmpty ? "–" : node.spec.touches.joined(separator: ", "))

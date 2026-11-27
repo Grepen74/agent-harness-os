@@ -236,7 +236,11 @@ enum Planner {
                 touches: touches.isEmpty ? [ComponentName.from(parent.title, maxWords: 3)] : Array(Set(touches)).sorted(),
                 predictedPaths: PredictedPath.normalize(proposal.predictedPaths ?? []),
                 affectedTests: (proposal.affectedTests ?? []).filter { !$0.isEmpty },
-                dependsOn: proposal.dependsOn ?? [])
+                dependsOn: proposal.dependsOn ?? [], integration: proposal.integration == true)
+        }
+        let allTouches = Array(Set(specs.flatMap(\.touches))).sorted()
+        for index in specs.indices where specs[index].integration {
+            specs[index].touches = allTouches
         }
         for (index, proposal) in proposals.enumerated() {
             // Only earlier siblings, so a breakdown can't wait on itself in a cycle.
@@ -260,7 +264,8 @@ enum Planner {
             }
             let names = siblings + spec.dependsOn
             let waits = names.isEmpty ? "" : "  (waits for \(names.joined(separator: ", ")))"
-            return "\(branch) \(spec.title)  touches: \(spec.touches.joined(separator: ", "))\(pathsDescription(spec))\(waits)\(affectedTestsDescription(spec))"
+            let integration = spec.integration ? "  (integration tests; waiting for all other children)" : ""
+            return "\(branch) \(spec.title)\(integration)  touches: \(spec.touches.joined(separator: ", "))\(pathsDescription(spec))\(waits)\(affectedTestsDescription(spec))"
                 + (testApprovalNotes[spec.id] ?? "")
         }
         return ([title] + lines).joined(separator: "\n")

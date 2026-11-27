@@ -1,4 +1,4 @@
-/// Advisory problems in a proposed breakdown, with 1-based proposal and criterion positions.
+/// Problems in a proposed breakdown, with 1-based proposal and criterion positions.
 public enum BreakdownFinding: Codable, Hashable, Sendable {
     case vagueReference(childPosition: Int, childTitle: String,
                         criterionPosition: Int, criterionText: String)
@@ -11,8 +11,20 @@ public enum BreakdownFinding: Codable, Hashable, Sendable {
     case tooManyCriteria(childPosition: Int, childTitle: String, count: Int, limit: Int)
     /// The same criterion in several children: each of their test authors tests it again.
     case repeatedCriterion(childPositions: [Int], childTitles: [String], criterionText: String)
+    case multipleIntegrationChildren(childPosition: Int, childTitle: String)
+    case integrationChildNotLast(childPosition: Int, childTitle: String)
+    case integrationChildWithOneSibling(childPosition: Int, childTitle: String)
+    case loneIntegrationChild(childPosition: Int, childTitle: String)
 
-    public var severity: Finding.Severity { .warning }
+    public var severity: Finding.Severity {
+        switch self {
+        case .multipleIntegrationChildren, .integrationChildNotLast,
+             .integrationChildWithOneSibling, .loneIntegrationChild:
+            .blocker
+        case .vagueReference, .scopeCriterion, .unorderedOverlap, .tooManyCriteria, .repeatedCriterion:
+            .warning
+        }
+    }
 }
 
 /// Checks proposal values without changing them or consulting external state.
@@ -26,11 +38,27 @@ public enum BreakdownChecker {
     public static func check(_ children: [ChildProposal]) -> [BreakdownFinding] {
         var findings: [BreakdownFinding] = []
         var ancestors: [Set<Int>] = []
+        let integrationIndices = children.indices.filter { children[$0].integration == true }
+        let validIntegrationIndex = integrationIndices.count == 1 && children.count >= 3
+            && integrationIndices.first == children.indices.last ? integrationIndices.first : nil
         let components = children.map { child in
             Set((child.touches ?? []).map { ComponentName.from($0) })
         }
 
         for (childIndex, child) in children.enumerated() {
+            if child.integration == true {
+                if integrationIndices.count > 1 {
+                    findings.append(.multipleIntegrationChildren(childPosition: childIndex + 1, childTitle: child.title))
+                }
+                if childIndex != children.indices.last {
+                    findings.append(.integrationChildNotLast(childPosition: childIndex + 1, childTitle: child.title))
+                }
+                if children.count == 2 {
+                    findings.append(.integrationChildWithOneSibling(childPosition: childIndex + 1, childTitle: child.title))
+                } else if children.count == 1 {
+                    findings.append(.loneIntegrationChild(childPosition: childIndex + 1, childTitle: child.title))
+                }
+            }
             if child.acceptanceCriteria.count > maxCriteriaPerChild {
                 findings.append(.tooManyCriteria(childPosition: childIndex + 1, childTitle: child.title,
                                                  count: child.acceptanceCriteria.count, limit: maxCriteriaPerChild))
@@ -82,6 +110,7 @@ public enum BreakdownChecker {
 
         for firstIndex in children.indices {
             for secondIndex in children.indices.dropFirst(firstIndex + 1) {
+                guard secondIndex != validIntegrationIndex else { continue }
                 guard !ancestors[secondIndex].contains(firstIndex) else { continue }
                 let shared = components[firstIndex].intersection(components[secondIndex]).sorted()
                 guard !shared.isEmpty else { continue }

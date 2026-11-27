@@ -395,6 +395,7 @@ public struct WorkingState: Sendable {
 
         switch event.kind {
         case .linkAdded(let link): node.links.append(link)
+        case .childOrderRecorded(let children): node.children = children
         case .becameLeaf(let touches, let predictedPaths):
             node.spec.kind = .leaf
             node.spec.touches = touches

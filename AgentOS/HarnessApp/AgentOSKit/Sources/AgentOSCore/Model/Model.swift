@@ -77,8 +77,7 @@ public enum NodeKind: String, Codable, Sendable {
     case composite
     /// One atomic change in one repo; may touch several components (doc 08 §1).
     case leaf
-    // Production also has integration nodes (doc 02 §5). They're needed across repos; inside one repo the
-    // landing queue already checks everything together (doc 08 §6), so the single-repo mock has none.
+    // Separate integration nodes are deferred (doc 02 §5). In one repo, integration is a purpose of a leaf.
 }
 
 /// Typed links (doc 02 §2). The mock uses one of the seven types.
@@ -110,6 +109,8 @@ public struct NodeSpec: Codable, Sendable, Hashable, Identifiable {
     public var affectedTests: [String] = []
     /// External items this node needs, e.g. "BACKEND-42" (become `depends-on` links).
     public var dependsOn: [String] = []
+    /// A leaf that tests its siblings' combined behaviour and may fix their seams.
+    public var integration: Bool = false
     /// Earlier siblings that must be proven before this leaf is built, by spec fingerprint: it survives the
     /// renames that ticket creation and replans give children. Absent in older ledgers.
     public var after: [String]?
@@ -119,6 +120,15 @@ public struct NodeSpec: Codable, Sendable, Hashable, Identifiable {
     /// The spec fingerprint (`spec_hash`). Evidence only counts for the fingerprint it was produced for.
     public var specHash: String {
         let content = [title, intent] + acceptanceCriteria
+        if integration {
+            struct IntegrationFingerprint: Encodable {
+                let content: [String]
+                let affectedTests: [String]
+                let integration: Bool
+            }
+            return Hashing.sha256(Hashing.canonicalJSON(
+                IntegrationFingerprint(content: content, affectedTests: affectedTests, integration: true)))
+        }
         return Hashing.sha256(affectedTests.isEmpty
             ? Hashing.canonicalJSON(content)
             : Hashing.canonicalJSON([content, affectedTests]))

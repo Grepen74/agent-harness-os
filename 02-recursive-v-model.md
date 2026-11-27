@@ -203,6 +203,20 @@ Sometimes putting pieces together needs code of its own: glue code, configuratio
 **its own leaf node** under the parent, so that all code is still written in leaves. The parent
 node itself only **coordinates and tests**; it never edits code directly.
 
+**Within one repo, combined-behaviour checks take a narrower form:** a leaf with an integration purpose,
+owned by the breakdown tree under the parent. Add one only for observations that need two or more
+children together, not to repeat their individual checks. It waits for all other current siblings to be
+Proven, including each composite sibling's whole subtree, before its tests are authored or its
+implementation starts. Those tests exercise the siblings' landed work together through public entry
+points. The leaf may fix seams in its own and its siblings' components, including their descendants;
+it does not change their acceptance tests.
+
+This leaf uses the normal test-author, review, implementation, verification and landing flow. Its tests
+may already pass: in that case the tests' commit is independently verified and landed unchanged.
+The parent is Proven only when all children, including this leaf, are Proven; no parent-level stage is
+added. The broader integration nodes that build nothing, partial integration and `integrates` links
+described below are deferred, rather than prerequisites for this single-repo form.
+
 ### Step-by-step integration: integration points
 
 **The problem.** Picture a system with three parts: A, B and C. A and B could already be tested together

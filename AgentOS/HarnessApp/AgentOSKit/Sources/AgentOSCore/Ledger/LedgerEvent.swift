@@ -70,6 +70,9 @@ public enum EventKind: Codable, Sendable {
     /// spec fingerprint) are `kept` with their tests and approvals, taking the new spec's touches and dependencies;
     /// the others are `dropped`: gone from the working state, their tickets closed as superseded.
     case breakdownRevised(kept: [NodeSpec], dropped: [NodeID])
+    /// Final child IDs in approved breakdown order, recorded after child ticket creation.
+    /// Ledgers without this event keep the historical creation order.
+    case childOrderRecorded(children: [NodeID])
 
     // Lifecycle (doc 02 §6)
     case gateOpened(Gate)
@@ -278,6 +281,8 @@ extension EventKind {
         case .breakdownRevised(let kept, let dropped):
             "new breakdown compared with the old one: kept \(kept.isEmpty ? "none" : kept.map(\.id).joined(separator: ", ")), "
                 + "dropped \(dropped.isEmpty ? "none" : dropped.joined(separator: ", "))"
+        case .childOrderRecorded(let children):
+            "approved breakdown order: \(children.joined(separator: ", "))"
         case .gateOpened(let gate): "\(gate.rawValue) gate opened"
         case .phaseChanged(let phase): "→ \(phase.rawValue)"
         case .flagSet(let flag, let reason): "⚑ \(flag.rawValue): \(reason)"

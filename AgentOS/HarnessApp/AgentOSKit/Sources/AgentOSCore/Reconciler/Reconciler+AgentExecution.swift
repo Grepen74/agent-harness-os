@@ -92,6 +92,12 @@ extension Reconciler {
         let labels = await tracker.ticket(node.ticket)?.labels.map(\.name) ?? []
         let state = await ledger.workingState()
         let context = await makeAgentContext(node.ticket)
+        var spec = node.spec
+        if role == .implementer, spec.integration, spec.kind == .leaf,
+           let parent = spec.parent.flatMap({ state.nodes[$0] }) {
+            let siblings = parent.children.filter { $0 != node.id }.flatMap { state.subtree(of: $0) }
+            spec.touches = Set(spec.touches + siblings.flatMap(\.spec.touches)).sorted()
+        }
         var earlierTestReviews: [[String]] = []
         var earlierBrokenTests: [String] = []
         if role == .testAuthor {
@@ -104,7 +110,7 @@ extension Reconciler {
             if let latest = earlierBrokenTests.last, latest == node.latestTestFeedback { earlierBrokenTests.removeLast() }
         }
         return AgentTask(
-            spec: node.spec, run: run, directory: directory, testFolder: workspace.testFolder(for: node.spec),
+            spec: spec, run: run, directory: directory, testFolder: workspace.testFolder(for: node.spec),
             scratchDirectory: directory.appending(path: ".agentos/scratch/\(run)", directoryHint: .isDirectory),
             context: workspace.agentContext, attempt: node.failedAttempts + 1,
             // The test author needs the latest problem with its tests; older reports may be about tests since rewritten.
