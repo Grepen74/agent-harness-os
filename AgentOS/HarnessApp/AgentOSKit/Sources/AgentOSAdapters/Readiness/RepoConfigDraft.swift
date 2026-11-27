@@ -12,7 +12,7 @@ enum RepoConfigDraft {
         for package in build.packages where package.hasTests {
             let command = cd(package.folder, "swift test")
             if test == nil {
-                test = RepoConfig.Test(command: command, only: "--filter {suite}")
+                test = RepoConfig.Test(command: command, only: "--filter {suiteRegex}")
                 leafTests = testFolders(of: package.folder, in: repo).first
             } else {
                 checks.append(RepoConfig.NamedCheck(name: "test \(package.folder)", command: command))

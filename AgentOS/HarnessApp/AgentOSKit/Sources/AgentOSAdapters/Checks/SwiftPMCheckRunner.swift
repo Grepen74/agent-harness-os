@@ -5,16 +5,27 @@ import Foundation
 /// Production: the repo's CI pipeline, with lint, static analysis, coverage, HIL/SIL… per policy profile,
 /// and only the tests affected by the change (doc 08 §6).
 public struct SwiftPMCheckRunner: CheckRunner {
-    public init() {}
+    private let runCommand: @Sendable (String, [String], URL) async throws -> ProcessRunner.Result
+
+    public init() {
+        self.init(runCommand: { executable, arguments, directory in
+            try await ProcessRunner.run(executable, arguments, in: directory)
+        })
+    }
+
+    public init(runCommand: @escaping @Sendable (String, [String], URL) async throws -> ProcessRunner.Result) {
+        self.runCommand = runCommand
+    }
 
     public func runChecks(in directory: URL, only testTarget: String?) async -> CheckOutput {
-        let filter = testTarget.map { ["--filter", "\($0)\\."] } ?? []
+        let filter = testTarget.map { ["--filter", SwiftTestSuiteSelector.pattern(for: $0)] } ?? []
         do {
-            let result = try await ProcessRunner.run("/usr/bin/env", ["swift", "test"] + filter, in: directory)
+            let result = try await runCommand("/usr/bin/env", ["swift", "test"] + filter, directory)
             let passed = result.status == 0
             return CheckOutput(passed: passed, summary: passed ? "swift test passed" : Self.summarize(result.output),
                                log: result.output, failingTargets: passed ? [] : Self.failingTargets(in: result.output),
-                               failureKind: result.crashSignal.map { .runnerCrash(signal: $0) } ?? .reportedFailure)
+                               failureKind: result.crashSignal.map { .runnerCrash(signal: $0) } ?? .reportedFailure,
+                               failureLocations: passed ? [] : Self.failureLocations(in: result.output, checkout: directory))
         } catch {
             return CheckOutput(passed: false, summary: "could not run swift test: \(error)", log: "\(error)")
         }

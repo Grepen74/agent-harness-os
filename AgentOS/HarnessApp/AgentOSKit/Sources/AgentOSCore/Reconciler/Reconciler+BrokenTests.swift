@@ -24,9 +24,16 @@ extension Reconciler {
         for record in records.reversed() where record.position < flag.position {
             switch record.event.kind {
             case .brokenTestRouted(_, let outcome): return outcome
-            // Older ledgers have no routing outcome; fall back to the test's name.
+            // Older ledgers have no routing outcome; use the same attribution as a new report.
             case .brokenTestReported(let report):
-                return isOwnTest(report.testName, of: node) ? .waitingForPerson : .otherTestWaitingForPerson
+                do {
+                    let own = try await isOwnBrokenTest(report.testName, of: node, in: workspace.worktree(for: node.id))
+                    return own ? .waitingForPerson : .otherTestWaitingForPerson
+                } catch {
+                    await tracker.comment(on: node.ticket,
+                        "Couldn't attribute broken test \(report.testName): \(error). Check the test files, then add harness:retry.")
+                    return nil
+                }
             case .runStarted: return nil
             default: continue
             }
@@ -55,7 +62,7 @@ extension Reconciler {
         let tries = sameTest.count >= Self.automaticTestReturns ? sameTest.count : earlier.count
         // Found outside the test area, a test is other work's whatever its name looks like.
         let outOfReach = outsideTestArea(report.testName, in: directory)
-        let isOther = outOfReach != nil || !isOwnTest(report.testName, of: node)
+        let isOther = try await !isOwnBrokenTest(report.testName, of: node, in: directory)
         guard outOfReach == nil, sameTest.count < Self.automaticTestReturns,
               earlier.count < Self.automaticTestReturnsInAll else {
             let history = (earlier.map { "Earlier: \($0.testName): \($0.reason)" }
@@ -135,11 +142,43 @@ extension Reconciler {
         return "\(node.displayName) broken test \(report.testName) → sent back to the test author"
     }
 
+    /// Recorded files, suites and markers take precedence over the permissive name fallback.
+    private func isOwnBrokenTest(_ testName: String, of node: NodeState, in directory: URL) async throws -> Bool {
+        guard outsideTestArea(testName, in: directory) == nil else { return false }
+        let suite = testName.contains("/") ? nil
+            : testName.split(separator: ".").first.map(String.init).flatMap { $0 == testName ? nil : $0 }
+        let file = testName.contains("/")
+            ? declaringFiles(of: testName, in: directory, includingMissingPaths: true).first
+            : nil
+        let location = CheckFailureLocation(file: file, suite: suite)
+        var nodes = Array(await ledger.workingState().nodes.values)
+        nodes.removeAll { $0.id == node.id }
+        nodes.append(node)
+        var sources: [String: String] = [:]
+        // A record already settles ownership; source discovery is only needed for ticket markers.
+        if !nodes.contains(where: { candidate in
+            file.map { candidate.recordedTests?.files.contains($0) == true } == true
+                || suite.map { candidate.recordedTests?.suite == $0 } == true
+        }), suite != nil {
+            for path in declaringFiles(of: testName, in: directory) {
+                sources[path] = try String(contentsOf: directory.appending(path: path), encoding: .utf8)
+            }
+        }
+        if let owner = TestFailureAttribution.owner(of: location, among: nodes, sources: sources) {
+            return owner == node.id
+        }
+        if let suite, let owner = TestFailureAttribution.owner(
+            of: CheckFailureLocation(file: "\(suite).swift", suite: suite), among: nodes, sources: sources) {
+            return owner == node.id
+        }
+        return isOwnTest(testName, of: node)
+    }
+
     /// Whether a reported test may belong to this node. Only a name that clearly points at another suite
     /// (`FlowTests.someTest`, or a path outside the node's test folder) counts as other work.
     private func isOwnTest(_ testName: String, of node: NodeState) -> Bool {
         let folder = workspace.testFolder(for: node.spec)
-        let suite = folder.split(separator: "/").last.map(String.init) ?? folder
+        let suite = node.recordedTests?.suite ?? folder.split(separator: "/").last.map(String.init) ?? folder
         if testName.contains("/") { return testName.contains(folder) }
         guard let leading = testName.split(separator: ".").first.map(String.init), leading != testName,
               leading.hasSuffix("Tests") else { return true }
@@ -187,7 +226,8 @@ extension Reconciler {
         var declaredIn: [String] = []
         while let url = files?.nextObject() as? URL {
             guard url.pathExtension == "swift", let text = try? String(contentsOf: url, encoding: .utf8),
-                  declaration.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil,
+                  declaration.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
+                    || !SuiteTicketMarkers.markers(for: suite, in: text).isEmpty,
                   let path = relative(url) else { continue }
             declaredIn.append(path)
         }

@@ -109,6 +109,13 @@ marked in Process. Node selection and the stage filter are shared window UI stat
 | Landing | Fast-forward the requirement branch | Fast-forward the requirement branch |
 | Check duration | Seconds | Minutes. The landing queue is the bottleneck; acceptable for now |
 
+A leaf's branch pre-check selects its recorded acceptance-test suite, or its legacy test target when
+there is no record. If that selection runs no tests, the pre-check fails with
+`no tests matched suite <Suite>`, even if the runner exits successfully. Swift Testing and XCTest counts
+are considered together: a nonzero count from either means tests ran; unrecognized output is not treated
+as zero. The leaf returns to Ready rather than entering the landing queue, its ticket gets the usual
+own-mistake pre-check feedback, and the failure counts toward escalation.
+
 ### The Xcode project file
 
 If the project uses explicit file references, every new file changes `project.pbxproj`. That makes it the
@@ -439,8 +446,21 @@ unknown keys are reported as likely typos. For an iOS app:
 Only `test.command` is required to scan and run the baseline; agents also need `leafTests` (where a leaf's
 acceptance tests go; missing = blocker) and should have `test.only` (missing = warning: every leaf then runs
 all tests). Checks run in order (prepare, build, test, then `checks`) with `/bin/sh -c`
-from the repo's top folder, and stop at the first failure. `{suite}` in `test.only` is replaced with a
-leaf's suite, so a leaf runs only its own tests; the extra checks run at landing.
+from the repo's top folder, and stop at the first failure. `test.only` selects a leaf's own suite;
+the extra checks run at landing.
+
+For SwiftPM, use `"only": "--filter {suiteRegex}"`. `{suiteRegex}` becomes the regex-escaped suite
+name with suite boundaries, as a single-quoted shell argument: suite `GH_4_2Tests` produces
+`--filter '\.GH_4_2Tests(/|$)'`. SwiftPM identifiers are `Module.Suite/test()` or `Module.Suite`,
+so this selects exactly that suite. The generated agent instructions explain the same replacement.
+
+`{suite}` still becomes the bare suite name, for example in `-only-testing:AppTests/{suite}`.
+Using it with SwiftPM's `--filter` is unsafe because the filter is an unanchored regex:
+`TestFeedbackTests` also matches `AcceptanceTestFeedbackTests`, and regex metacharacters in a suite
+name can match other names. The readiness scan warns under `config.leafTests` whenever `test.only`
+contains both `--filter` and `{suite}`, suggesting `{suiteRegex}` instead. It does not issue this
+warning for `{suiteRegex}` alone or `{suite}` without `--filter`. New SwiftPM config drafts use
+`--filter {suiteRegex}`.
 
 ### Repo config reference
 
@@ -457,7 +477,7 @@ is configured, Copilot CLI chooses its own default. Display titles are not confi
 | `build.command` | String: shell command to build the repo | No separate build command | Runs after prepare, before test; failure stops the check run |
 | `test` | Object containing the test command and optional suite selector | Required | Must supply `test.command` |
 | `test.command` | String: shell command to run the full test suite | Required, including for the baseline | Must succeed; cannot replace required harness safety checks |
-| `test.only` | String: suffix appended to the test command, with `{suite}` replaced by the leaf suite name | All tests run for each leaf; missing selector produces a warning | Full tests still run at landing |
+| `test.only` | String: suffix appended to the test command; `{suite}` is the bare leaf suite name, `{suiteRegex}` is its escaped, anchored regex as a single-quoted shell argument | All tests run for each leaf; missing selector produces a warning | Use `--filter {suiteRegex}` for SwiftPM; `--filter` with `{suite}` produces a `config.leafTests` warning. Full tests still run at landing |
 | `checks` | Array of check objects, each with a name and command | Empty list; no extra checks | Adds required landing checks; does not replace tests or harness safety checks |
 | `checks[].name` | String: human-readable check name | Required for each check object | None; identifies the check in evidence |
 | `checks[].command` | String: shell command for the check | Required for each check object | Runs after tests, in array order; failure stops the check run |
@@ -874,7 +894,18 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
   away first.
 - **Checks** before landing: the leaf's tests (and older tests its test author updated) are unchanged
   since they were approved, no other leaf's tests changed, and no protected path changed. Then the leaf's tests (`test.only`), then all checks at landing.
-  When only tests outside the leaf's own suite fail (another ticket's or a suite no ticket owns), the harness
+  Failures are traced to tickets by the first matching rule: a repository-relative file in the node's
+  recorded test files (including support files), then its recorded suite, then a ticket marker on the
+  failing suite's declaration. The marker is either `.ticket("<KEY>")` in that suite's own `@Suite(...)`
+  attribute or `// Ticket: <KEY>` directly above the declaration. Exactly one marker must name a known
+  ticket, with an exact, case-sensitive key; mentions in strings, unrelated comments or another suite
+  don't count. Ambiguous records or markers, and unknown ticket markers, leave the failure unattributed.
+  Without a marker, older nodes without a test record fall back to a folder named `<testTarget>` or a
+  file named `<testTarget>.swift`. Recorded nodes never use that legacy fallback.
+  Swift Testing issues carry a suite only when exactly one Swift Testing suite failed in the log;
+  parallel output is never attributed using the last suite that started. XCTest retains its reported suite.
+
+  When no failure is attributed to the landing leaf and failing suites are known, the harness
   first waits for every other running agent step and preview to finish, starting none meanwhile, so load
   from other work can't cause the failure. With the machine quiet, it runs the whole check again, unchanged,
   and does the diagnosis below. If that passes, it lands and reports an unreliable test. If it fails again,
@@ -882,7 +913,8 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
   the latest requirement branch without it. These isolated runs only diagnose; they never land.
   - Failing on main too: a main/infrastructure problem, with no failed attempt; fix it and add `harness:retry`.
   - Failing alone with the change but not on main: a requirements conflict when every failing suite belongs
-    to a proven ticket, otherwise the leaf's own failure.
+    to a proven ticket other than the landing leaf in every diagnostic run. An own failure skips the
+    other-tests diagnosis. Any unattributed or unproven failure prevents a requirements-conflict escalation.
   - Passing alone both ways: the whole check runs once more on latest `agentos/main` without the change.
     If it passes, the change disturbs those tests (shared state, order, timing or load): the leaf's own
     mistake, reworked like any other, never a requirements conflict. If it fails too, or the checks can't
@@ -945,17 +977,20 @@ config-driven checks, the local tracker (project key `WORK`) and the repo's ledg
   branch without the batch. Without suite selection support, these are full checks instead.
   A runner that still cannot finish after one retry, a selection that runs no tests, or tests failing
   without the batch escalates every member with landing-infrastructure evidence and a
-  "Landing infrastructure problem: … Batch … No failed attempt counted." comment. Unknown failing suites
-  also escalate because isolated diagnosis cannot safely select tests. These batches are not split or
+  "Landing infrastructure problem: … Batch … No failed attempt counted." comment. These batches are not split or
   landed, and no member has a failed attempt counted. Fix the requirement branch or runner, then add
   `harness:retry` to the affected tickets; use the same signal after fixing a repeated runner crash.
-  After diagnosis rules out infrastructure problems, failing tests are matched to nodes by test target,
-  using the same ownership rule as single landing's requirements-conflict diagnosis. If the batch still
-  fails in isolation and every target failing in that run belongs to a member of this batch, those owners
+  After diagnosis rules out infrastructure problems, failing tests are matched by recorded files, recorded
+  suite, declaration marker, or legacy folder/file name, using the same ordered ownership rules as single
+  landing. If the batch still fails in isolation and every failure in the full and isolated checks belongs
+  to a member of this batch, those owners
   are taken out together and the remainder is rebuilt and checked without them, landing if it passes.
   Only then are the removed owners checked alone.
-  Otherwise the batch is split in half, including failures that appear only under load or disturb other
-  tests. The first half is checked on the latest requirement branch and lands if it passes; the second
+  Otherwise the batch is split in half, including unattributed failures, failures owned outside the batch,
+  and failures that appear only under load or disturb other tests. When no failing suite can be identified,
+  the batch is split without isolated selections. A failed check reporting neither locations nor suites
+  remains an infrastructure problem: there are no identified failing tests to attribute or select.
+  The first half is checked on the latest requirement branch and lands if it passes; the second
   half is then built on that updated branch. Splitting repeats as needed, so passing smaller groups
   become Proven and get their landed comments before the failing singleton is handled.
   A singleton uses ordinary single landing, retaining its diagnosis, comments, attempt counts, rework,

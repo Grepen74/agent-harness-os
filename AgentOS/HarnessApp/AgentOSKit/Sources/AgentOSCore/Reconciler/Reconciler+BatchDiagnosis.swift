@@ -4,7 +4,7 @@ extension Reconciler {
     enum BatchCheckResult {
         case passed(CheckOutput, unreliable: Bool)
         case escalated
-        case needsSplit(String, failingTargets: Set<String>)
+        case needsSplit(String, owners: [NodeState]?)
     }
 
     static let unreliableBatchNotice = "Unreliable test: the landing check failed, then passed when run again in full with no other work running."
@@ -51,11 +51,19 @@ extension Reconciler {
                            unreliable: true)
         }
 
-        let suites = initial.failingTargets.union(again.failingTargets).sorted()
+        let attributionNodes = Array(await ledger.workingState().nodes.values)
+        var sources = try failureSources(for: [initial, again], among: attributionNodes, in: batch.directory)
+        let failures = CheckOutput(passed: false, summary: diagnosis, log: log,
+            failureLocations: Self.failureLocations(of: initial) + Self.failureLocations(of: again))
+        let owners = Self.failureOwners(of: failures, among: attributionNodes, sources: sources)
+        let suites = Self.failureSuites(of: failures, among: attributionNodes, sources: sources)
         if suites.isEmpty {
-            return try await escalateBatchInfrastructure(batch, nodes: nodes, run: run,
-                problem: "The full checks failed without identifying the failing suites; isolated diagnosis cannot run.",
-                diagnosis: diagnosis, log: log)
+            if failures.failureLocations.isEmpty {
+                return try await escalateBatchInfrastructure(batch, nodes: nodes, run: run,
+                    problem: "The full checks failed without identifying the failing suites; isolated diagnosis cannot run.",
+                    diagnosis: diagnosis, log: log)
+            }
+            return .needsSplit("Batch diagnosis: \(batch.id) has unattributed failures.\n\(diagnosis)", owners: nil)
         }
         let candidate = try await batchSelections(batch, suites: suites, in: batch.directory, stage: "Batch alone", run: run)
         log += "\nBatch alone:\n\(candidate.output.log)"
@@ -76,8 +84,15 @@ extension Reconciler {
                 problem: "These tests fail on latest \(batch.branch) without the batch too.",
                 diagnosis: diagnosis, log: log)
         }
-        return .needsSplit("Batch diagnosis: \(batch.id) needs split.\n\(diagnosis)",
-                           failingTargets: candidate.output.passed ? [] : candidate.output.failingTargets)
+        if !candidate.output.passed, sources.isEmpty {
+            sources = try failureSources(for: [candidate.output], among: attributionNodes, in: batch.directory)
+        }
+        let isolatedOwners = Self.failureOwners(of: candidate.output, among: attributionNodes, sources: sources)
+        let allOwners = owners.flatMap { full in isolatedOwners.map { isolated in
+            let ids = Set((full + isolated).map(\.id))
+            return attributionNodes.filter { ids.contains($0.id) }
+        }}
+        return .needsSplit("Batch diagnosis: \(batch.id) needs split.\n\(diagnosis)", owners: allOwners)
     }
 
     private func batchCheck(_ batch: LandingBatch, in directory: URL, only selection: String?,
@@ -97,7 +112,8 @@ extension Reconciler {
             output = CheckOutput(passed: retry.passed,
                 summary: "\(output.summary)\nRunner retry: \(retry.summary)",
                 log: "\(output.log)\nRunner retry:\n\(retry.log)",
-                failingTargets: retry.failingTargets, failureKind: retry.failureKind, checks: retry.checks)
+                failingTargets: retry.failingTargets, failureKind: retry.failureKind, checks: retry.checks,
+                failureLocations: Self.failureLocations(of: retry))
         }
         try Task.checkCancellation()
         return output
@@ -123,7 +139,8 @@ extension Reconciler {
                 "\($0 ?? "all tests") \($1.passed ? "passed" : "failed"): \($1.summary)"
             }.joined(separator: "\n"),
             log: outputs.map(\.log).joined(separator: "\n"),
-            failingTargets: outputs.reduce(into: []) { $0.formUnion($1.failingTargets) }
+            failingTargets: outputs.reduce(into: []) { $0.formUnion($1.failingTargets) },
+            failureLocations: outputs.flatMap { Self.failureLocations(of: $0) }
         ), problem)
     }
 

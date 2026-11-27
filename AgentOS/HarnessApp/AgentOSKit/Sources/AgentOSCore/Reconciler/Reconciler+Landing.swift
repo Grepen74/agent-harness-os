@@ -43,7 +43,13 @@ extension Reconciler {
             )
         }
         let state = await ledger.workingState()
-        let provenTargets = Set(state.nodes.values.filter { $0.phase == .proven }.map(\.spec.testTarget))
+        let attributionNodes = Array(state.nodes.values)
+        var sources = output.passed ? [:] : try failureSources(
+            for: [output], among: attributionNodes, in: directory
+        )
+        var onlyOtherProvenFailures = Self.otherProvenFailureOwners(
+            of: output, than: node, among: attributionNodes, sources: sources
+        ) != nil
         var diagnosis: String?
         // The tests that failed twice in the full check but passed alone, with and without the change, and how
         // they were rerun.
@@ -51,7 +57,8 @@ extension Reconciler {
         // The change's failures show only in the whole check, which passes on the requirement branch: it disturbs them.
         var disturbs = false
         // Failures only in other suites may be unreliable tests, main's or the runner's problem, or a conflict.
-        if !output.passed && !output.failingTargets.isEmpty && !output.failingTargets.contains(node.spec.testTarget) {
+        if !output.passed, !Self.hasOwnFailure(of: output, node: node, among: attributionNodes, sources: sources),
+           !Self.failureSuites(of: output, among: attributionNodes, sources: sources).isEmpty {
             let initial = output
             // The rerun and its diagnosis run with no other work on the machine: load may be what failed.
             quietLandings += 1
@@ -76,14 +83,22 @@ extension Reconciler {
                 \(again.log)
                 """
             var decisive = again
+            if !again.passed, sources.isEmpty {
+                sources = try failureSources(for: [again], among: attributionNodes, in: directory)
+            }
+            onlyOtherProvenFailures = onlyOtherProvenFailures && Self.otherProvenFailureOwners(
+                of: again, than: node, among: attributionNodes, sources: sources
+            ) != nil
             var problem: String?
             if !again.passed && again.failureKind != .reportedFailure {
                 problem = "The test runner didn't finish the rerun."
-            } else if !again.passed && !again.failingTargets.isEmpty
-                && !again.failingTargets.contains(node.spec.testTarget) {
+            } else if !again.passed,
+                      !Self.hasOwnFailure(of: again, node: node, among: attributionNodes, sources: sources),
+                      !Self.failureSuites(of: again, among: attributionNodes, sources: sources).isEmpty {
                 // Failed again: only the failing suites, alone. Passing alone doesn't prove the tests unreliable
                 // (the change may cause interference under load), so this only decides who looks at it.
-                let suites = initial.failingTargets.union(again.failingTargets).sorted()
+                let suites = Set(Self.failureSuites(of: initial, among: attributionNodes, sources: sources)
+                    + Self.failureSuites(of: again, among: attributionNodes, sources: sources)).sorted()
                 let how = checks.selectsSuites ? "alone" : "again (the repo's checks can't run one suite, so all tests)"
                 let (alone, aloneRanNothing) = await runChecks(only: suites, in: directory)
                 let (onMain, mainRanNothing) = await checkLatestMain(for: node.id, only: suites)
@@ -132,12 +147,16 @@ extension Reconciler {
                     failingOnlyUnderLoad = (tests.isEmpty ? suites : tests.sorted(), how)
                 } else {
                     decisive = alone
+                    if sources.isEmpty {
+                        sources = try failureSources(for: [alone], among: attributionNodes, in: directory)
+                    }
                 }
             }
             diagnosis = report
             output = CheckOutput(
                 passed: decisive.passed, summary: report, log: log,
-                failingTargets: decisive.failingTargets, failureKind: decisive.failureKind
+                failingTargets: decisive.failingTargets, failureKind: decisive.failureKind,
+                checks: decisive.checks, failureLocations: Self.failureLocations(of: decisive)
             )
             if let problem {
                 let reason = """
@@ -223,8 +242,9 @@ extension Reconciler {
         }
 
         // Which node's behaviour broke? Someone else's → two requirements may contradict (doc 08 §5).
-        let broken = Self.testOwners(of: output.failingTargets.subtracting([node.spec.testTarget]),
-                                     among: state.nodes.values.filter { $0.phase == .proven })
+        let broken = Self.otherProvenFailureOwners(
+            of: output, than: node, among: attributionNodes, sources: sources
+        ) ?? []
         if let diagnosis, let failingOnlyUnderLoad {
             let reason = """
                 Unreliable tests or interference under load (not a requirements conflict): \
@@ -244,8 +264,7 @@ extension Reconciler {
             return "\(node.displayName) landing failed only under load → escalated"
         }
         var kinds: [EventKind] = [.evidenceRecorded(evidence), .runFinished(run: run, outcome: "failed"), .phaseChanged(to: .ready)]
-        if let diagnosis, !disturbs, !broken.isEmpty && !output.failingTargets.contains(node.spec.testTarget)
-            && output.failingTargets.isSubset(of: provenTargets) {
+        if let diagnosis, onlyOtherProvenFailures, !disturbs, !broken.isEmpty {
             let names = broken.map { "\($0.displayName) (\($0.spec.title))" }.joined(separator: ", ")
             let reason = """
                 Requirements conflict: this change breaks proven behaviour of \(names). A human must decide which requirement wins.
@@ -330,7 +349,8 @@ extension Reconciler {
             summary: zip(suites, outputs).map { "\($0): \($1.summary)" }.joined(separator: "\n"),
             log: outputs.map(\.log).joined(separator: "\n"),
             failingTargets: outputs.reduce(into: []) { $0.formUnion($1.failingTargets) },
-            failureKind: outputs.first { !$0.passed && $0.failureKind != .reportedFailure }?.failureKind ?? .reportedFailure
+            failureKind: outputs.first { !$0.passed && $0.failureKind != .reportedFailure }?.failureKind ?? .reportedFailure,
+            failureLocations: outputs.flatMap { Self.failureLocations(of: $0) }
         ), ranNothing)
     }
 

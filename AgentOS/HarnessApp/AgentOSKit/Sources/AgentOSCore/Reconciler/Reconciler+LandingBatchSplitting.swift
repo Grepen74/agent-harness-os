@@ -1,21 +1,13 @@
 import Foundation
 
 extension Reconciler {
-    /// Resolve owners in one place so batch attribution and single-landing conflicts use the same rule.
-    static func testOwners(of targets: Set<String>, among nodes: [NodeState]) -> [NodeState] {
-        targets.sorted().compactMap { target in nodes.first { $0.spec.testTarget == target } }
-    }
-
     func resolveLandingBatchFailure(_ nodes: [NodeState], name: String,
-                                    failingTargets: Set<String>) async throws -> String? {
+                                    owners: [NodeState]?) async throws -> String? {
         guard nodes.count > 1 else { return try await landSmallerGroup(nodes) }
-        let state = await ledger.workingState()
-        let owners = Self.testOwners(of: failingTargets, among: Array(state.nodes.values))
-        let ownerIDs = Set(owners.map(\.id))
+        let ownerIDs = Set((owners ?? []).map(\.id))
         let memberIDs = Set(nodes.map(\.id))
         var actions: [String] = []
-        if !owners.isEmpty, Set(owners.map(\.spec.testTarget)) == failingTargets,
-           ownerIDs.isSubset(of: memberIDs) {
+        if !ownerIDs.isEmpty, ownerIDs.isSubset(of: memberIDs) {
             let removed = nodes.filter { ownerIDs.contains($0.id) }
             let remaining = nodes.filter { !ownerIDs.contains($0.id) }
             try await write(nil, by: .reconciler, [.landingBatchOwnersRemoved(

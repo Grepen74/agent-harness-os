@@ -60,7 +60,7 @@ import AgentOSUI
         expected.agents = .init(models: AgentModels(implementer: "model-b"), guesswork: "ask")
         #expect(selected == expected)
         #expect(selected.test.command == "swift test")
-        #expect(selected.test.only == "--filter {suite}")
+        #expect(selected.test.only == "--filter {suiteRegex}")
         #expect(selected.leafTests == .init(target: "AppTests", folder: "Tests/AppTests"))
     }
 
@@ -334,7 +334,7 @@ import AgentOSUI
     private static let completeDraft = #"""
         {
           "build": {"prepare": "echo prepare", "command": "echo build"},
-          "test": {"command": "swift test", "only": "--filter {suite}"},
+          "test": {"command": "swift test", "only": "--filter {suiteRegex}"},
           "checks": [{"name": "lint", "command": "echo lint"}],
           "leafTests": {"target": "AppTests", "folder": "Tests/AppTests"},
           "components": ["Sources/App"],
