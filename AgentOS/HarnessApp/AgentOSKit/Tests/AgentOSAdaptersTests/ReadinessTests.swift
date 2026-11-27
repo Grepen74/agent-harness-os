@@ -18,7 +18,7 @@ struct ReadinessTests {
         "AGENTS.md": "Build with `swift build`, test with `swift test`.",
         "CONTRIBUTING.md": "## Definition of Done\nTests pass.",
         ".github/CODEOWNERS": "* @team",
-        ".agentos/config.json": #"{"test": {"command": "swift test", "only": "--filter {suite}"}, "leafTests": {"target": "AppTests", "folder": "Tests/AppTests"}}"#,
+        ".agentos/config.json": #"{"test": {"command": "swift test", "only": "--filter {suiteRegex}"}, "leafTests": {"target": "AppTests", "folder": "Tests/AppTests"}}"#,
         "Package.swift": "targets: [.target(name: \"App\"), .testTarget(name: \"AppTests\")]",
     ]
 
@@ -157,7 +157,7 @@ struct ReadinessTests {
         files["App/project.yml"] = "name: Demo\noptions:\n  platform: iOS\n"
         let repo = snapshot(files, extraFiles: ["Sources/App/A.swift", "Tests/AppTests/ATests.swift"])
         let draft = try #require(ReadinessRules.assess(repo, harness: HarnessSettings(), baseline: nil).draft)
-        #expect(draft.test == .init(command: "swift test", only: "--filter {suite}"))
+        #expect(draft.test == .init(command: "swift test", only: "--filter {suiteRegex}"))
         #expect(draft.build?.prepare == "cd App && xcodegen generate")
         #expect(draft.checks?.map(\.command) == [
             "xcodebuild -project App/Demo.xcodeproj -scheme Demo -destination 'platform=iOS Simulator,name=iPhone 16' "

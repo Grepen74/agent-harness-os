@@ -177,7 +177,12 @@ enum ReadinessRules {
                     findings.append(Finding(
                         check: "config.leafTests", severity: .warning, title: "No way to run one leaf's tests",
                         detail: "Without test.only, every pre-check on a leaf's branch runs all tests.",
-                        suggestion: "Add \"only\" to test, e.g. \"--filter {suite}\" or \"-only-testing:AppTests/{suite}\"."))
+                        suggestion: "Add \"only\" to test, e.g. \"--filter {suiteRegex}\" or \"-only-testing:AppTests/{suite}\"."))
+                } else if let only = config.test.only, only.contains("--filter"), only.contains("{suite}") {
+                    findings.append(Finding(
+                        check: "config.leafTests", severity: .warning, title: "A leaf's test filter can select other suites",
+                        detail: "SwiftPM's --filter is an unanchored regex. A bare {suite} can match other suite names too.",
+                        suggestion: "Use \"--filter {suiteRegex}\" in test.only to select exactly the leaf's suite."))
                 }
                 if !unknownKeys.isEmpty {
                     findings.append(Finding(

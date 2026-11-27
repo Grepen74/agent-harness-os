@@ -6,6 +6,7 @@ extension Reconciler {
         guard let submission = node.lastSubmission else { return "\(node.displayName): nothing submitted" }
         let run = Self.newRunID()
         let directory = workspace.worktree(for: node.id)
+        let suite = node.recordedTests?.suite ?? node.spec.testTarget
         try await write(node.id, by: .reconciler, [.runStarted(run: run, role: .verifier)], expecting: node.version)
 
         var output: CheckOutput
@@ -13,9 +14,15 @@ extension Reconciler {
             output = CheckOutput(passed: false, summary: tampered, log: tampered)
         } else {
             try await workspace.prepareBuild(in: directory)
-            output = await checks.runChecks(in: directory, only: node.spec.testTarget)
+            output = await checks.runChecks(in: directory, only: suite)
             if case .runnerCrash = output.failureKind {
-                output = await checks.runChecks(in: directory, only: node.spec.testTarget)
+                output = await checks.runChecks(in: directory, only: suite)
+            }
+            if Self.ranNoTests(output) {
+                output = CheckOutput(
+                    passed: false, summary: "no tests matched suite \(suite)", log: output.log,
+                    failingTargets: output.failingTargets, checks: output.checks
+                )
             }
         }
         if case .runnerCrash = output.failureKind {

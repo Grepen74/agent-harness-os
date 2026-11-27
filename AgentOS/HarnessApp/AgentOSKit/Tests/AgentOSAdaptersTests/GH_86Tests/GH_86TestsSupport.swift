@@ -1,4 +1,5 @@
 import AgentOSCore
+import AgentOSTestSupport
 import Foundation
 import Testing
 
@@ -81,13 +82,13 @@ extension GH_86Tests {
 
         func settle(using existing: Reconciler? = nil) async throws {
             let reconciler = existing ?? runner(ledger: ledger)
-            let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+            let deadline = ContinuousClock.now.advanced(by: HangGuard.timeout)
             repeat {
                 let report = await reconciler.runRound(waitForAgents: true)
                 try #require(report.safeStop == nil, "Fixture must not safe-stop: \(report.safeStop ?? "")")
                 if report.isIdle { return }
             } while ContinuousClock.now < deadline
-            throw AgentFailure("GH-86 fixture did not become idle within ten seconds")
+            throw AgentFailure("GH-86 fixture did not become idle within \(HangGuard.timeout)")
         }
 
         func costComment(_ ticket: String) async throws -> String {

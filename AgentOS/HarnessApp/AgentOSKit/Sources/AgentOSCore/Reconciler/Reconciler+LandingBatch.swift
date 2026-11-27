@@ -144,11 +144,11 @@ extension Reconciler {
                 }
             case .escalated:
                 break
-            case .needsSplit(let diagnosis, let failingTargets):
+            case .needsSplit(let diagnosis, let owners):
                 try await finishBatchRuns(nodes, run: run, outcome: diagnosis)
                 await workspace.removeSnapshot(batch.directory)
                 candidate = nil
-                return try await resolveLandingBatchFailure(nodes, name: name, failingTargets: failingTargets)
+                return try await resolveLandingBatchFailure(nodes, name: name, owners: owners)
             }
             await workspace.removeSnapshot(batch.directory)
             for node in nodes { ownedRuns[node.id] = nil }

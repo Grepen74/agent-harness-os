@@ -24,7 +24,7 @@ struct LedgerForkTests {
         try await otherWindow.append([note("from the other window")])
     }
 
-    @Test func aSecondHarnessOnTheSameStorageIsKeptOutUntilTheFirstLetsGo() throws {
+    @Test func aSecondHarnessOnTheSameStorageIsKeptOutUntilTheFirstLetsGo() async throws {
         defer { try? FileManager.default.removeItem(at: directory) }
         let lock = try StorageLock(directory: directory)
 
@@ -33,7 +33,16 @@ struct LedgerForkTests {
                 "\(String(describing: busy))")
 
         lock.release()
-        try StorageLock(directory: directory).release()
+        do {
+            try StorageLock(directory: directory).release()
+        } catch let stillBusy as StorageLock.Busy {
+            // Only another reference to the closed descriptor can keep the lock, e.g. a child process that was handed
+            // its number. Name who has the file open so a failure points at the leak.
+            let holders = try await ProcessRunner.run(
+                "/usr/sbin/lsof", ["-F", "pcf", directory.appending(path: "harness.lock").path], in: directory
+            )
+            Issue.record("\(stillBusy)\nOpen by:\n\(holders.output)")
+        }
     }
 
     @Test func aForkedLedgerReportsTheBreakAndTakesNoMoreRecords() async throws {
